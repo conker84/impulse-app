@@ -1,0 +1,46 @@
+default_cluster_config: &default_cluster
+  spark_version: 15.4.x-scala2.12
+  node_type_id: i3.xlarge
+  runtime_engine: STANDARD
+  autoscale:
+    min_workers: 3
+    max_workers: 6
+  custom_tags: {}
+
+resources:
+  jobs:
+    {{.report_name}}:
+      name: {{.report_name}}
+      tasks:
+        - task_key: pre_processing
+          notebook_task:
+            notebook_path: ../src/preprocessing/01_status_pre-processing.ipynb
+            base_parameters:
+              config_path: "../config/${bundle.target}_config.json"
+        - task_key: Vehicle_Config_Available
+          depends_on:
+            - task_key: pre_processing
+          condition_task:
+            op: EQUAL_TO
+            left: {{print "\"{{tasks.pre_processing.values.vehicle_cfg_available}}\""}}
+            right: "True"
+        - task_key: report_orchestration
+          depends_on:
+            - task_key: Vehicle_Config_Available
+              outcome: "true"
+          job_cluster_key: job_cluster
+          notebook_task:
+            notebook_path: ../src/03_orchestrator.ipynb
+            base_parameters:
+              config_path: "./config/${bundle.target}_config.json"
+      job_clusters:
+        - job_cluster_key: job_cluster
+          new_cluster: *default_cluster
+      permissions:
+        - level: CAN_MANAGE
+          group_name: ${var.manage_group}
+      parameters:
+        - name: reset_report
+          default: false
+        - name: status_table_name
+          default: "status"

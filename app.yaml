@@ -1,0 +1,20 @@
+command: ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+env:
+  - name: DATABRICKS_WAREHOUSE_ID
+    value: "e0458b451165d343"
+  - name: SERVING_ENDPOINT
+    value: "databricks-claude-haiku-4-5"
+  - name: LAKEBASE_HOST
+    value: "ep-bold-truth-d7c3zwwa.database.eu-central-1.cloud.databricks.com"
+  - name: LAKEBASE_PORT
+    value: "5432"
+  - name: LAKEBASE_DB
+    value: "impulse"
+  - name: LAKEBASE_PROJECT
+    value: "impulse"
+  - name: SECRET_SCOPE
+    value: "impulse"
+  - name: SECRET_KEY_NAME
+    value: "fernet-key"
+  - name: INGEST_NODE_TYPE
+    value: "i3.xlarge"

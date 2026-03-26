@@ -1,0 +1,119 @@
+{
+ "cells": [
+  {
+   "cell_type": "code",
+   "execution_count": 0,
+   "metadata": {
+    "application/vnd.databricks.v1+cell": {
+     "cellMetadata": {
+      "byteLimit": 2048000,
+      "rowLimit": 10000
+     },
+     "inputWidgets": {},
+     "nuid": "346ab360-db50-481d-9571-9878ac837e07",
+     "showTitle": false,
+     "tableResultSettingsMap": {},
+     "title": ""
+    }
+   },
+   "outputs": [],
+   "source": [
+    "dbutils.widgets.text(\"config_path\", \"../../src/config/stg_config.json\")\n",
+    "config_path = dbutils.widgets.get(\"config_path\")\n",
+    "print(config_path)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 0,
+   "metadata": {
+    "application/vnd.databricks.v1+cell": {
+     "cellMetadata": {
+      "byteLimit": 2048000,
+      "rowLimit": 10000
+     },
+     "inputWidgets": {},
+     "nuid": "2d2a4ff9-99c8-40bc-b3b4-069697647166",
+     "showTitle": false,
+     "tableResultSettingsMap": {},
+     "title": ""
+    }
+   },
+   "outputs": [],
+   "source": [
+    "# dummy tests - please update to use actual tests\n",
+    "dbutils.notebook.run(\"./integration/example_test_1\", 5*60, {\"config_path\": config_path})"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 0,
+   "metadata": {
+    "application/vnd.databricks.v1+cell": {
+     "cellMetadata": {
+      "byteLimit": 2048000,
+      "rowLimit": 10000
+     },
+     "inputWidgets": {},
+     "nuid": "5a46de95-531d-434f-9465-b706a72ffa0e",
+     "showTitle": false,
+     "tableResultSettingsMap": {},
+     "title": ""
+    }
+   },
+   "outputs": [],
+   "source": [
+    "# dummy tests - please update to use actual tests\n",
+    "dbutils.notebook.run(\"./integration/example_test_2\", 5*60, {\"config_path\": config_path})"
+   ]
+  }
+ ],
+ "metadata": {
+  "application/vnd.databricks.v1+notebook": {
+   "computePreferences": null,
+   "dashboards": [],
+   "environmentMetadata": {
+    "base_environment": "",
+    "environment_version": "2"
+   },
+   "language": "python",
+   "notebookMetadata": {
+    "pythonIndentUnit": 4
+   },
+   "notebookName": "integration_entrypoint",
+   "widgets": {
+    "config_path": {
+     "currentValue": "../../src/config/stg_config.json",
+     "nuid": "7277d406-e42d-4eca-a5d8-37b8c57d2a70",
+     "typedWidgetInfo": {
+      "autoCreated": false,
+      "defaultValue": "../../src/config/stg_config.json",
+      "label": null,
+      "name": "config_path",
+      "options": {
+       "widgetDisplayType": "Text",
+       "validationRegex": null
+      },
+      "parameterDataType": "String"
+     },
+     "widgetInfo": {
+      "widgetType": "text",
+      "defaultValue": "../../src/config/stg_config.json",
+      "label": null,
+      "name": "config_path",
+      "options": {
+       "widgetType": "text",
+       "autoCreated": null,
+       "validationRegex": null
+      }
+     }
+    }
+   }
+  },
+  "language_info": {
+   "name": "python"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 0
+}

@@ -1,0 +1,31 @@
+# Databricks notebook source
+# MAGIC %md
+# MAGIC ##### Engine Speed Analysis
+# MAGIC create 1D histogram visualization for engine speed
+
+# COMMAND ----------
+
+# create page for engine speed analysis
+my_first_page = Page(page_number=1)
+my_first_chapter.add_page(my_first_page)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ##### Engine Speed Distribution
+
+# COMMAND ----------
+
+# engine speed histogram
+hist1_name = "eng_spd_hist_p1"
+hist1_bins = [float(i) for i in range(0, 6000, 500)]
+hist1_desc = "Distribution of the engine speed over time"
+hist1 = HistogramDuration(
+    name=hist1_name, 
+    base_expr=signals["Eng_Spd_masked"], 
+    bins=hist1_bins, 
+    max_duration=100 * 1e9,
+    desc=hist1_desc, 
+    bins_unit="rpm"
+)
+my_first_page.add_visualization(hist1) 

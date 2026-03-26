@@ -1,0 +1,63 @@
+.databricks/
+.idea/
+build/
+dist/
+__pycache__/
+*.egg-info
+.venv/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+*.egg-info/
+build
+dist
+
+# Unit test / coverage reports
+.coverage
+coverage.xml
+junit/*
+htmlcov/*
+.coverage.*
+*,cover
+*.cover
+.hypothesis/
+.pytest_cache/
+nosetests.xml
+coverage.lcov
+
+# Caches
+.pytest_cache/
+
+# VSCode
+.vscode/
+
+# Idea
+.idea/
+*.iml
+
+# MacOS
+.DS_Store
+
+# Databricks eXtensions
+.dbx/lock.json
+.dbx/sync
+
+# local mlflow files
+mlruns/
+
+# Environment variables
+.env
+.env*
+venv
+.venv
+
+# ruff
+ruff_cache/
+.ruff_cache/
+
+# uv
+uv.lock

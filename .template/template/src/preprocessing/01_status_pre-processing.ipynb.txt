@@ -1,0 +1,549 @@
+{
+ "cells": [
+  {
+   "cell_type": "code",
+   "execution_count": 0,
+   "metadata": {
+    "application/vnd.databricks.v1+cell": {
+     "cellMetadata": {
+      "byteLimit": 2048000,
+      "rowLimit": 10000
+     },
+     "inputWidgets": {},
+     "nuid": "cd8cdf8e-970b-4946-a7b2-527f03e02def",
+     "showTitle": false,
+     "tableResultSettingsMap": {},
+     "title": ""
+    }
+   },
+   "outputs": [],
+   "source": [
+    "%run ../00_setup"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 0,
+   "metadata": {
+    "application/vnd.databricks.v1+cell": {
+     "cellMetadata": {
+      "byteLimit": 2048000,
+      "rowLimit": 10000
+     },
+     "inputWidgets": {},
+     "nuid": "668f0055-dcc7-4418-b7e9-cf7b8877c783",
+     "showTitle": false,
+     "tableResultSettingsMap": {},
+     "title": ""
+    }
+   },
+   "outputs": [],
+   "source": [
+    "\n",
+    "from utils.report_utils import (create_table_if_not_exists, \n",
+    "                                capture_table_versions, \n",
+    "                                add_new_run_entry, \n",
+    "                                get_latest_problematic_run,\n",
+    "                                wipe_new_tables_from_last_run,\n",
+    "                                attempt_rollback_from_run,\n",
+    "                                update_global_report_table\n",
+    "                                )\n",
+    "from utils.schemas import STATUS_TABLE_SCHEMA, GLOBAL_REPORT_TABLE_SCHEMA\n",
+    "from delta.tables import *\n",
+    "from pyspark.sql import Row\n",
+    "from datetime import datetime"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 0,
+   "metadata": {
+    "application/vnd.databricks.v1+cell": {
+     "cellMetadata": {
+      "byteLimit": 2048000,
+      "rowLimit": 10000
+     },
+     "inputWidgets": {},
+     "nuid": "0c11bc25-7608-48ec-bd60-279d03ad784e",
+     "showTitle": false,
+     "tableResultSettingsMap": {},
+     "title": ""
+    }
+   },
+   "outputs": [],
+   "source": [
+    "# configure widgets for parameters\n",
+    "dbutils.widgets.text(\"config_path\", \"../config/dev_config.json\")\n",
+    "dbutils.widgets.dropdown(\"reset_report\", \"False\", [\"True\", \"False\"])\n",
+    "dbutils.widgets.text(\"status_table_name\", \"status\")\n",
+    "\n",
+    "\n",
+    "config_path = dbutils.widgets.get(\"config_path\")\n",
+    "reset_report = dbutils.widgets.get(\"reset_report\").lower() == \"true\"\n",
+    "status_table_name = dbutils.widgets.get(\"status_table_name\")\n",
+    "\n",
+    "print(config_path)\n",
+    "print(reset_report)\n",
+    "print(status_table_name)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 0,
+   "metadata": {
+    "application/vnd.databricks.v1+cell": {
+     "cellMetadata": {
+      "byteLimit": 2048000,
+      "rowLimit": 10000
+     },
+     "inputWidgets": {},
+     "nuid": "9450e333-dbbe-415e-a191-d375bef1e718",
+     "showTitle": false,
+     "tableResultSettingsMap": {},
+     "title": ""
+    }
+   },
+   "outputs": [],
+   "source": [
+    "report_config = ReportConfig()\n",
+    "report_config.parse_from_json(config_path)\n",
+    "\n",
+    "catalog = report_config.data_config['destination']['catalog']\n",
+    "schema = report_config.data_config['destination']['schema']\n",
+    "table_prefix = report_config.data_config['destination']['table_prefix']\n",
+    "alias_table_path = report_config.data_config['source'].get('aliases', None)\n",
+    "alias_copy_table_name = report_config.data_config['source'].get('aliases_copy_table_name', None)\n",
+    "alias_copy_uri = report_config.sink.get_full_table_uri(alias_copy_table_name) if alias_copy_table_name else None\n",
+    "\n",
+    "device_alias_table_path = report_config.data_config['source'].get('device_aliases', None)\n",
+    "device_alias_copy_table_name = report_config.data_config['source'].get('device_aliases_copy_table_name', None)\n",
+    "device_alias_copy_uri = report_config.sink.get_full_table_uri(device_alias_copy_table_name) if device_alias_copy_table_name else None\n",
+    "\n",
+    "global_report_table_path = report_config.data_config.get('source', {}).get('global_report_table', None)\n",
+    "sink = UnityCatalogSink(catalog, schema, table_prefix)\n",
+    "print(f\"report destination: {catalog}.{schema}.{table_prefix}_*\")\n",
+    "if reset_report:\n",
+    "    print(f\"Resetting report by dropping all tables under {sink.catalog}.{sink.schema}.{sink.table_prefix}*\")\n",
+    "    sink.drop_all_tables()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {
+    "application/vnd.databricks.v1+cell": {
+     "cellMetadata": {
+      "byteLimit": 2048000,
+      "rowLimit": 10000
+     },
+     "inputWidgets": {},
+     "nuid": "7ddf503c-edbd-4ed0-9c47-30194c66c837",
+     "showTitle": false,
+     "tableResultSettingsMap": {},
+     "title": ""
+    }
+   },
+   "source": [
+    "## Creating copy of alias table (if configured)\n",
+    "Table is only copied if the copy does not yet exist. This happens in the very first run and after a reset"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 0,
+   "metadata": {
+    "application/vnd.databricks.v1+cell": {
+     "cellMetadata": {
+      "byteLimit": 2048000,
+      "rowLimit": 10000
+     },
+     "inputWidgets": {},
+     "nuid": "7b62b5e8-9541-4067-9e2e-23919ed4b832",
+     "showTitle": false,
+     "tableResultSettingsMap": {},
+     "title": ""
+    }
+   },
+   "outputs": [],
+   "source": [
+    "#create a copy of the configured alias table if it doesn't exist yet (first run or after a reset)    \n",
+    "if alias_table_path and alias_copy_uri:\n",
+    "    if not spark.catalog.tableExists(alias_copy_uri):\n",
+    "        print(f\"Creating a copy of the configured alias table at {alias_copy_uri}\")\n",
+    "        alias_df = spark.read.table(alias_table_path)\n",
+    "        alias_df.write.saveAsTable(alias_copy_uri)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {
+    "application/vnd.databricks.v1+cell": {
+     "cellMetadata": {
+      "byteLimit": 2048000,
+      "rowLimit": 10000
+     },
+     "inputWidgets": {},
+     "nuid": "4a278b14-ff3d-426c-bc8f-fd22c19c7c9d",
+     "showTitle": false,
+     "tableResultSettingsMap": {},
+     "title": ""
+    }
+   },
+   "source": [
+    "## Creating copy DEVICE alias table (if configured)\n",
+    "Table is only copied if the copy does not yet exist. This happens in the very first run and after a reset."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 0,
+   "metadata": {
+    "application/vnd.databricks.v1+cell": {
+     "cellMetadata": {
+      "byteLimit": 2048000,
+      "rowLimit": 10000
+     },
+     "inputWidgets": {},
+     "nuid": "d8ad436b-a1a0-40c1-840c-96245d931028",
+     "showTitle": false,
+     "tableResultSettingsMap": {},
+     "title": ""
+    }
+   },
+   "outputs": [],
+   "source": [
+    "if device_alias_table_path and device_alias_copy_uri:\n",
+    "    if not spark.catalog.tableExists(device_alias_copy_uri):\n",
+    "        print(f\"Creating a copy of the configured DEVICE alias table at {device_alias_copy_uri}\")\n",
+    "        alias_df = spark.read.table(device_alias_table_path)\n",
+    "        alias_df.write.saveAsTable(device_alias_copy_uri)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {
+    "application/vnd.databricks.v1+cell": {
+     "cellMetadata": {
+      "byteLimit": 2048000,
+      "rowLimit": 10000
+     },
+     "inputWidgets": {},
+     "nuid": "1e2d9b39-18ab-4e27-9957-b9d2b1a634c4",
+     "showTitle": false,
+     "tableResultSettingsMap": {},
+     "title": ""
+    }
+   },
+   "source": [
+    "## Registering report at global report table"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 0,
+   "metadata": {
+    "application/vnd.databricks.v1+cell": {
+     "cellMetadata": {
+      "byteLimit": 2048000,
+      "rowLimit": 10000
+     },
+     "inputWidgets": {},
+     "nuid": "3490a4fc-7fe7-4ea9-8727-d4b082e18a15",
+     "showTitle": false,
+     "tableResultSettingsMap": {},
+     "title": ""
+    }
+   },
+   "outputs": [],
+   "source": [
+    "metadata_cfg = report_config.get_metadata_config()\n",
+    "#per default, we are collecting the vehicle configuration from the json config file\n",
+    "#If a global report table is configured, we expect to find the vehicle configuration in this table\n",
+    "vehicle_cfg_available = True if report_config.get_vehicles() else False\n",
+    "if global_report_table_path and metadata_cfg:\n",
+    "    report_name = metadata_cfg['report_name']\n",
+    "    report_config.get_or_set_report_id(report_name)\n",
+    "    report_id = report_config.report_id\n",
+    "    description = metadata_cfg.get('description', None)\n",
+    "    report_creator = metadata_cfg.get('report_creator', None)\n",
+    "    source_code = metadata_cfg.get('source_code', None)\n",
+    "    now_ts = datetime.now()\n",
+    "\n",
+    "    #creating global report table if it doesn't exist\n",
+    "    create_table_if_not_exists(global_report_table_path, GLOBAL_REPORT_TABLE_SCHEMA)\n",
+    "    global_report_delta_table = DeltaTable.forName(spark, global_report_table_path)\n",
+    "\n",
+    "    #defining entry for the report table\n",
+    "    row = Row(report_id=report_id, name=report_name, desc=description, uc_location=f\"{catalog}.{schema}\",\n",
+    "                  table_prefix=table_prefix, vehicle_config=[], created_at=now_ts, last_report_reset=now_ts,\n",
+    "                  last_report_run=None, last_alias_update=now_ts, last_calc_def_update=None,\n",
+    "                  report_creator=report_creator, source_code=source_code, is_avail_web=0)    \n",
+    "    report_entry_df = spark.createDataFrame([row], schema=GLOBAL_REPORT_TABLE_SCHEMA)\n",
+    "\n",
+    "    #Register report if it is not yet available in the global report table\n",
+    "    if global_report_delta_table.toDF().where(F.col(\"name\") == report_name).isEmpty():\n",
+    "        report_entry_df.write.option(\"mergeSchema\", \"true\").mode(\"append\").saveAsTable(global_report_table_path)\n",
+    "    #if the report was already registered, update the entry with the latest information \n",
+    "    else:\n",
+    "        attr_list = ['desc', 'uc_location', 'table_prefix', 'report_creator', 'source_code']\n",
+    "        if reset_report:\n",
+    "            attr_list.extend(['last_report_reset', 'last_alias_update'])\n",
+    "        update_global_report_table(global_report_delta_table, report_entry_df, attr_list)\n",
+    "        \n",
+    "    #ToDo Retrieve vehicle_cfg from ReportConfig helper function once implemented\n",
+    "    vehicle_cfg = (global_report_delta_table.toDF()\n",
+    "                   .where(F.col(\"name\") == report_name)\n",
+    "                   .select(\"vehicle_config\")\n",
+    "                   .collect()[0]['vehicle_config']\n",
+    "                   )\n",
+    "    vehicle_cfg_available = True if vehicle_cfg else False\n",
+    "    display(global_report_delta_table.toDF())"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {
+    "application/vnd.databricks.v1+cell": {
+     "cellMetadata": {
+      "byteLimit": 2048000,
+      "rowLimit": 10000
+     },
+     "inputWidgets": {},
+     "nuid": "f47927fa-d119-41a2-b50c-4197916d28e7",
+     "showTitle": false,
+     "tableResultSettingsMap": {},
+     "title": ""
+    }
+   },
+   "source": [
+    "## Adding new entry to report status table"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 0,
+   "metadata": {
+    "application/vnd.databricks.v1+cell": {
+     "cellMetadata": {
+      "byteLimit": 2048000,
+      "rowLimit": 10000
+     },
+     "inputWidgets": {},
+     "nuid": "08d07007-9c21-4f29-8249-99d84755682d",
+     "showTitle": false,
+     "tableResultSettingsMap": {},
+     "title": ""
+    }
+   },
+   "outputs": [],
+   "source": [
+    "status_table_full_name = sink.get_full_table_uri(status_table_name)\n",
+    "create_table_if_not_exists(status_table_full_name, STATUS_TABLE_SCHEMA)\n",
+    "\n",
+    "last_problematic_run = get_latest_problematic_run(sink,status_table_name)\n",
+    "\n",
+    "if last_problematic_run:\n",
+    "    print(f\"Found problematic run: ID={last_problematic_run.run_id}, \"\n",
+    "          f\"Status={last_problematic_run.processing_status}, \"\n",
+    "          f\"Rollback_status={last_problematic_run.rollback_status}\")\n",
+    "\n",
+    "    # Scenario 3: Run failed and rollback wasn't successful during the post-processing\n",
+    "    if last_problematic_run.processing_status != 'success' and last_problematic_run.rollback_status != 'success':\n",
+    "        print(\"Attempting rollback for previously failed run...\")\n",
+    "\n",
+    "        wipe_new_tables_from_last_run(sink, last_problematic_run.delta_versions, status_table_name) #Special Case\n",
+    "        attempt_rollback_from_run(sink, last_problematic_run, status_table_name)\n",
+    "\n",
+    "# Adding a new run entry to the status table\n",
+    "current_delta_versions = capture_table_versions(sink,exclude_tables=status_table_name)\n",
+    "current_run_id = add_new_run_entry(sink, status_table_name, current_delta_versions)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 0,
+   "metadata": {
+    "application/vnd.databricks.v1+cell": {
+     "cellMetadata": {
+      "byteLimit": 2048000,
+      "rowLimit": 10000
+     },
+     "inputWidgets": {},
+     "nuid": "21845ebd-df68-40ea-8837-72f33018161c",
+     "showTitle": false,
+     "tableResultSettingsMap": {
+      "0": {
+       "dataGridStateBlob": "{\"version\":1,\"tableState\":{\"columnPinning\":{\"left\":[\"#row_number#\"],\"right\":[]},\"columnSizing\":{},\"columnVisibility\":{}},\"settings\":{\"columns\":{}},\"syncTimestamp\":1758612750997}",
+       "filterBlob": null,
+       "queryPlanFiltersBlob": null,
+       "tableResultIndex": 0
+      }
+     },
+     "title": ""
+    }
+   },
+   "outputs": [],
+   "source": [
+    "display(spark.read.table(sink.get_full_table_uri(status_table_name)))"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 0,
+   "metadata": {
+    "application/vnd.databricks.v1+cell": {
+     "cellMetadata": {
+      "byteLimit": 2048000,
+      "rowLimit": 10000
+     },
+     "inputWidgets": {},
+     "nuid": "981858ca-838d-43a5-a406-7ec63d76f037",
+     "showTitle": false,
+     "tableResultSettingsMap": {},
+     "title": ""
+    }
+   },
+   "outputs": [],
+   "source": [
+    "dbutils.jobs.taskValues.set(key=\"current_run_id\", value=str(current_run_id))\n",
+    "print(f\"current_run_id: {current_run_id}\")\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 0,
+   "metadata": {
+    "application/vnd.databricks.v1+cell": {
+     "cellMetadata": {
+      "byteLimit": 2048000,
+      "rowLimit": 10000
+     },
+     "inputWidgets": {},
+     "nuid": "14b75cec-da98-41fb-a9e6-5072b365dcad",
+     "showTitle": false,
+     "tableResultSettingsMap": {},
+     "title": ""
+    }
+   },
+   "outputs": [],
+   "source": [
+    "dbutils.jobs.taskValues.set(key=\"vehicle_cfg_available\", value=str(vehicle_cfg_available))\n",
+    "print(f\"vehicle_cfg_available: {vehicle_cfg_available}\")"
+   ]
+  }
+ ],
+ "metadata": {
+  "application/vnd.databricks.v1+notebook": {
+   "computePreferences": {
+    "hardware": {
+     "accelerator": null,
+     "gpuPoolId": null,
+     "memory": null
+    }
+   },
+   "dashboards": [],
+   "environmentMetadata": {
+    "base_environment": "",
+    "environment_version": "4"
+   },
+   "inputWidgetPreferences": null,
+   "language": "python",
+   "notebookMetadata": {
+    "pythonIndentUnit": 4
+   },
+   "notebookName": "01_status_pre-processing",
+   "widgets": {
+    "config_path": {
+     "currentValue": "../config/dev_config_global_report_table.json",
+     "nuid": "e6bf8eca-a01a-4d35-bcc3-e15598b13db2",
+     "typedWidgetInfo": {
+      "autoCreated": false,
+      "defaultValue": "../config/dev_config.json",
+      "label": null,
+      "name": "config_path",
+      "options": {
+       "widgetDisplayType": "Text",
+       "validationRegex": null
+      },
+      "parameterDataType": "String"
+     },
+     "widgetInfo": {
+      "widgetType": "text",
+      "defaultValue": "../config/dev_config.json",
+      "label": null,
+      "name": "config_path",
+      "options": {
+       "widgetType": "text",
+       "autoCreated": null,
+       "validationRegex": null
+      }
+     }
+    },
+    "reset_report": {
+     "currentValue": "False",
+     "nuid": "db2d9c4b-af5b-478a-9b26-5ed0f8f7285d",
+     "typedWidgetInfo": {
+      "autoCreated": false,
+      "defaultValue": "False",
+      "label": null,
+      "name": "reset_report",
+      "options": {
+       "widgetDisplayType": "Dropdown",
+       "choices": [
+        "True",
+        "False"
+       ],
+       "fixedDomain": true,
+       "multiselect": false
+      },
+      "parameterDataType": "String"
+     },
+     "widgetInfo": {
+      "widgetType": "dropdown",
+      "defaultValue": "False",
+      "label": null,
+      "name": "reset_report",
+      "options": {
+       "widgetType": "dropdown",
+       "autoCreated": null,
+       "choices": [
+        "True",
+        "False"
+       ]
+      }
+     }
+    },
+    "status_table_name": {
+     "currentValue": "status",
+     "nuid": "deee3813-05aa-4666-8ea3-60f5eee1eda8",
+     "typedWidgetInfo": {
+      "autoCreated": false,
+      "defaultValue": "status",
+      "label": null,
+      "name": "status_table_name",
+      "options": {
+       "widgetDisplayType": "Text",
+       "validationRegex": null
+      },
+      "parameterDataType": "String"
+     },
+     "widgetInfo": {
+      "widgetType": "text",
+      "defaultValue": "status",
+      "label": null,
+      "name": "status_table_name",
+      "options": {
+       "widgetType": "text",
+       "autoCreated": null,
+       "validationRegex": null
+      }
+     }
+    }
+   }
+  },
+  "language_info": {
+   "name": "python"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 0
+}

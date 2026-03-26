@@ -1,0 +1,211 @@
+export interface AvailableChannel {
+  channel_name: string;
+  unit: string;
+  sample_count: number;
+  min_value: number | null;
+  max_value: number | null;
+  mean_value: number | null;
+  sample_rate: number | null;
+  container_count: number;
+}
+
+export interface SignalCandidate {
+  alias: string;
+  channel_name: string;
+  unit: string;
+  device_name: string;
+  description: string;
+}
+
+export interface SignalDefinition {
+  var_name: string;
+  signal_type: "physical" | "virtual";
+  alias: string | null;
+  channel_name: string | null;
+  expression: string | null;
+  eval_type: "SampleSeries" | "Intervals" | "PointsInTime" | "PitSeries";
+  description: string;
+}
+
+export interface HistogramDefinition {
+  name: string;
+  histogram_type: "duration" | "distance" | "duration_count" | "event_count";
+  signal_ref: string;
+  bins: number[];
+  bins_unit: string | null;
+  values_unit: string | null;
+  description: string;
+  max_duration: number | null;
+  event_signal_ref: string | null;
+  weight_signal_ref: string | null;
+  weight_const: number | null;
+}
+
+export interface VehicleCandidate {
+  vehicle_id: string;
+  datapoint_count: number;
+}
+
+export interface VehicleConfig {
+  vehicle_id: string;
+  col_name: string;
+  col_type: string;
+  start_ts: string;
+  stop_ts: string | null;
+}
+
+export interface DataSourceConfig {
+  container_metrics: string;
+  channel_metrics: string;
+  channels: string[];
+  aliases: string | null;
+  aliases_copy_table_name: string | null;
+  device_aliases: string | null;
+  device_aliases_copy_table_name: string | null;
+  destination_catalog: string;
+  destination_schema: string;
+  table_prefix: string;
+}
+
+export interface ValidationLevel {
+  name: string;
+  passed: boolean;
+  details: Record<string, unknown>;
+}
+
+export interface HistogramSummary {
+  histogram_name: string;
+  sessions: number;
+  total_value: number;
+  non_zero_bins: number;
+  status: string;
+}
+
+export interface ValidationResults {
+  levels: ValidationLevel[];
+  histogram_summary: HistogramSummary[];
+}
+
+export type SourceDataMode = "none" | "upload" | "existing";
+
+export type IngestStatus = "not_started" | "running" | "succeeded" | "failed";
+
+export interface SourceDataConfig {
+  mode: SourceDataMode;
+  upload_catalog: string;
+  upload_schema: string;
+  upload_volume: string;
+  upload_volume_path: string;
+  uploaded_files: string[];
+  silver_catalog: string;
+  silver_schema: string;
+  ingest_run_id: number | null;
+  ingest_status: IngestStatus;
+}
+
+export type WizardStep =
+  | "source_data"
+  | "report_name"
+  | "channels"
+  | "aggregations"
+  | "vehicles"
+  | "ready";
+
+export type DeploymentStatus =
+  | "not_started"
+  | "scaffolding"
+  | "deploying"
+  | "running"
+  | "completed"
+  | "failed";
+
+export interface ReportState {
+  name: string;
+  description: string;
+  creator: string;
+  wizard_step: WizardStep;
+  source_data: SourceDataConfig;
+  available_channels: AvailableChannel[];
+  signal_candidates: SignalCandidate[];
+  signals: SignalDefinition[];
+  histograms: HistogramDefinition[];
+  vehicle_candidates: VehicleCandidate[];
+  vehicles: VehicleConfig[];
+  data_sources: DataSourceConfig;
+  use_all_purpose_cluster: boolean;
+  all_purpose_cluster_id: string;
+  deployment: DeploymentStatus;
+  run_id: string | null;
+  run_url: string | null;
+  validation: ValidationResults | null;
+}
+
+export interface SavedReportSummary {
+  id: string;
+  report_name: string;
+  description: string;
+  creator: string;
+  updated_at: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Visualization types (gold layer query results)
+// ---------------------------------------------------------------------------
+
+export interface HistogramMeta {
+  visual_id: number;
+  name: string;
+  type: string;
+  description: string;
+  bins_unit: string;
+  values_unit: string;
+}
+
+export interface HistogramBinData {
+  bin_id: number;
+  bin_name: string;
+  lower_bound: number;
+  upper_bound: number;
+  hist_value: number;
+  relative_pct: number;
+}
+
+export interface HistogramResult {
+  type: string;
+  bins_unit: string;
+  values_unit: string;
+  description: string;
+  series: Record<string, HistogramBinData[]>;
+}
+
+export interface VehicleOption {
+  id: string;
+  name: string;
+}
+
+export interface VisualizeFilters {
+  vehicle_ids: string[];
+  start_ts: string | null;
+  end_ts: string | null;
+  min_mileage: number | null;
+  max_mileage: number | null;
+  group_by_vehicle: boolean;
+}
+
+export interface FilterRange {
+  min_ts: string | null;
+  max_ts: string | null;
+  min_mileage: number | null;
+  max_mileage: number | null;
+}
+
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface ChatResponse {
+  message: ChatMessage;
+  report_state: ReportState;
+  session_id: string;
+}

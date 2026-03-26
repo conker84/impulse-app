@@ -1,0 +1,24 @@
+# Databricks notebook source
+# MAGIC %md
+# MAGIC ##### Signal Definitions
+# MAGIC
+# MAGIC This notebook defines all signals and derived calculations used in the report.
+# MAGIC
+# MAGIC **Purpose**: Create and process signals that will be used in visualizations.
+
+# COMMAND ----------
+
+# engine speed signals
+Eng_Spd = query.channel_with_alias(ChannelAliasName_withScope="AL_OTTO_Drehzahl")
+Eng_Spd_masked = Eng_Spd.where((Eng_Spd >= 0) & (Eng_Spd <= 7000))
+
+# COMMAND ----------
+
+# signals dictionary for access
+signals = {
+    "Eng_Spd": Eng_Spd,
+    "Eng_Spd_masked": Eng_Spd_masked
+}
+
+# make all variables available in the global scope
+globals().update(locals()) 

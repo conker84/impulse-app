@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.venv/
+node_modules/
+.claude/
+reports/
+*.egg-info/
+.DS_Store
+CLAUDE.md
+frontend/dist/
+.databricks/

@@ -1,0 +1,86 @@
+bundle:
+  name: {{.report_name}}
+
+include:
+  - resources/*.yml
+
+variables:
+  manage_group:
+    description: The group is set as the management group for the deployed bundle artifacts.
+  notification_email:
+    description: Email for job failure notifications.
+  existing_cluster_id:
+    description: All-purpose cluster ID for the report_orchestration task. Leave empty to use a job cluster.
+    default: ""
+
+targets:
+  dev:
+    mode: development
+    default: true
+    workspace:
+      host: {{.dev_host}}
+      root_path: /Users/${workspace.current_user.userName}/.bundle/${bundle.target}/${bundle.name}
+    variables:
+      manage_group: {{.dev_group}}
+      notification_email: nobody@yahoo.com
+    resources:
+      jobs:
+        {{.report_name}}:
+          name: {{.report_name}}
+          job_clusters:
+            - job_cluster_key: job_cluster
+              new_cluster:
+                spark_version: 15.4.x-scala2.12
+                node_type_id: i3.xlarge
+                num_workers: 2
+
+  stg:
+    mode: production
+    workspace:
+      host: {{.stg_host}}
+      root_path: /Shared/.bundle/${bundle.target}/${bundle.name}
+    variables:
+      manage_group: {{.stg_group}}
+    resources:
+      jobs:
+        {{.report_name}}_integration_tests:
+          name: {{.report_name}}_integration_tests
+          tasks:
+            - task_key: report_main
+              job_cluster_key: {{.report_name}}_integration_job_cluster
+              notebook_task:
+                notebook_path: ./tests/integration_entrypoint.ipynb
+                base_parameters:
+                  config_path: "../../src/config/${bundle.target}_config.json"
+          job_clusters:
+            - job_cluster_key: {{.report_name}}_integration_job_cluster
+              new_cluster:
+                spark_version: 15.4.x-scala2.12
+                node_type_id: i3.xlarge
+                runtime_engine: STANDARD
+                num_workers: 2
+                custom_tags: {}
+          permissions:
+            - level: CAN_MANAGE
+              group_name: ${var.manage_group}
+      
+  prd:
+    mode: production
+    workspace:
+      host: {{.prd_host}}
+      root_path: /Shared/.bundle/${bundle.target}/${bundle.name}
+    run_as:
+      service_principal_name: '{{.prd_sp_name}}'
+    variables:
+      manage_group: {{.prd_group}}
+      notification_email: bd8da140.corpdir.onmicrosoft.com@emea.teams.ms
+    resources:
+      jobs:
+        {{.report_name}}:
+          schedule:
+            quartz_cron_expression: "0 0 0/12 * * ?"
+            timezone_id: "Europe/Berlin"
+            pause_status: "PAUSED"
+          email_notifications:
+            on_failure:
+              - bd8da140.corpdir.onmicrosoft.com@emea.teams.ms

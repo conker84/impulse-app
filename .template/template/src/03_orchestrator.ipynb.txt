@@ -1,0 +1,279 @@
+{
+ "cells": [
+  {
+   "cell_type": "code",
+   "execution_count": 0,
+   "metadata": {
+    "application/vnd.databricks.v1+cell": {
+     "cellMetadata": {
+      "byteLimit": 2048000,
+      "rowLimit": 10000
+     },
+     "inputWidgets": {},
+     "nuid": "3d33e7e4-2286-49e6-853d-185cffcffaac",
+     "showTitle": false,
+     "tableResultSettingsMap": {},
+     "title": ""
+    }
+   },
+   "outputs": [],
+   "source": [
+    "%run ./00_setup"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 0,
+   "metadata": {
+    "application/vnd.databricks.v1+cell": {
+     "cellMetadata": {
+      "byteLimit": 2048000,
+      "rowLimit": 10000
+     },
+     "inputWidgets": {},
+     "nuid": "969c9d5b-ca08-4ac0-bfb5-f373b3bf018c",
+     "showTitle": false,
+     "tableResultSettingsMap": {},
+     "title": ""
+    }
+   },
+   "outputs": [],
+   "source": [
+    "from mda_reporting.utils.report_utils import get_vehicle_filter_expression, get_upserted_containers\n",
+    "from utils.report_utils import  capture_table_versions, update_delta_versions"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 0,
+   "metadata": {
+    "application/vnd.databricks.v1+cell": {
+     "cellMetadata": {
+      "byteLimit": 2048000,
+      "rowLimit": 10000
+     },
+     "inputWidgets": {},
+     "nuid": "0e70a964-d60c-44e2-a1c5-46fc628be44e",
+     "showTitle": false,
+     "tableResultSettingsMap": {},
+     "title": ""
+    }
+   },
+   "outputs": [],
+   "source": [
+    "# configure widgets for parameters\n",
+    "dbutils.widgets.text(\"config_path\", \"./config/dev_config.json\")\n",
+    "dbutils.widgets.text(\"status_table_name\", \"status\")\n",
+    "\n",
+    "config_path = dbutils.widgets.get(\"config_path\")\n",
+    "status_table_name = dbutils.widgets.get(\"status_table_name\")\n",
+    "current_run_id = int(dbutils.jobs.taskValues.get(taskKey=\"pre_processing\", key=\"current_run_id\", debugValue=92175440))\n",
+    "\n",
+    "print(f\"config_path: {config_path}\")\n",
+    "print(f\"status_table_name: {status_table_name}\")\n",
+    "print(f\"current_run_id: {current_run_id}\")"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 0,
+   "metadata": {
+    "application/vnd.databricks.v1+cell": {
+     "cellMetadata": {
+      "byteLimit": 2048000,
+      "rowLimit": 10000
+     },
+     "inputWidgets": {},
+     "nuid": "67e78140-49a6-4605-81fe-896049256032",
+     "showTitle": false,
+     "tableResultSettingsMap": {},
+     "title": ""
+    }
+   },
+   "outputs": [],
+   "source": [
+    "# Initialize report and sink object \n",
+    "my_report = Report(config_path=config_path)\n",
+    "catalog = my_report.config.data_config['destination']['catalog']\n",
+    "schema = my_report.config.data_config['destination']['schema']\n",
+    "table_prefix = my_report.config.data_config['destination']['table_prefix']\n",
+    "sink = UnityCatalogSink(catalog, schema, table_prefix)\n",
+    "\n",
+    "# Determine initial number of sessions that need to be processed in the current run \n",
+    "filter_expr_full_load = get_vehicle_filter_expression(my_report.db, my_report.config)\n",
+    "upserted_containers_df = get_upserted_containers(my_report.db, my_report.config, filter_expr_full_load)\n",
+    "overall_container_count = upserted_containers_df.count()\n",
+    "max_sessions_per_run = my_report.config.max_sessions_per_run\n",
+    "print(f\"overall_container_count: {overall_container_count}, max_sessions_per_run: {max_sessions_per_run}\")"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 0,
+   "metadata": {
+    "application/vnd.databricks.v1+cell": {
+     "cellMetadata": {
+      "byteLimit": 2048000,
+      "rowLimit": 10000
+     },
+     "inputWidgets": {},
+     "nuid": "b7517441-fc08-4dd0-91ec-01538756d2ce",
+     "showTitle": false,
+     "tableResultSettingsMap": {},
+     "title": ""
+    }
+   },
+   "outputs": [],
+   "source": [
+    "from datetime import datetime\n",
+    "time_format = '%Y-%m-%dT%H:%M:%S'\n",
+    "batch_num = 1\n",
+    "processed_sessions = 0\n",
+    "while overall_container_count >= max_sessions_per_run:\n",
+    "    try:\n",
+    "        print(f\"[{datetime.now().strftime(time_format)}] Processing batch {batch_num} (in progress: {max_sessions_per_run} sessions, outstanding: {overall_container_count} sesions)\")\n",
+    "        dbutils.notebook.run(\"./02_report\", 0, {\"config_path\": config_path})\n",
+    "        batch_num += 1\n",
+    "        processed_sessions += max_sessions_per_run\n",
+    "        \n",
+    "        #updating delta versions of gold layer tables in the status table\n",
+    "        print(f\"[{datetime.now().strftime(time_format)}] Updating delta table versions in status table.\")\n",
+    "        current_delta_versions = capture_table_versions(sink,exclude_tables=status_table_name)\n",
+    "        update_delta_versions(sink, status_table_name, current_run_id, current_delta_versions)\n",
+    "        \n",
+    "        print(f\"[{datetime.now().strftime(time_format)}] Batch processed successfully.\")\n",
+    "\n",
+    "        #re-determine overall_container_count that still needs to be processed (meanwhile new containers might have been added)\n",
+    "        tmp_report = Report(config_path=config_path)\n",
+    "        filter_expr_full_load = get_vehicle_filter_expression(tmp_report.db, tmp_report.config)\n",
+    "        upserted_containers_df = get_upserted_containers(tmp_report.db, tmp_report.config, filter_expr_full_load)\n",
+    "        overall_container_count = upserted_containers_df.count()\n",
+    "    except Exception as e:\n",
+    "        print(f\"[{datetime.now().strftime(time_format)}] Batch processing failed.\")\n",
+    "        raise e\n",
+    "\n",
+    "#ensuring that outstanding sessions are processed and that at least one run is executed\n",
+    "if overall_container_count > 0 or batch_num == 1:\n",
+    "    print(f\"[{datetime.now().strftime(time_format)}] Processing batch {batch_num} (in progress: {overall_container_count} sessions, outstanding: {overall_container_count} sesions)\")\n",
+    "    dbutils.notebook.run(\"./02_report\", 0, {\"config_path\": config_path})\n",
+    "    processed_sessions += overall_container_count\n",
+    "    current_delta_versions = capture_table_versions(sink,exclude_tables=status_table_name)\n",
+    "    update_delta_versions(sink, status_table_name, current_run_id, current_delta_versions)\n",
+    "\n",
+    "print(f\"[{datetime.now().strftime(time_format)}] All done. Overall processed sessions: {processed_sessions}\")"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 0,
+   "metadata": {
+    "application/vnd.databricks.v1+cell": {
+     "cellMetadata": {
+      "byteLimit": 2048000,
+      "rowLimit": 10000
+     },
+     "inputWidgets": {},
+     "nuid": "48a33236-cc05-4223-91c4-6bde4fdce4fd",
+     "showTitle": false,
+     "tableResultSettingsMap": {},
+     "title": ""
+    }
+   },
+   "outputs": [],
+   "source": [
+    "display(spark.read.table(sink.get_full_table_uri(status_table_name)))"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 0,
+   "metadata": {
+    "application/vnd.databricks.v1+cell": {
+     "cellMetadata": {},
+     "inputWidgets": {},
+     "nuid": "01871e85-13cd-4da0-8963-2aa1f48722c5",
+     "showTitle": false,
+     "tableResultSettingsMap": {},
+     "title": ""
+    }
+   },
+   "outputs": [],
+   "source": []
+  }
+ ],
+ "metadata": {
+  "application/vnd.databricks.v1+notebook": {
+   "computePreferences": null,
+   "dashboards": [],
+   "environmentMetadata": {
+    "base_environment": "",
+    "environment_version": "4"
+   },
+   "inputWidgetPreferences": null,
+   "language": "python",
+   "notebookMetadata": {
+    "pythonIndentUnit": 4
+   },
+   "notebookName": "03_orchestrator",
+   "widgets": {
+    "config_path": {
+     "currentValue": "./config/dev_config.json",
+     "nuid": "58a0d683-fe1b-4d61-b624-6ba2b9e1ef69",
+     "typedWidgetInfo": {
+      "autoCreated": false,
+      "defaultValue": "./config/dev_config.json",
+      "label": null,
+      "name": "config_path",
+      "options": {
+       "widgetDisplayType": "Text",
+       "validationRegex": null
+      },
+      "parameterDataType": "String"
+     },
+     "widgetInfo": {
+      "widgetType": "text",
+      "defaultValue": "./config/dev_config.json",
+      "label": null,
+      "name": "config_path",
+      "options": {
+       "widgetType": "text",
+       "autoCreated": null,
+       "validationRegex": null
+      }
+     }
+    },
+    "status_table_name": {
+     "currentValue": "status",
+     "nuid": "7cc7c5c7-90aa-43cc-a417-d59d310110b4",
+     "typedWidgetInfo": {
+      "autoCreated": false,
+      "defaultValue": "status",
+      "label": null,
+      "name": "status_table_name",
+      "options": {
+       "widgetDisplayType": "Text",
+       "validationRegex": null
+      },
+      "parameterDataType": "String"
+     },
+     "widgetInfo": {
+      "widgetType": "text",
+      "defaultValue": "status",
+      "label": null,
+      "name": "status_table_name",
+      "options": {
+       "widgetType": "text",
+       "autoCreated": null,
+       "validationRegex": null
+      }
+     }
+    }
+   }
+  },
+  "language_info": {
+   "name": "python"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 0
+}

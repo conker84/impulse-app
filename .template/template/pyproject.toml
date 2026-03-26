@@ -1,0 +1,29 @@
+[project]
+name = "{{.report_name}}"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11,<3.12"
+dependencies = []
+
+[dependency-groups]
+# Local development dependencies
+dev = [
+    "pre-commit~=4.1.0",
+    "pytest~=8.3.4",
+    "pytest-benchmark~=5.1.0",
+    "pytest-cov~=6.0.0",
+    "ruff~=0.9.6",
+    "setuptools~=75.8.0",
+    "databricks-dlt~=0.3.0",
+]
+
+# Default dependency groups that will be installed when running `uv sync` on top of the default group.
+[tool.uv]
+default-groups = ["dev"]
+
+# Pytest options
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = "tests"
+addopts = "--junitxml=test-results.xml --cov=src --cov-report=html --cov-report=xml:coverage.xml --cov-report=term-missing"

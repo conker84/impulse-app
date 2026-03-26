@@ -1,0 +1,59 @@
+{
+  "properties": {
+    "report_name": {
+      "type": "string",
+      "default": "custom_report",
+      "description": "What is the name of the bundle you want to create?",
+      "order": 1
+    },
+    "dev_host": {
+      "type": "string",
+      "default": "",
+      "description": "What is the host of the DEV environment?",
+      "order": 2
+    },
+    "dev_group": {
+      "type": "string",
+      "default": "users",
+      "description": "Which group should be granted 'Manage' permissions for Databricks jobs in the DEV environment?",
+      "order": 3
+    },
+    "stg_host": {
+      "type": "string",
+      "default": "",
+      "description": "What is the host of the STG environment? (use the same host as the DEV environment)",
+      "order": 4
+    },
+    "stg_group": {
+      "type": "string",
+      "default": "users",
+      "description": "Which group should be granted 'Manage' permissions for Databricks jobs in the STG environment?",
+      "order": 5
+    },
+    "prd_host": {
+      "type": "string",
+      "default": "",
+      "description": "What is the host of the PRD environment?",
+      "order": 6
+    },
+    "prd_group": {
+      "type": "string",
+      "default": "users",
+      "description": "Which group should be granted 'Manage' permissions for Databricks jobs in the PRD environment?",
+      "order": 7
+    },
+    "prd_sp_name": {
+      "type": "string",
+      "default": "",
+      "description": "What is the name (i.e. app ID) of the Service Principal in the PRD environment?",
+      "order": 8
+    },
+    "mda_framework_version": {
+      "type": "string",
+      "default": "0.1.35",
+      "description": "Which version should be used for the Impulse framework?",
+      "order": 9
+    }
+  },
+  "success_message": "\nYour bundle '{{.report_name}}' has been created."
+}

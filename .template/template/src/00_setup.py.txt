@@ -1,0 +1,82 @@
+# Databricks notebook source
+# MAGIC %md
+# MAGIC ##### Setup and Configuration
+# MAGIC
+# MAGIC This notebook handles the setup of paths, spark configuration, and imports required for the report.
+# MAGIC
+# MAGIC **Purpose**: Initialize the environment and load all necessary dependencies.
+
+# COMMAND ----------
+
+import sys, os, json
+base_path = os.path.dirname(os.path.abspath("__file__"))
+base_path = base_path[:base_path.find('src')]
+
+# COMMAND ----------
+
+#parsing required MDA version from version file
+mda_version_dict = None
+with open(f"{base_path}/mda_framework_version.json", 'r') as fh:
+    mda_version_dict = json.load(fh)
+
+mda_framework_version = mda_version_dict['version']
+pypi_uri = mda_version_dict.get('pypi_uri', '')
+secret_scope = mda_version_dict.get('pypi_token_secret_scope', '')
+secret_key = mda_version_dict.get('pypi_token_secret_key', '')
+
+if secret_scope and secret_key:
+    token = dbutils.secrets.get(scope=secret_scope, key=secret_key)
+else:
+    token = None
+
+# COMMAND ----------
+
+if token and pypi_uri:
+    # Private PyPI: install with token auth
+    %pip install --extra-index-url https://__token__:$token@$pypi_uri bseries==$mda_framework_version --quiet
+    %pip install --extra-index-url https://__token__:$token@$pypi_uri mda-reporting==$mda_framework_version --quiet
+    dbutils.library.restartPython()
+else:
+    # Install from UC Volume wheel
+    %pip install /Volumes/maximhammer_catalog/impulse/mf4_uploads/mda_framework_v2-0.0.4-py3-none-any.whl --quiet
+    dbutils.library.restartPython()
+
+# COMMAND ----------
+
+# configure spark
+spark.conf.set("spark.sql.shuffle.partitions", "auto")
+#spark.conf.set("spark.databricks.optimizer.deltaTableSizeThreshold", "104857600")
+
+# COMMAND ----------
+
+# Re-import after restartPython() clears all state
+import sys, os, json
+import numpy as np
+import uuid
+from pyspark.sql import Window
+from pyspark.sql.types import *
+import pyspark.sql.functions as F
+from datetime import datetime, timedelta
+import matplotlib.pyplot as plt
+
+base_path = os.path.dirname(os.path.abspath("__file__"))
+base_path = base_path[:base_path.find('src')]
+sys.path.append(f"{base_path}/src/")
+
+# import mda reporting modules
+from mda_reporting.core.report import Report
+from mda_reporting.core.chapter import Chapter
+from mda_reporting.core.page import Page
+from mda_reporting.core.config import ReportConfig
+from mda_reporting.visualizations.histogram import HistogramDuration, HistogramDistance, HistogramDurationCount, HistogramEventCount
+from mda_reporting.visualizations.histogram2d import Histogram2DDuration, Histogram2DEventCount
+from mda_reporting.visualizations.histogram3d import Histogram3DDuration, Histogram3DEventCount
+from mda_reporting.visualizations.xy_plot import XYPlotFixedBinSize, XYPlotBinExpr, XYPlotBinsFromSeries, XYPlotEventCount
+from mda_reporting.persistence.unity_catalog import UnityCatalogSink
+from mda_reporting.visualizations.visual_types import VisualDimensionNames, VisualFactNames
+
+from utils import report_utils
+
+# COMMAND ----------
+
+

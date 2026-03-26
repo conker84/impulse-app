@@ -1,0 +1,27 @@
+from pyspark.sql.types import *
+
+STATUS_TABLE_SCHEMA = StructType([
+    StructField("run_id", IntegerType(), False),
+    StructField("start_date", TimestampType(), False),
+    StructField("stop_date", TimestampType(), True),
+    StructField("processing_status", StringType(), False),
+    StructField("rollback_status", StringType(), True),
+    StructField("delta_versions", MapType(StringType(), IntegerType()), False)
+])
+
+GLOBAL_REPORT_TABLE_SCHEMA = StructType([
+    StructField("report_id", IntegerType(), True),
+    StructField("name", StringType(), False),
+    StructField("desc", StringType(), True),
+    StructField("uc_location", StringType(), True),
+    StructField("table_prefix", StringType(), True),
+    StructField("vehicle_config", ArrayType(MapType(StringType(), MapType(StringType(), StringType())), True), True),
+    StructField("created_at", TimestampType(), True),
+    StructField("last_report_reset", TimestampType(), True),
+    StructField("last_report_run", TimestampType(), True),
+    StructField("last_alias_update", TimestampType(), True),
+    StructField("last_calc_def_update", TimestampType(), True),
+    StructField("report_creator", StringType(), True),
+    StructField("source_code", StringType(), True),
+    StructField("is_avail_web", IntegerType(), True)
+])

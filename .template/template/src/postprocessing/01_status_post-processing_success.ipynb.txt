@@ -1,0 +1,357 @@
+{
+ "cells": [
+  {
+   "cell_type": "code",
+   "execution_count": 0,
+   "metadata": {
+    "application/vnd.databricks.v1+cell": {
+     "cellMetadata": {
+      "byteLimit": 2048000,
+      "rowLimit": 10000
+     },
+     "inputWidgets": {},
+     "nuid": "7abbf0b6-c44b-49c8-8a72-57217478491d",
+     "showTitle": false,
+     "tableResultSettingsMap": {},
+     "title": ""
+    }
+   },
+   "outputs": [],
+   "source": [
+    "%run ../00_setup"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 0,
+   "metadata": {
+    "application/vnd.databricks.v1+cell": {
+     "cellMetadata": {
+      "byteLimit": 2048000,
+      "rowLimit": 10000
+     },
+     "inputWidgets": {},
+     "nuid": "a4de6229-2259-4941-8482-c5021c4face7",
+     "showTitle": false,
+     "tableResultSettingsMap": {},
+     "title": ""
+    }
+   },
+   "outputs": [],
+   "source": [
+    "# configure widgets for parameters\n",
+    "dbutils.widgets.text(\"config_path\", \"../config/dev_config.json\")\n",
+    "dbutils.widgets.dropdown(\"reset_report\", \"False\", [\"True\", \"False\"])\n",
+    "\n",
+    "\n",
+    "config_path = dbutils.widgets.get(\"config_path\")\n",
+    "reset_report = dbutils.widgets.get(\"reset_report\") == \"True\"\n",
+    "dbutils.widgets.text(\"status_table_name\", \"status\")\n",
+    "current_run_id = int(dbutils.jobs.taskValues.get(taskKey=\"pre_processing\", key=\"current_run_id\", debugValue=\"0\"))\n",
+    "\n",
+    "\n",
+    "print(config_path)\n",
+    "print(reset_report)\n",
+    "print(f\"Processing run: {current_run_id}\")"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 0,
+   "metadata": {
+    "application/vnd.databricks.v1+cell": {
+     "cellMetadata": {
+      "byteLimit": 2048000,
+      "rowLimit": 10000
+     },
+     "inputWidgets": {},
+     "nuid": "d11dee9c-df79-4e17-94e2-0ba27be806f4",
+     "showTitle": false,
+     "tableResultSettingsMap": {},
+     "title": ""
+    }
+   },
+   "outputs": [],
+   "source": [
+    "report_config = ReportConfig()\n",
+    "report_config.parse_from_json(config_path)\n",
+    "\n",
+    "catalog = report_config.data_config['destination']['catalog']\n",
+    "schema = report_config.data_config['destination']['schema']\n",
+    "table_prefix = report_config.data_config['destination']['table_prefix']\n",
+    "global_report_table_path = report_config.data_config.get('source', {}).get('global_report_table', None)\n",
+    "\n",
+    "sink = UnityCatalogSink(catalog, schema, table_prefix)\n",
+    "status_table_name=dbutils.widgets.get(\"status_table_name\")\n",
+    "print(f\"report destination: {catalog}.{schema}.{table_prefix}_*\")\n",
+    "print(f\"status table name: {status_table_name}\")"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {
+    "application/vnd.databricks.v1+cell": {
+     "cellMetadata": {},
+     "inputWidgets": {},
+     "nuid": "3ac7da68-f6b0-4774-a366-b5fc0c033106",
+     "showTitle": false,
+     "tableResultSettingsMap": {},
+     "title": ""
+    }
+   },
+   "source": [
+    "## Updating status table"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 0,
+   "metadata": {
+    "application/vnd.databricks.v1+cell": {
+     "cellMetadata": {
+      "byteLimit": 2048000,
+      "rowLimit": 10000
+     },
+     "inputWidgets": {},
+     "nuid": "ae58bcc2-a968-49c2-8c1e-ee12ba4ce21b",
+     "showTitle": false,
+     "tableResultSettingsMap": {},
+     "title": ""
+    }
+   },
+   "outputs": [],
+   "source": [
+    "from utils.report_utils import update_run_success\n",
+    "\n",
+    "update_run_success(sink, status_table_name, current_run_id)\n",
+    "display(sink.read_table(status_table_name))"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {
+    "application/vnd.databricks.v1+cell": {
+     "cellMetadata": {},
+     "inputWidgets": {},
+     "nuid": "5348cedb-a1d0-42d2-85c3-b6e1960312dd",
+     "showTitle": false,
+     "tableResultSettingsMap": {},
+     "title": ""
+    }
+   },
+   "source": [
+    "## Updating global report table"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 0,
+   "metadata": {
+    "application/vnd.databricks.v1+cell": {
+     "cellMetadata": {
+      "byteLimit": 2048000,
+      "rowLimit": 10000
+     },
+     "inputWidgets": {},
+     "nuid": "8ed2956f-553e-4c96-8e61-9f4d66ac432f",
+     "showTitle": false,
+     "tableResultSettingsMap": {},
+     "title": ""
+    }
+   },
+   "outputs": [],
+   "source": [
+    "metadata_cfg = report_config.get_metadata_config()\n",
+    "if global_report_table_path and metadata_cfg:\n",
+    "    report_name = metadata_cfg['report_name']\n",
+    "    report_config.get_or_set_report_id(report_name)\n",
+    "    report_id = report_config.report_id\n",
+    "    now_ts = datetime.now()\n",
+    "    #We work with the assumption that the global report table already exists and that we have an entry for this report\n",
+    "    spark.sql(f\"\"\"\n",
+    "        UPDATE {global_report_table_path}\n",
+    "        SET \n",
+    "            last_report_run = current_timestamp()\n",
+    "        WHERE name = \\'{report_name}\\'\n",
+    "    \"\"\")\n",
+    "\n",
+    "    display(spark.read.table(global_report_table_path))"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {
+    "application/vnd.databricks.v1+cell": {
+     "cellMetadata": {
+      "byteLimit": 2048000,
+      "rowLimit": 10000
+     },
+     "inputWidgets": {},
+     "nuid": "79fdf3af-94b8-479c-afef-7d62b23f641e",
+     "showTitle": false,
+     "tableResultSettingsMap": {},
+     "title": ""
+    }
+   },
+   "source": [
+    "## Optimize gold layer tables"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 0,
+   "metadata": {
+    "application/vnd.databricks.v1+cell": {
+     "cellMetadata": {
+      "byteLimit": 2048000,
+      "rowLimit": 10000
+     },
+     "inputWidgets": {},
+     "nuid": "495a60e9-ebc7-43dd-a41d-412da5f5b8b2",
+     "showTitle": false,
+     "tableResultSettingsMap": {},
+     "title": ""
+    }
+   },
+   "outputs": [],
+   "source": [
+    "table_names = [n.value for n in VisualFactNames]\n",
+    "table_names.extend([n.value for n in VisualDimensionNames])\n",
+    "table_names.extend([\"session_dimension\", \"report_summary\"])\n",
+    "for table_name in table_names:\n",
+    "    table_path = f\"{catalog}.{schema}.{table_prefix}_{table_name}\"\n",
+    "    curr_ts = datetime.now().strftime(\"%Y-%m-%d %H:%M:%S\")\n",
+    "    if spark.catalog.tableExists(table_path):\n",
+    "        print(f\"[{curr_ts}] Optimizing table: {table_path}\")\n",
+    "        spark.sql(f\"OPTIMIZE {table_path}\")\n",
+    "    else:\n",
+    "        print(f\"[{curr_ts}] Table not found: {table_path}\")"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 0,
+   "metadata": {
+    "application/vnd.databricks.v1+cell": {
+     "cellMetadata": {},
+     "inputWidgets": {},
+     "nuid": "fab35d44-051a-4bd7-9e71-18e13934f8d1",
+     "showTitle": false,
+     "tableResultSettingsMap": {},
+     "title": ""
+    }
+   },
+   "outputs": [],
+   "source": []
+  }
+ ],
+ "metadata": {
+  "application/vnd.databricks.v1+notebook": {
+   "computePreferences": null,
+   "dashboards": [],
+   "environmentMetadata": {
+    "base_environment": "",
+    "environment_version": "2"
+   },
+   "inputWidgetPreferences": null,
+   "language": "python",
+   "notebookMetadata": {
+    "pythonIndentUnit": 4
+   },
+   "notebookName": "01_status_post-processing_success",
+   "widgets": {
+    "config_path": {
+     "currentValue": "../config/dev_config.json",
+     "nuid": "26921eca-4cae-45fd-8cba-847657718777",
+     "typedWidgetInfo": {
+      "autoCreated": false,
+      "defaultValue": "../config/dev_config.json",
+      "label": null,
+      "name": "config_path",
+      "options": {
+       "widgetDisplayType": "Text",
+       "validationRegex": null
+      },
+      "parameterDataType": "String"
+     },
+     "widgetInfo": {
+      "widgetType": "text",
+      "defaultValue": "../config/dev_config.json",
+      "label": null,
+      "name": "config_path",
+      "options": {
+       "widgetType": "text",
+       "autoCreated": null,
+       "validationRegex": null
+      }
+     }
+    },
+    "reset_report": {
+     "currentValue": "False",
+     "nuid": "fc71b050-6fec-44ed-a638-66e39914ebad",
+     "typedWidgetInfo": {
+      "autoCreated": false,
+      "defaultValue": "False",
+      "label": null,
+      "name": "reset_report",
+      "options": {
+       "widgetDisplayType": "Dropdown",
+       "choices": [
+        "True",
+        "False"
+       ],
+       "fixedDomain": true,
+       "multiselect": false
+      },
+      "parameterDataType": "String"
+     },
+     "widgetInfo": {
+      "widgetType": "dropdown",
+      "defaultValue": "False",
+      "label": null,
+      "name": "reset_report",
+      "options": {
+       "widgetType": "dropdown",
+       "autoCreated": null,
+       "choices": [
+        "True",
+        "False"
+       ]
+      }
+     }
+    },
+    "status_table_name": {
+     "currentValue": "status",
+     "nuid": "2d86e020-e39a-4942-91a3-10cba4e1da0e",
+     "typedWidgetInfo": {
+      "autoCreated": false,
+      "defaultValue": "status",
+      "label": null,
+      "name": "status_table_name",
+      "options": {
+       "widgetDisplayType": "Text",
+       "validationRegex": null
+      },
+      "parameterDataType": "String"
+     },
+     "widgetInfo": {
+      "widgetType": "text",
+      "defaultValue": "status",
+      "label": null,
+      "name": "status_table_name",
+      "options": {
+       "widgetType": "text",
+       "autoCreated": null,
+       "validationRegex": null
+      }
+     }
+    }
+   }
+  },
+  "language_info": {
+   "name": "python"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 0
+}

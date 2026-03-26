@@ -1,0 +1,72 @@
+{
+  "metadata": {
+    "report_name": "{{.report_name}} Report",
+    "description": "This is my {{.report_name}} Report",
+    "report_creator": "",
+    "source_code": ""
+  },
+  "data": {
+    "source": {
+      "container_metrics": "<container_metrics_table>",
+      "channel_metrics": "<channel_metrics_table>",
+      "channels": "<channels_table>",
+      "aliases": "<aliases>",
+      "aliases_copy_table_name": "channel_aliases",
+      "device_aliases": "<device_aliases>",
+      "device_aliases_copy_table_name": "device_aliases"
+    },
+    "destination": {
+      "catalog": "",
+      "schema": "",
+      "table_prefix": "t"
+    },
+    "query_solver": {
+      "name": "narrow_solver",
+      "rle_data": "true",
+      "config": "default",
+      "max_sessions_per_run": 10000,
+      "max_batch_size": 10000
+    }
+  },
+  "vehicles": [
+    {
+      "vehicle_id": {
+        "col_name": "test_object_id",
+        "col_type": "string",
+        "value": "<vehicle_id>"
+      },
+      "start_ts": {
+        "col_name": "measurement_first_data_point_timestamp",
+        "col_type": "timestamp",
+        "value": "<start_date>"
+      },
+      "stop_ts": {
+        "col_name": "measurement_last_data_point_timestamp",
+        "col_type": "timestamp",
+        "value": "<end_date>"
+      }
+    }
+  ],
+  "session_metric_table": {
+    "columns": [
+      "measurement_first_data_point_timestamp",
+      "measurement_last_data_point_timestamp",
+      "measurement_session_start_odo_mileage",
+      "measurement_session_end_odo_mileage",
+      "test_object_id"
+    ],
+    "checkpoint_col_name": "measurement_first_data_point_timestamp",
+    "col_name_mappings": [
+      {
+        "existing_col_name": "measurement_first_data_point_timestamp",
+        "new_col_name": "first_data_point_timestamp",
+        "casting_type": "timestamp"
+      },
+      {
+        "existing_col_name": "measurement_last_data_point_timestamp",
+        "new_col_name": "last_data_point_timestamp",
+        "casting_type": "timestamp"
+      }
+    ]
+  }
+}
