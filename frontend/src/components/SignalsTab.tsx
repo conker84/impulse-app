@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 import Plot from "react-plotly.js";
-import type { SignalDefinition, TimeSeriesPoint } from "../types";
+import type { SignalDefinition, TimeSeriesPoint, TimeSeriesContainer, VehicleConfig } from "../types";
 import { fetchTimeSeriesContainers, fetchTimeSeriesSignals, fetchTimeSeriesData } from "../api";
 import { PALETTE, BASE_CONFIG, mergeLayout } from "../plotlyTheme";
 
@@ -8,6 +8,7 @@ interface Props {
   signals: SignalDefinition[];
   silverCatalog?: string;
   silverSchema?: string;
+  vehicles?: VehicleConfig[];
   onDelete?: (varName: string) => void;
   onUpdate?: (varName: string, payload: { var_name: string; expression?: string; eval_type?: string; description?: string; alias?: string }) => void;
   onAddVirtual?: (payload: { var_name: string; expression: string; eval_type?: string; description?: string }) => void;
@@ -15,7 +16,36 @@ interface Props {
 
 const EVAL_TYPES = ["SampleSeries", "Intervals", "PointsInTime", "PitSeries"];
 
-export default function SignalsTab({ signals, silverCatalog, silverSchema, onDelete, onUpdate, onAddVirtual }: Props) {
+/** Check if a container overlaps with the analysis timeframe from any vehicle. */
+function containerInTimeframe(c: TimeSeriesContainer, vehicles: VehicleConfig[]): boolean {
+  if (!vehicles.length) return true;
+  // Get the earliest start and latest stop across all vehicles
+  let earliest: number | null = null;
+  let latest: number | null = null;
+  for (const v of vehicles) {
+    if (v.start_ts) {
+      const ms = new Date(v.start_ts.replace(" ", "T")).getTime();
+      if (!isNaN(ms) && (earliest === null || ms < earliest)) earliest = ms;
+    }
+    if (v.stop_ts) {
+      const ms = new Date(v.stop_ts.replace(" ", "T")).getTime();
+      if (!isNaN(ms) && (latest === null || ms > latest)) latest = ms;
+    }
+  }
+  // If no timestamps set on vehicles, don't filter
+  if (earliest === null && latest === null) return true;
+
+  const cStart = c.start_dt ? new Date(c.start_dt).getTime() : null;
+  const cStop = c.stop_dt ? new Date(c.stop_dt).getTime() : null;
+
+  // Check overlap: container must not end before the timeframe starts
+  // and must not start after the timeframe ends
+  if (earliest !== null && cStop !== null && cStop < earliest) return false;
+  if (latest !== null && cStart !== null && cStart > latest) return false;
+  return true;
+}
+
+export default function SignalsTab({ signals, silverCatalog, silverSchema, vehicles, onDelete, onUpdate, onAddVirtual }: Props) {
   const PREVIEW_POINTS = 5000;
 
   const [previewSignal, setPreviewSignal] = useState<string | null>(null);
@@ -61,7 +91,15 @@ export default function SignalsTab({ signals, silverCatalog, silverSchema, onDel
         setPreviewError("No containers available.");
         return;
       }
-      const container = cRes.containers[0];
+      // Filter containers by analysis timeframe if vehicles have timestamps set
+      const inRange = vehicles?.length
+        ? cRes.containers.filter((c) => containerInTimeframe(c, vehicles))
+        : cRes.containers;
+      if (inRange.length === 0) {
+        setPreviewError("No data in the selected analysis timeframe.");
+        return;
+      }
+      const container = inRange[0];
       const containerId = container.container_id;
       // start_dt is the absolute timestamp for the container — t values are relative offsets in seconds
       const baseMs = container.start_dt ? new Date(container.start_dt).getTime() : 0;

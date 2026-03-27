@@ -234,6 +234,7 @@ export default function PreviewPanel({
               signals={state.signals}
               silverCatalog={state.source_data.silver_catalog}
               silverSchema={state.source_data.silver_schema}
+              vehicles={state.vehicles}
               onDelete={onDeleteSignal}
               onUpdate={onUpdateSignal}
               onAddVirtual={onAddVirtualSignal}
