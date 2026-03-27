@@ -333,35 +333,35 @@ The `.template/` directory scaffolds a Databricks Asset Bundle that runs the Imp
 
 ### Visualization
 
-- [ ] **Time series viewer — standalone view** — New top-level view (like VisualizeView) accessible from the landing screen as "Explore Time Series". Queries the Silver layer `channels` table directly (RLE intervals: `tstart, tend, value`), not the gold layer report results. Uses server-side LTTB downsampling for large datasets.
+- [x] **Time series viewer — standalone view** — New top-level view (like VisualizeView) accessible from the landing screen as "Explore Time Series". Queries the Silver layer `channels` table directly (RLE intervals: `tstart, tend, value`), not the gold layer report results. Uses server-side LTTB downsampling for large datasets.
   1. **Backend — signal listing endpoint:** `GET /api/timeseries/signals?catalog=X&schema=Y` — query `channel_tags` + `channel_metrics` to list available signals with metadata (name, unit, sample count, duration). Needs container selector first: `GET /api/timeseries/containers?catalog=X&schema=Y` queries `container_metrics` for available measurement files.
   2. **Backend — data endpoint:** `GET /api/timeseries/data?catalog=X&schema=Y&container_id=Z&channel_id=C&x_min=T1&x_max=T2&n_points=1500` — query `channels` table for the signal's RLE intervals, expand `(tstart, tend, value)` → `[(tstart, value), (tend, value)]` step pairs, apply LTTB downsampling via `tsdownsample` to ~1500 points, return JSON array of `{t, v}` pairs.
   3. **Frontend — `TimeSeriesView.tsx`:** Container picker (catalog/schema dropdowns reuse existing UC browser, then container dropdown from the listing endpoint) → signal multi-select → Plotly `scattergl` chart with multiple traces. `onRelayout` handler debounces zoom/pan events, calls data endpoint with new viewport bounds, updates traces.
   4. **Multi-signal support:** Multiple signals on same time axis. Dual y-axis when units differ (e.g., RPM left axis, km/h right axis). Each trace independently fetched and downsampled.
   5. **Dependency:** `tsdownsample` (pip, Rust-backed LTTB — ~5ms for 3M→1500 points). Add to `requirements.txt`.
   6. **RLE handling note:** Silver data is intervals, not raw samples. Expansion to step pairs doubles point count but preserves the actual signal shape (step function). Downsampling happens after expansion.
-- [ ] **Time series viewer — wizard integration** — Make the time series viewer available during report building, so users can preview signals while in the Channels step.
+- [x] **Time series viewer — wizard integration** — Make the time series viewer available during report building, so users can preview signals while in the Channels step.
   1. Add a "Preview Signal" button next to each signal in `SignalsTab`. Opens a mini time series chart in a side panel or modal.
   2. Reuses the same `/api/timeseries/data` endpoint. Container selection comes from the report's vehicle config (if vehicles step is done) or defaults to first available container.
   3. Helps users verify they picked the right signal before defining aggregations.
-- [ ] **Histogram2D heatmap visualization** — Extend the Visualize view to render 2D histogram results. Tied to the Histogram2D aggregation type work.
+- [x] **Histogram2D heatmap visualization** — Extend the Visualize view to render 2D histogram results. Tied to the Histogram2D aggregation type work.
   1. Backend: new query in `visualize.py` joining `histogram2d_fact` + `histogram2d_dimension`. Schema: `x_bin_id, y_bin_id, hist_value, x_lower_bound, x_upper_bound, y_lower_bound, y_upper_bound, x_bin_name, y_bin_name`.
   2. Frontend: new `Heatmap2DChart.tsx` using Plotly `heatmap` trace type. X/Y axes are bin labels, color intensity = duration-weighted value. Color scale with unit label.
   3. Sidebar: list 2D histograms alongside 1D in the histogram selector (distinguish with an icon or tag).
-- [ ] **Statistics table visualization** — Extend the Visualize view to render statistics results. Tied to the Statistics aggregation type work.
+- [x] **Statistics table visualization** — Extend the Visualize view to render statistics results. Tied to the Statistics aggregation type work.
   1. Backend: new query in `visualize.py` joining `stats_fact` + `stats_dimension`. Schema: `signal_name, aggregation_label, value, event_instance_id`.
   2. Frontend: new `StatisticsTable.tsx` — formatted table with signals as rows, stat labels as columns (min/max/mean/median). Group by event instance if multiple. No chart needed — this is tabular data.
   3. Sidebar: list statistics alongside histograms in the aggregation selector.
-- [ ] **Chart styling & theme** — Improve visual quality of all chart types.
+- [x] **Chart styling & theme** — Improve visual quality of all chart types.
   1. Custom color palette (consistent across all chart types, works in dark and light themes).
   2. Plotly theme config: gridline colors, tick label colors, hover label styling all derived from CSS variables. Create a shared `plotlyTheme.ts` that all chart components import.
   3. Axis labels auto-populated from dimension metadata (unit, signal name).
-- [ ] **Chart interactivity improvements** — Better UX for exploring results.
+- [x] **Chart interactivity improvements** — Better UX for exploring results.
   1. Enable Plotly modebar selectively: download PNG/SVG, zoom, pan, reset. Currently `displayModeBar: false`.
   2. Richer hover tooltips: show bin range, absolute value, and percentage simultaneously.
   3. Stacked bar mode option for 1D histograms when grouping by vehicle (currently only grouped bars).
   4. Expand/fullscreen single chart (click to enlarge in a modal or full-width view).
-- [ ] **Configurable chart layout** — Let users arrange the visualization dashboard.
+- [x] **Configurable chart layout** — Let users arrange the visualization dashboard.
   1. Grid size selector (1-column, 2-column, 3-column).
   2. Drag-to-reorder charts within the grid.
   3. Persist layout preference per report (in Lakebase or local storage).
