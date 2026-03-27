@@ -225,6 +225,7 @@ export default function PreviewPanel({
               signals={state.signals}
               existingNames={new Set(state.aggregations.map((a) => a.name))}
               onAdd={onAddHistogram2D}
+              onSuggestBins={onSuggestBins}
             />
             <StatisticsBuilder
               signals={state.signals}
