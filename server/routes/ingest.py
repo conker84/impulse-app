@@ -47,8 +47,6 @@ def _get_client(request: Request):
     return get_workspace_client()
 
 
-INGEST_CLUSTER_KEY = "ingest_cluster"
-
 
 def _build_ingest_job(
     nb_root: str,
@@ -66,16 +64,12 @@ def _build_ingest_job(
     with ephemeral clusters on some workspaces.
     """
     from databricks.sdk.service.compute import (
-        AwsAttributes,
-        ClusterSpec,
-        DataSecurityMode,
-        Library,
-        PythonPyPiLibrary,
+        Environment,
     )
     from databricks.sdk.service.jobs import (
         ConditionTask,
         ConditionTaskOp,
-        JobCluster,
+        JobEnvironment,
         NotebookTask,
         RunIf,
         Source,
@@ -98,23 +92,12 @@ def _build_ingest_job(
         "max_batch_size": "100",
     }
 
-    libs = [
-        Library(pypi=PythonPyPiLibrary(package="asammdf<8")),
-        Library(pypi=PythonPyPiLibrary(package="binpacking")),
-    ]
-
-    node_type = os.environ.get("INGEST_NODE_TYPE", "i3.xlarge")
-    cluster_spec = ClusterSpec(
-        spark_version="15.4.x-scala2.12",
-        node_type_id=node_type,
-        num_workers=2,
-        data_security_mode=DataSecurityMode.SINGLE_USER,
-        aws_attributes=AwsAttributes(first_on_demand=1),
-    )
-
-    job_cluster = JobCluster(
-        job_cluster_key=INGEST_CLUSTER_KEY,
-        new_cluster=cluster_spec,
+    env = JobEnvironment(
+        environment_key="default",
+        spec=Environment(
+            client="1",
+            dependencies=["asammdf<8", "binpacking"],
+        ),
     )
 
     def _dep(keys: list[str]) -> list[TaskDependency]:
@@ -130,8 +113,7 @@ def _build_ingest_job(
                 source=Source.WORKSPACE,
             ),
             depends_on=_dep(depends) if depends else None,
-            libraries=libs,
-            job_cluster_key=INGEST_CLUSTER_KEY,
+            environment_key="default",
             run_if=run_if,
         )
 
@@ -157,8 +139,7 @@ def _build_ingest_job(
                 source=Source.WORKSPACE,
             ),
             depends_on=[TaskDependency(task_key="check_data_availability", outcome="true")],
-            libraries=libs,
-            job_cluster_key=INGEST_CLUSTER_KEY,
+            environment_key="default",
             run_if=RunIf.ALL_SUCCESS,
         ),
         _nb("analytical_layer", "d_analytical_layer.py", depends=["mdf_to_delta"]),
@@ -171,8 +152,8 @@ def _build_ingest_job(
     ]
 
     return {
-        "job_clusters": [job_cluster],
         "tasks": tasks,
+        "environments": [env],
         "name": f"impulse-ingest-{session_id[:8]}",
         "timeout_seconds": 3600,
     }
