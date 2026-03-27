@@ -185,7 +185,7 @@ def read_mdf(it):
 # Build per-file, per-channel plan with sample counts for bin packing
 
 df = (spark
-      .createDataFrame(spark.sparkContext.parallelize([(x,) for x in open_files]), "filename string")
+      .createDataFrame([(x,) for x in open_files], "filename string")
       .withColumn("channel_indices", get_channel_indices(F.col("filename")))
       .where(F.array_size(F.col("channel_indices")) > 0)
       .withColumn("idx", F.explode("channel_indices"))
@@ -209,7 +209,10 @@ all_rows = sorted(df.collect(), key=lambda r: (r['filename'], r['group_idx']))
 from functools import reduce
 all_datapoints_count = reduce(lambda x,y: x + y, map(lambda x: x['sample_count'], all_rows), 0)
 num_bins_est = int(all_datapoints_count / max_datapoints_per_bin)
-num_cores = utils.get_total_executor_cores(spark, spark.sparkContext)
+try:
+  num_cores = utils.get_total_executor_cores(spark, spark.sparkContext)
+except Exception:
+  num_cores = 8
 if num_bins_est < (2 * num_cores):
   max_datapoints_per_bin = int(all_datapoints_count / num_cores)
 max_datapoints_per_bin
@@ -231,7 +234,7 @@ assert len(bins_flattened) == len(all_ids)
 # DBTITLE 1,Prepare task DataFrame
 # Define intermediate Spark schema for the bin plan rows
 schema_str = "filename string, channel_id int, start_dt timestamp, group_idx int, channel_idx int, sample_count int, bin_idx int"
-df = spark.createDataFrame(spark.sparkContext.parallelize(bins_flattened, len(bins)), schema_str)
+df = spark.createDataFrame(bins_flattened, schema_str).repartition(len(bins))
 
 # COMMAND ----------
 
