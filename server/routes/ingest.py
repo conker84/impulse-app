@@ -55,6 +55,8 @@ def _build_ingest_job(
     catalog: str,
     schema: str,
     mdf4_volume: str,
+    source_catalog: str = "",
+    source_schema: str = "",
     session_id: str = "",
 ) -> dict:
     """Build the full job definition for the ingest pipeline.
@@ -84,6 +86,8 @@ def _build_ingest_job(
     params = {
         "catalog": catalog,
         "schema": schema,
+        "source_catalog": source_catalog or catalog,
+        "source_schema": source_schema or schema,
         "mdf4_volume": mdf4_volume,
         "checkpoint_volume": "mdf4_checkpoint",
         "reset": "False",
@@ -201,6 +205,8 @@ async def trigger_ingest(session_id: str, request: Request):
         catalog=sd.silver_catalog,
         schema=sd.silver_schema,
         mdf4_volume=sd.upload_volume,
+        source_catalog=sd.upload_catalog,
+        source_schema=sd.upload_schema,
         session_id=session_id,
     )
 

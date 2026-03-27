@@ -19,6 +19,8 @@ dbutils.widgets.text("mdf4_volume", "mdf4", "Source Volume")
 dbutils.widgets.text("checkpoint_volume", "mdf4_checkpoint", "Checkpoint Volume")
 dbutils.widgets.text("catalog", "mda_demo")
 dbutils.widgets.text("schema", "default")
+dbutils.widgets.text("source_catalog", "")
+dbutils.widgets.text("source_schema", "")
 dbutils.widgets.text("max_batch_size", "100")
 
 # COMMAND ----------
@@ -28,7 +30,10 @@ dbutils.widgets.text("max_batch_size", "100")
 mdf4_volume = dbutils.widgets.get("mdf4_volume")
 catalog = dbutils.widgets.get("catalog")
 schema = dbutils.widgets.get("schema")
-source_directory = f'/Volumes/{catalog}/{schema}/{mdf4_volume}'
+# MF4 source volume may live in a different catalog/schema than silver
+source_catalog = dbutils.widgets.get("source_catalog") or catalog
+source_schema = dbutils.widgets.get("source_schema") or schema
+source_directory = f'/Volumes/{source_catalog}/{source_schema}/{mdf4_volume}'
 checkpoint_volume = dbutils.widgets.get("checkpoint_volume")
 checkpoint_directory = f'/Volumes/{catalog}/{schema}/{checkpoint_volume}/mdf'
 max_batch_size = int(dbutils.widgets.get("max_batch_size"))
