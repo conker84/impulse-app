@@ -203,7 +203,7 @@ export default function PreviewPanel({
               existingNames={new Set(state.signals.filter((s) => s.channel_name).map((s) => s.channel_name!))}
               onAdd={onSelectCandidates}
             />
-            <SignalsTab signals={state.signals} />
+            <SignalsTab signals={state.signals} silverCatalog={state.source_data.silver_catalog} silverSchema={state.source_data.silver_schema} />
           </StepSection>
         )}
         {state.wizard_step === "aggregations" && (
@@ -1650,7 +1650,7 @@ function ReadyPanel({
             onChange={onClusterConfigChange}
           />
           <div className="code-label" style={{ marginTop: 16 }}>Signals</div>
-          <SignalsTab signals={state.signals} />
+          <SignalsTab signals={state.signals} silverCatalog={state.source_data.silver_catalog} silverSchema={state.source_data.silver_schema} />
           <div className="code-label" style={{ marginTop: 16 }}>Aggregations</div>
           <AggregationsTab aggregations={state.aggregations} />
           <div className="code-label" style={{ marginTop: 16 }}>Vehicles & Data Sources</div>

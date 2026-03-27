@@ -320,7 +320,6 @@ The `.template/` directory scaffolds a Databricks Asset Bundle that runs the Imp
 - [x] **Update pre/post processing notebooks** — ReportConfig→MdaConfig, VisualFactNames/VisualDimensionNames→AggregationType/EventType enums, sink methods→report_utils functions.
 - [x] **Update 02_report.ipynb.txt** — Report(name, spark, config_path), report.query (not db.query), persist_results() (not write_report()).
 - [x] **Update skill docs and frontend** — channel_with_alias→channel(), HistogramDuration→Histogram, add_visualization→add_aggregation in CodePreviewTab.tsx.
-- [ ] **Test end-to-end** — After all updates, scaffold a report, deploy, and verify the job runs successfully on a cluster with the framework installed.
 
 ### Aggregation Types
 
@@ -369,7 +368,7 @@ The `.template/` directory scaffolds a Databricks Asset Bundle that runs the Imp
 
 ### Generated Assets & Transparency
 
-- [ ] **Generate real assets and link them in app** — After deployment, show/link the actual notebooks, configs, and job runs produced (not just status)
+- [ ] **Generate real assets and link them in app** — After deployment, show/link the actual notebooks, configs, and job runs produced (not just status), maybe separate assets tab
 - [ ] **View produced notebooks** — Let users browse the generated signal definitions, histogram pages, orchestrator, and config JSON directly in the UI
 - [ ] **Jobs are deployed as bundles** — Already true, but the UI should surface the bundle structure and let users navigate to workspace artifacts
 
@@ -390,6 +389,12 @@ The `.template/` directory scaffolds a Databricks Asset Bundle that runs the Imp
 - [ ] **Step-level manual controls** — Each step should offer both NL chat and manual UI controls (forms, dropdowns, tables) as parallel input methods
 - [ ] **Better step validation feedback** — Clearer messaging when a step is incomplete
 
+### Other
+
+- [ ] **UI** — Channels page should display loading icon while channels are dynamically loaded for selecting
+- [ ] **UI 2** — Ready page should display report_orchestration as last step, currently out of order vs actual job executed, also there is no retry button/option
+- [ ] **MF4 files** — Use framework directly to read from raw mf4 files without requiring silver layer
+
 ### Update README
 
 - [ ] **Ensure README reflects all updates** — Edit/add/remove changed content. Ensure users can run app following instructions.
@@ -407,7 +412,7 @@ The `.template/` directory scaffolds a Databricks Asset Bundle that runs the Imp
 ### Technical Debt
 
 - [ ] **Inconsistent auth model** — MF4 upload, ingest jobs, and UC browsing all use the forwarded OAuth token or SP credentials (no PAT needed). But Deploy & Run shells out to `databricks bundle deploy` CLI which requires a stored PAT. This split is confusing — the settings modal asks for a PAT that's only needed for one flow. Align everything to use the same auth: either migrate deploy to SDK-based calls (no CLI subprocess) or find a way to pass the forwarded token to the CLI.
-- [ ] **Ingest jobs run as SP, require manual UC grants** — The `X-Forwarded-Access-Token` is a delegated token that still identifies as the app SP, so `jobs.create()` always creates jobs owned by the SP. This means the SP needs explicit UC grants (`USE CATALOG`, `ALL PRIVILEGES ON SCHEMA`) on whatever catalog/schema users choose for their Silver layer. This won't scale.
+- [ ] **Ingest jobs run as SP, require manual UC grants** — The `X-Forwarded-Access-Token` is a delegated token that still identifies as the app SP, so `jobs.create()` always creates jobs owned by the SP. This means the SP needs explicit UC grants (`USE CATALOG`, `ALL PRIVILEGES ON SCHEMA`) on whatever catalog/schema users choose for their Silver layer. This won't scale. **Also:** the SP needs CAN_READ on the `ingest/` workspace directory to access notebook tasks — this permission can get lost when `databricks sync` recreates the directory tree. Currently granted manually; should be automated in the deploy script or use user token for job creation instead.
   - **Proper fix: User Authorization + Submit Run.** Databricks Apps support "User Authorization" (Public Preview) which lets the app act with the logged-in user's actual identity, not the SP. Steps: (1) Enable User Authorization in the App config and add required scopes. (2) Databricks will forward a real user token (not SP-delegated). (3) Switch from `jobs.create()`+`run_now()` back to `jobs.submit()` — Submit Run executes as the API caller's identity, while Run Now always uses the job's static `run_as`. (4) With the user's real token + `jobs.submit()`, the run shows as the user in the UI, UC permissions are the user's own, and no SP grants are needed.
   - **Alternative (simpler):** Use the user's stored PAT (from the Settings modal) to create ingest jobs via `jobs.submit()`, so they run as the user.
 - [ ] **Agent model upgrade** — Currently Claude Haiku. Consider Sonnet/Opus for better reasoning on complex virtual signal expressions and recommendations.

@@ -36,8 +36,17 @@ if token and pypi_uri:
     %pip install --extra-index-url https://__token__:$token@$pypi_uri mda-framework-v2==$mda_framework_version --quiet
     dbutils.library.restartPython()
 else:
-    # Install from UC Volume wheel
-    %pip install /Volumes/maximhammer_catalog/impulse/mf4_uploads/mda_framework_v2-0.0.4-py3-none-any.whl --quiet
+    # Install from UC Volume wheel — copy to local temp first because
+    # %pip install cannot access /Volumes/ FUSE mount on SINGLE_USER clusters
+    # when running as a service principal.
+    _whl_vol = "/Volumes/maximhammer_catalog/impulse/mf4_uploads/mda_framework_v2-0.0.4-py3-none-any.whl"
+    _whl_local = "/tmp/mda_framework_v2-0.0.4-py3-none-any.whl"
+    dbutils.fs.cp(_whl_vol, f"file:{_whl_local}")
+
+# COMMAND ----------
+
+if not (token and pypi_uri):
+    %pip install /tmp/mda_framework_v2-0.0.4-py3-none-any.whl --quiet
     dbutils.library.restartPython()
 
 # COMMAND ----------

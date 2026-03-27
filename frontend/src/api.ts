@@ -1,4 +1,4 @@
-import type { AggregationDefinition, AggregationMeta, AvailableChannel, ChatResponse, FilterRange, Heatmap2DResult, Histogram1DDefinition, HistogramMeta, HistogramResult, ReportState, SavedReportSummary, StatisticsResult, ValidationResults, VehicleOption, VisualizeFilters, WizardStep } from "./types";
+import type { AggregationDefinition, AggregationMeta, AvailableChannel, ChatResponse, FilterRange, Heatmap2DResult, Histogram1DDefinition, HistogramMeta, HistogramResult, ReportState, SavedReportSummary, StatisticsResult, TimeSeriesContainer, TimeSeriesPoint, TimeSeriesSignal, ValidationResults, VehicleOption, VisualizeFilters, WizardStep } from "./types";
 
 const BASE = "/api";
 
@@ -511,4 +511,39 @@ export async function fetchStatisticsData(
       max_mileage: filters.max_mileage,
     }),
   });
+}
+
+// ---------------------------------------------------------------------------
+// Time Series APIs
+// ---------------------------------------------------------------------------
+
+function enc(s: string) { return encodeURIComponent(s); }
+
+export async function fetchTimeSeriesContainers(
+  catalog: string, schema: string,
+): Promise<{ containers: TimeSeriesContainer[] }> {
+  return request(`/timeseries/containers?catalog=${enc(catalog)}&schema=${enc(schema)}`);
+}
+
+export async function fetchTimeSeriesSignals(
+  catalog: string, schema: string, containerId: number,
+): Promise<{ signals: TimeSeriesSignal[] }> {
+  return request(
+    `/timeseries/signals?catalog=${enc(catalog)}&schema=${enc(schema)}&container_id=${containerId}`,
+  );
+}
+
+export async function fetchTimeSeriesData(
+  catalog: string,
+  schema: string,
+  containerId: number,
+  channelId: number,
+  xMin?: number,
+  xMax?: number,
+  nPoints: number = 1500,
+): Promise<{ data: TimeSeriesPoint[]; total_points: number }> {
+  let url = `/timeseries/data?catalog=${enc(catalog)}&schema=${enc(schema)}&container_id=${containerId}&channel_id=${channelId}&n_points=${nPoints}`;
+  if (xMin != null) url += `&x_min=${xMin}`;
+  if (xMax != null) url += `&x_max=${xMax}`;
+  return request(url);
 }

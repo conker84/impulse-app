@@ -36,7 +36,7 @@ async def metrics():
 
 
 try:
-    from server.routes import chat, deploy, ingest, reports, settings, state, uc_browse, validate, visualize
+    from server.routes import chat, deploy, ingest, reports, settings, state, timeseries, uc_browse, validate, visualize
 
     app.include_router(chat.router)
     app.include_router(state.router)
@@ -47,6 +47,7 @@ try:
     app.include_router(visualize.router)
     app.include_router(uc_browse.router)
     app.include_router(ingest.router)
+    app.include_router(timeseries.router)
     logger.info("All API routers loaded successfully")
 
     from server.db import init_schema

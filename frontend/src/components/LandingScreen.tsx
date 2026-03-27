@@ -6,6 +6,7 @@ interface Props {
   onNewReport: () => void;
   onLoadReport: (reportId: string) => void;
   onVisualize: (reportId: string) => void;
+  onTimeSeries?: () => void;
 }
 
 function ReportIcon({ size = 48 }: { size?: number }) {
@@ -31,7 +32,7 @@ function CardReportIcon() {
   );
 }
 
-export default function LandingScreen({ onNewReport, onLoadReport, onVisualize }: Props) {
+export default function LandingScreen({ onNewReport, onLoadReport, onVisualize, onTimeSeries }: Props) {
   const [reports, setReports] = useState<SavedReportSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -91,12 +92,22 @@ export default function LandingScreen({ onNewReport, onLoadReport, onVisualize }
           </p>
         </div>
 
-        <button className="landing-new-btn" onClick={onNewReport}>
-          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" style={{ marginRight: 8, verticalAlign: -3 }}>
-            <path d="M9 2v14M2 9h14" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"/>
-          </svg>
-          Create New Report
-        </button>
+        <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
+          <button className="landing-new-btn" onClick={onNewReport}>
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" style={{ marginRight: 8, verticalAlign: -3 }}>
+              <path d="M9 2v14M2 9h14" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"/>
+            </svg>
+            Create New Report
+          </button>
+          {onTimeSeries && (
+            <button className="landing-new-btn landing-ts-btn" onClick={onTimeSeries}>
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" style={{ marginRight: 8, verticalAlign: -3 }}>
+                <polyline points="2,14 6,8 10,11 14,4 17,6" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              Explore Time Series
+            </button>
+          )}
+        </div>
 
         {loading && (
           <div className="landing-loading">

@@ -280,6 +280,32 @@ export interface StatisticsResult {
   description: string;
 }
 
+// Time series types
+export interface TimeSeriesContainer {
+  container_id: number;
+  filename: string;
+  vehicle_key: string;
+  start_dt: string | null;
+  stop_dt: string | null;
+  num_channels: number;
+  duration_ms: number;
+}
+
+export interface TimeSeriesSignal {
+  channel_id: number;
+  channel_name: string;
+  unit: string;
+  sample_count: number;
+  min_value: number | null;
+  max_value: number | null;
+  mean_value: number | null;
+}
+
+export interface TimeSeriesPoint {
+  t: number; // seconds
+  v: number;
+}
+
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;

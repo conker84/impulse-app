@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import Plot from "react-plotly.js";
 import type { Heatmap2DResult } from "../types";
+import { HEATMAP_COLORSCALE, BASE_CONFIG, mergeLayout } from "../plotlyTheme";
 
 interface Props {
   name: string;
@@ -14,14 +15,14 @@ export default function Heatmap2DChart({ name, result }: Props) {
       y: result.y_labels,
       z: result.z,
       type: "heatmap" as const,
-      colorscale: "YlOrRd",
+      colorscale: HEATMAP_COLORSCALE,
       colorbar: {
-        title: result.values_unit || "value",
-        titleside: "right" as const,
+        title: { text: result.values_unit || "value", side: "right" as const },
+        tickfont: { size: 10 },
       },
       hoverongaps: false,
       hovertemplate:
-        `X: %{x}<br>Y: %{y}<br>Value: %{z:.2f} ${result.values_unit}<extra></extra>`,
+        `<b>X:</b> %{x}<br><b>Y:</b> %{y}<br><b>Value:</b> %{z:.2f} ${result.values_unit}<extra></extra>`,
     };
   }, [result]);
 
@@ -35,21 +36,12 @@ export default function Heatmap2DChart({ name, result }: Props) {
       </div>
       <Plot
         data={[trace]}
-        layout={{
-          autosize: true,
+        layout={mergeLayout({
           margin: { t: 8, r: 16, b: 64, l: 64 },
-          xaxis: {
-            title: result.x_bins_unit || undefined,
-            tickangle: -45,
-          },
-          yaxis: {
-            title: result.y_bins_unit || undefined,
-          },
-          paper_bgcolor: "transparent",
-          plot_bgcolor: "transparent",
-          font: { color: "var(--text-primary)", size: 11 },
-        }}
-        config={{ responsive: true, displayModeBar: false }}
+          xaxis: { title: result.x_bins_unit || undefined, tickangle: -45 },
+          yaxis: { title: result.y_bins_unit || undefined },
+        })}
+        config={BASE_CONFIG}
         useResizeHandler
         style={{ width: "100%", height: "100%" }}
       />

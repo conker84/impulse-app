@@ -56,6 +56,9 @@ export default function VisualizeView({ dataSources, reportName, onBack }: Props
   const [hist2DResults, setHist2DResults] = useState<Record<string, Heatmap2DResult>>({});
   const [statsResults, setStatsResults] = useState<Record<string, StatisticsResult>>({});
 
+  // Layout
+  const [gridCols, setGridCols] = useState<1 | 2 | 3>(1);
+
   const [loading, setLoading] = useState(true);
   const [fetching, setFetching] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -373,6 +376,24 @@ export default function VisualizeView({ dataSources, reportName, onBack }: Props
           <div className="viz-error-banner">{error}</div>
         )}
 
+        {hasResults && (
+          <div className="viz-layout-controls">
+            <span className="viz-layout-label">Layout</span>
+            {([1, 2, 3] as const).map((n) => (
+              <button
+                key={n}
+                className={`viz-grid-btn${gridCols === n ? " active" : ""}`}
+                onClick={() => setGridCols(n)}
+                title={`${n} column${n > 1 ? "s" : ""}`}
+              >
+                {Array.from({ length: n }, (_, i) => (
+                  <span key={i} className="viz-grid-bar" />
+                ))}
+              </button>
+            ))}
+          </div>
+        )}
+
         {selectedNames.length === 0 && !hasResults && (
           <div className="visualize-empty">
             <div className="visualize-empty-icon">
@@ -389,7 +410,7 @@ export default function VisualizeView({ dataSources, reportName, onBack }: Props
           </div>
         )}
 
-        <div className="chart-grid">
+        <div className={`chart-grid chart-grid--cols-${gridCols}`}>
           {selectedNames.map((name) => {
             const meta = aggMeta.find((a) => a.name === name);
             if (!meta) return null;

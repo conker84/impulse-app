@@ -8,8 +8,9 @@ import PreviewPanel from "./components/PreviewPanel";
 import SettingsModal from "./components/SettingsModal";
 import LandingScreen from "./components/LandingScreen";
 import VisualizeView from "./components/VisualizeView";
+import TimeSeriesView from "./components/TimeSeriesView";
 
-type AppView = "landing" | "editor" | "visualize";
+type AppView = "landing" | "editor" | "visualize" | "timeseries";
 
 const WIZARD_STEPS: { key: WizardStep; label: string; icon: string }[] = [
   { key: "source_data", label: "Source Data", icon: "\uD83D\uDCC2" },
@@ -770,7 +771,7 @@ export default function App() {
             getTokenStatus().then(setTokenStatus).catch(() => {});
           }}
         />
-        <LandingScreen onNewReport={handleNewReport} onLoadReport={handleLoadReport} onVisualize={handleVisualize} />
+        <LandingScreen onNewReport={handleNewReport} onLoadReport={handleLoadReport} onVisualize={handleVisualize} onTimeSeries={() => setView("timeseries")} />
       </>
     );
   }
@@ -791,6 +792,22 @@ export default function App() {
           reportName={vizReportName}
           onBack={handleBackToLanding}
         />
+      </>
+    );
+  }
+
+  if (view === "timeseries") {
+    return (
+      <>
+        {showSettingsIcon && (
+          <button className="settings-fab" onClick={() => setSettingsOpen(true)} title="Settings">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+              <path d="M8.5 1.5a1.5 1.5 0 013 0v.7a6.5 6.5 0 011.7.7l.5-.5a1.5 1.5 0 012.12 2.12l-.5.5c.3.5.5 1.1.7 1.7h.7a1.5 1.5 0 010 3h-.7c-.2.6-.4 1.2-.7 1.7l.5.5a1.5 1.5 0 01-2.12 2.12l-.5-.5c-.5.3-1.1.5-1.7.7v.7a1.5 1.5 0 01-3 0v-.7a6.5 6.5 0 01-1.7-.7l-.5.5a1.5 1.5 0 01-2.12-2.12l.5-.5A6.5 6.5 0 014 10.5h-.7a1.5 1.5 0 010-3h.7c.2-.6.4-1.2.7-1.7l-.5-.5A1.5 1.5 0 016.3 3.18l.5.5c.5-.3 1.1-.5 1.7-.7V1.5zM10 7a3 3 0 100 6 3 3 0 000-6z" fill="currentColor"/>
+            </svg>
+          </button>
+        )}
+        <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+        <TimeSeriesView onBack={handleBackToLanding} />
       </>
     );
   }
