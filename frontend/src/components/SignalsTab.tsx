@@ -16,8 +16,11 @@ interface Props {
 const EVAL_TYPES = ["SampleSeries", "Intervals", "PointsInTime", "PitSeries"];
 
 export default function SignalsTab({ signals, silverCatalog, silverSchema, onDelete, onUpdate, onAddVirtual }: Props) {
+  const PREVIEW_POINTS = 5000;
+
   const [previewSignal, setPreviewSignal] = useState<string | null>(null);
   const [previewData, setPreviewData] = useState<TimeSeriesPoint[]>([]);
+  const [previewTotalPoints, setPreviewTotalPoints] = useState(0);
   const [previewUnit, setPreviewUnit] = useState("");
   const [previewBaseMs, setPreviewBaseMs] = useState(0); // container start_dt as epoch ms
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -72,8 +75,9 @@ export default function SignalsTab({ signals, silverCatalog, silverSchema, onDel
       }
 
       setPreviewUnit(match.unit);
-      const dRes = await fetchTimeSeriesData(silverCatalog, silverSchema, containerId, match.channel_id);
+      const dRes = await fetchTimeSeriesData(silverCatalog, silverSchema, containerId, match.channel_id, undefined, undefined, PREVIEW_POINTS);
       setPreviewData(dRes.data);
+      setPreviewTotalPoints(dRes.total_points);
     } catch (e) {
       setPreviewError(`Preview failed: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
@@ -346,6 +350,11 @@ export default function SignalsTab({ signals, silverCatalog, silverSchema, onDel
                 useResizeHandler
                 style={{ width: "100%", height: 200 }}
               />
+              {previewTotalPoints > PREVIEW_POINTS && (
+                <div style={{ padding: "4px 8px", fontSize: 11, color: "var(--text-muted)", background: "var(--surface)", borderTop: "1px solid var(--border)" }}>
+                  Showing {previewData.length.toLocaleString()} of {previewTotalPoints.toLocaleString()} points (downsampled)
+                </div>
+              )}
             </div>
           )}
         </div>
