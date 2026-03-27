@@ -622,8 +622,7 @@ async def data_time_range(session_id: str, request: Request):
         vehicle_join = ""
 
     sql = (
-        f"SELECT MIN(m.start_dt) AS min_start, "
-        f"MAX(COALESCE(m.stop_dt, m.start_dt + INTERVAL '1' SECOND * (m.duration_ms / 1000.0))) AS max_stop "
+        f"SELECT MIN(m.start_dt) AS min_start, MAX(m.stop_dt) AS max_stop "
         f"FROM {catalog}.{schema}.container_metrics m "
         f"{vehicle_join}"
     )
@@ -642,11 +641,9 @@ async def data_time_range(session_id: str, request: Request):
     max_stop = None
     if result["rows"]:
         row = result["rows"][0]
-        logger.info("Data time range raw row: %s, columns: %s", row, result["columns"])
         min_start = row[min_idx] if min_idx < len(row) and row[min_idx] not in ("", "NULL", None) else None
         max_stop = row[max_idx] if max_idx < len(row) and row[max_idx] not in ("", "NULL", None) else None
 
-    logger.info("Data time range result: min_start=%s, max_stop=%s", min_start, max_stop)
     return {"min_start": min_start, "max_stop": max_stop}
 
 
