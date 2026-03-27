@@ -16,6 +16,7 @@ from server.models import (
     AggregationDefinition,
     AvailableChannel,
     Histogram1DDefinition,
+    Histogram2DDefinition,
     HistogramDefinition,
     HistogramType,
     ReportState,
@@ -841,6 +842,66 @@ async def update_aggregation(session_id: str, name: str, payload: AddHistogramPa
         event_signal_ref=payload.event_signal_ref,
         weight_signal_ref=payload.weight_signal_ref,
         weight_const=payload.weight_const,
+    )
+
+    return {"report_state": state.model_dump()}
+
+
+# ---------------------------------------------------------------------------
+# Histogram 2D builder endpoint
+# ---------------------------------------------------------------------------
+
+
+class AddHistogram2DPayload(BaseModel):
+    name: str
+    x_signal_ref: str
+    y_signal_ref: str
+    x_bins: list[float]
+    y_bins: list[float]
+    x_bins_unit: str | None = None
+    y_bins_unit: str | None = None
+    x_signal_name: str | None = None
+    y_signal_name: str | None = None
+    values_unit: str | None = None
+    description: str = ""
+
+
+@router.post("/add-histogram-2d/{session_id}")
+async def add_histogram_2d(session_id: str, payload: AddHistogram2DPayload):
+    """Add a 2D histogram directly from the builder UI."""
+    session = _sessions.get(session_id)
+    if not session:
+        raise HTTPException(404, "Session not found")
+
+    state = session.state
+
+    if not any(s.var_name == payload.x_signal_ref for s in state.signals):
+        raise HTTPException(400, f"X signal '{payload.x_signal_ref}' does not exist.")
+    if not any(s.var_name == payload.y_signal_ref for s in state.signals):
+        raise HTTPException(400, f"Y signal '{payload.y_signal_ref}' does not exist.")
+
+    if any(a.name == payload.name for a in state.aggregations):
+        raise HTTPException(400, f"Aggregation '{payload.name}' already exists.")
+
+    if not payload.x_bins or len(payload.x_bins) < 2:
+        raise HTTPException(400, "At least 2 X bin edges are required.")
+    if not payload.y_bins or len(payload.y_bins) < 2:
+        raise HTTPException(400, "At least 2 Y bin edges are required.")
+
+    state.aggregations.append(
+        Histogram2DDefinition(
+            name=payload.name,
+            x_signal_ref=payload.x_signal_ref,
+            y_signal_ref=payload.y_signal_ref,
+            x_bins=payload.x_bins,
+            y_bins=payload.y_bins,
+            x_bins_unit=payload.x_bins_unit,
+            y_bins_unit=payload.y_bins_unit,
+            x_signal_name=payload.x_signal_name,
+            y_signal_name=payload.y_signal_name,
+            values_unit=payload.values_unit,
+            description=payload.description,
+        )
     )
 
     return {"report_state": state.model_dump()}

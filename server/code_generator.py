@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from server.models import Histogram1DDefinition, HistogramType, ReportState
+from server.models import Histogram1DDefinition, Histogram2DDefinition, HistogramType, ReportState
 
 
 # ---------------------------------------------------------------------------
@@ -127,6 +127,39 @@ def generate_histogram_page(state: ReportState) -> str:
         lines.append(",\n".join(params) + ",")
         lines.append(")")
         lines.append("my_first_page.add_aggregation(hist)")
+        lines.append("")
+
+    # 2D histograms
+    histograms_2d = [a for a in state.aggregations if isinstance(a, Histogram2DDefinition)]
+    for hist2d in histograms_2d:
+        lines.append("# COMMAND ----------")
+        lines.append("")
+        lines.append("# MAGIC %md")
+        lines.append(f"# MAGIC ##### {hist2d.description or hist2d.name}")
+        lines.append("")
+        lines.append("# COMMAND ----------")
+        lines.append("")
+
+        params = [
+            f'    name="{hist2d.name}"',
+            f'    x_expr=signals["{hist2d.x_signal_ref}"]',
+            f'    y_expr=signals["{hist2d.y_signal_ref}"]',
+            f"    x_bins={hist2d.x_bins}",
+            f"    y_bins={hist2d.y_bins}",
+        ]
+        if hist2d.description:
+            params.append(f'    desc="{hist2d.description}"')
+        if hist2d.x_bins_unit:
+            params.append(f'    x_bins_unit="{hist2d.x_bins_unit}"')
+        if hist2d.y_bins_unit:
+            params.append(f'    y_bins_unit="{hist2d.y_bins_unit}"')
+        if hist2d.values_unit:
+            params.append(f'    values_unit="{hist2d.values_unit}"')
+
+        lines.append("hist2d = Histogram2D(")
+        lines.append(",\n".join(params) + ",")
+        lines.append(")")
+        lines.append("my_first_page.add_aggregation(hist2d)")
         lines.append("")
 
     return "\n".join(lines)

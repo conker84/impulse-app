@@ -22,6 +22,7 @@ from server.models import (
     DeploymentStatus,
     EvalType,
     Histogram1DDefinition,
+    Histogram2DDefinition,
     HistogramDefinition,
     HistogramType,
     ReportState,
@@ -199,6 +200,47 @@ TOOLS = [
                     },
                 },
                 "required": ["name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "add_histogram_2d",
+            "description": (
+                "Add a 2D histogram (heatmap) visualization with two signal axes. "
+                "Use when the user wants to see how two signals correlate (e.g. engine speed vs torque)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Unique histogram ID, convention: <short_name>_2d_p<page>",
+                    },
+                    "x_signal_ref": {
+                        "type": "string",
+                        "description": "var_name of the X-axis signal",
+                    },
+                    "y_signal_ref": {
+                        "type": "string",
+                        "description": "var_name of the Y-axis signal",
+                    },
+                    "x_bins": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "description": "Bin edges for the X axis",
+                    },
+                    "y_bins": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "description": "Bin edges for the Y axis",
+                    },
+                    "x_bins_unit": {"type": "string", "description": "Unit for X bins axis"},
+                    "y_bins_unit": {"type": "string", "description": "Unit for Y bins axis"},
+                    "description": {"type": "string"},
+                },
+                "required": ["name", "x_signal_ref", "y_signal_ref", "x_bins", "y_bins"],
             },
         },
     },
@@ -401,6 +443,28 @@ def _exec_add_histogram(state: ReportState, **kwargs: Any) -> str:
     return f"Added {kwargs['histogram_type']} histogram '{name}' on signal '{kwargs['signal_ref']}' with {len(kwargs.get('bins', []))} bin edges."
 
 
+def _exec_add_histogram_2d(state: ReportState, **kwargs: Any) -> str:
+    name = kwargs["name"]
+    if any(a.name == name for a in state.aggregations):
+        return f"Aggregation '{name}' already exists."
+    state.aggregations.append(
+        Histogram2DDefinition(
+            name=name,
+            x_signal_ref=kwargs["x_signal_ref"],
+            y_signal_ref=kwargs["y_signal_ref"],
+            x_bins=kwargs.get("x_bins", []),
+            y_bins=kwargs.get("y_bins", []),
+            x_bins_unit=kwargs.get("x_bins_unit"),
+            y_bins_unit=kwargs.get("y_bins_unit"),
+            description=kwargs.get("description", ""),
+        )
+    )
+    return (
+        f"Added 2D histogram '{name}' — X: '{kwargs['x_signal_ref']}' ({len(kwargs.get('x_bins', []))} edges), "
+        f"Y: '{kwargs['y_signal_ref']}' ({len(kwargs.get('y_bins', []))} edges)."
+    )
+
+
 def _exec_remove_aggregation(state: ReportState, name: str) -> str:
     idx = next((i for i, a in enumerate(state.aggregations) if a.name == name), None)
     if idx is None:
@@ -466,6 +530,7 @@ _TOOL_STEP_MAP: dict[str, set[WizardStep]] = {
     "add_virtual_signal": {WizardStep.CHANNELS},
     "suggest_signal_candidates": {WizardStep.CHANNELS},
     "add_histogram": {WizardStep.AGGREGATIONS},
+    "add_histogram_2d": {WizardStep.AGGREGATIONS},
     "remove_aggregation": {WizardStep.AGGREGATIONS},
     "set_vehicle": {WizardStep.VEHICLES},
     "set_data_sources": {WizardStep.VEHICLES},
@@ -507,6 +572,8 @@ def _dispatch_tool(
         return _exec_suggest_candidates(state, args["candidates"])
     if name == "add_histogram":
         return _exec_add_histogram(state, **args)
+    if name == "add_histogram_2d":
+        return _exec_add_histogram_2d(state, **args)
     if name == "remove_aggregation":
         return _exec_remove_aggregation(state, args["name"])
     if name == "set_report_metadata":

@@ -300,6 +300,25 @@ export async function addHistogram(
   });
 }
 
+export async function addHistogram2D(
+  sessionId: string,
+  payload: {
+    name: string;
+    x_signal_ref: string;
+    y_signal_ref: string;
+    x_bins: number[];
+    y_bins: number[];
+    x_bins_unit?: string | null;
+    y_bins_unit?: string | null;
+    description?: string;
+  }
+): Promise<{ report_state: ReportState }> {
+  return request(`/add-histogram-2d/${sessionId}`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function deleteAggregation(
   sessionId: string,
   name: string

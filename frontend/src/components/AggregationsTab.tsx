@@ -98,7 +98,7 @@ export default function AggregationsTab({ aggregations, onDelete, onEdit }: Prop
             <div className="card" key={a.name} style={{ position: "relative" }}>
               <div className="card-title">
                 <code>{a.name}</code>
-                <span className="badge" style={{ marginLeft: 8 }}>2D</span>
+                <span className="badge" style={{ marginLeft: 8, background: "var(--accent-secondary, #6366f1)", color: "#fff" }}>2D</span>
                 <span style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
                   {onDelete && (
                     <button
@@ -117,8 +117,11 @@ export default function AggregationsTab({ aggregations, onDelete, onEdit }: Prop
                 </div>
               )}
               <div className="card-meta">
-                <span>X: <code>{a.x_signal_ref}</code></span>
-                <span>Y: <code>{a.y_signal_ref}</code></span>
+                <span>X: <code>{a.x_signal_ref}</code> ({a.x_bins.length} edges{a.x_bins_unit ? `, ${a.x_bins_unit}` : ""})</span>
+                <span>Y: <code>{a.y_signal_ref}</code> ({a.y_bins.length} edges{a.y_bins_unit ? `, ${a.y_bins_unit}` : ""})</span>
+              </div>
+              <div style={{ marginTop: 8, fontSize: 11, color: "var(--text-muted)" }}>
+                X: [{a.x_bins[0]} ... {a.x_bins[a.x_bins.length - 1]}] | Y: [{a.y_bins[0]} ... {a.y_bins[a.y_bins.length - 1]}]
               </div>
             </div>
           );

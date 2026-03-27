@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import type { ChatMessage, Histogram1DDefinition, ReportState, WizardStep } from "./types";
-import { sendChat, scaffoldReport, deployReport, validateReport, advanceStep, goBack, setMetadata, selectCandidates, fetchVehicleCandidates, selectVehicles, updateVehicleTimestamps, getDeployStatus, cancelRun, getTokenStatus, setClusterConfig, loadReport, saveReport, suggestBins, addHistogram, deleteAggregation, updateAggregation, setSourceData, uploadMf4Files, triggerIngest, getIngestStatus, fetchChannelCatalog } from "./api";
+import type { ChatMessage, Histogram1DDefinition, Histogram2DDefinition, ReportState, WizardStep } from "./types";
+import { sendChat, scaffoldReport, deployReport, validateReport, advanceStep, goBack, setMetadata, selectCandidates, fetchVehicleCandidates, selectVehicles, updateVehicleTimestamps, getDeployStatus, cancelRun, getTokenStatus, setClusterConfig, loadReport, saveReport, suggestBins, addHistogram, addHistogram2D, deleteAggregation, updateAggregation, setSourceData, uploadMf4Files, triggerIngest, getIngestStatus, fetchChannelCatalog } from "./api";
 import type { DeployStatusResponse, TokenStatusResponse } from "./api";
 import type { DataSourceConfig } from "./types";
 import ChatPanel from "./components/ChatPanel";
@@ -259,6 +259,29 @@ export default function App() {
         setMessages((prev) => [
           ...prev,
           { role: "assistant", content: `Updated aggregation **${histogram.name}**.` },
+        ]);
+      } catch (err) {
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: `Error: ${err instanceof Error ? err.message : String(err)}` },
+        ]);
+      }
+    },
+    [sessionId]
+  );
+
+  const handleAddHistogram2D = useCallback(
+    async (histogram: Histogram2DDefinition) => {
+      if (!sessionId) return;
+      try {
+        const resp = await addHistogram2D(sessionId, histogram);
+        setReportState(resp.report_state);
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            content: `Added 2D histogram **${histogram.name}** — X: \`${histogram.x_signal_ref}\`, Y: \`${histogram.y_signal_ref}\`.`,
+          },
         ]);
       } catch (err) {
         setMessages((prev) => [
@@ -805,6 +828,7 @@ export default function App() {
         onTriggerIngest={handleTriggerIngest}
         ingestTasks={ingestTasks}
         onAddHistogram={handleAddHistogram}
+        onAddHistogram2D={handleAddHistogram2D}
         onDeleteAggregation={handleDeleteAggregation}
         onUpdateAggregation={handleUpdateAggregation}
         onSuggestBins={handleSuggestBins}

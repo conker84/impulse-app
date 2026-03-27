@@ -327,13 +327,8 @@ The `.template/` directory scaffolds a Databricks Asset Bundle that runs the Imp
 - [x] **Unify aggregation model as union type** — Refactored `ReportState` to use `aggregations: list[AggregationDefinition]` with discriminated union (`histogram_1d | histogram_2d | statistics`). `HistogramDefinition` → `Histogram1DDefinition` with `agg_kind` discriminator. `HistogramsTab` → `AggregationsTab`. All backend/frontend references migrated.
 - [x] **Delete aggregations** — `DELETE /api/aggregation/{session_id}/{name}`, `remove_aggregation` agent tool, trash icon on each card in `AggregationsTab`.
 - [x] **Edit aggregations** — `PUT /api/aggregation/{session_id}/{name}`, edit icon on each 1D histogram card pre-fills HistogramBuilder form, submit overwrites.
-- [ ] **Histogram2D support** — Separate tool, same architectural layers as 1D histograms. Framework class `Histogram2D` already exists.
-  1. Model: `Histogram2DDefinition` with `agg_kind: Literal["histogram_2d"]`, fields: `x_signal_ref`, `y_signal_ref`, `x_bins`, `y_bins`, `x_bins_unit`, `y_bins_unit`, `x_signal_name`, `y_signal_name`, `values_unit`, `description`
-  2. Agent: new `add_histogram_2d` tool (separate from `add_histogram` since param shape is different — two signals, two bin arrays). Step-gated to `AGGREGATIONS`.
-  3. Code gen: add `Histogram2DDefinition` branch in `generate_histogram_page()` mapping to `Histogram2D(x_expr=..., y_expr=..., x_bins=..., y_bins=...)`
-  4. Skill: new `create-histogram-2d/` skill with reference docs from `mda_framework_v2/docs/references/aggregation.md`
-  5. Frontend: new `Histogram2DBuilder` form (two signal dropdowns, two bin inputs, two unit fields). Display in `AggregationsTab` as heatmap-style card.
-  6. Visualization: Plotly `heatmap` trace for 2D histogram results
+- [x] **Histogram2D support** — `Histogram2DDefinition` model (done in Phase 1), `add_histogram_2d` agent tool, `POST /api/add-histogram-2d` route, code gen producing `Histogram2D(x_expr=..., y_expr=..., x_bins=..., y_bins=...)`, `Histogram2DBuilder` UI with two signal dropdowns and bin inputs, 2D card in `AggregationsTab`.
+  - Remaining: Skill docs (`create-histogram-2d/`), Plotly heatmap visualization for gold layer results.
 - [ ] **Statistics aggregation support** — Different model shape: no bins, multiple signals, stat labels. Framework class `Statistics` already exists.
   1. Model: `StatisticsDefinition` with `agg_kind: Literal["statistics"]`, fields: `signal_refs: list[str]`, `stat_labels: list[str]` (from `["min", "max", "mean", "median", "std", "count"]`), `event_signal_ref`, `signal_names: list[str] | None`, `description`
   2. Agent: new `add_statistics` tool. Step-gated to `AGGREGATIONS`.
