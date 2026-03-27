@@ -197,6 +197,34 @@ export async function selectCandidates(
   });
 }
 
+export async function deleteSignal(
+  sessionId: string,
+  varName: string
+): Promise<{ report_state: ReportState }> {
+  return request(`/signal/${sessionId}/${encodeURIComponent(varName)}`, { method: "DELETE" });
+}
+
+export async function updateSignal(
+  sessionId: string,
+  varName: string,
+  payload: { var_name: string; expression?: string; eval_type?: string; description?: string; alias?: string }
+): Promise<{ report_state: ReportState }> {
+  return request(`/signal/${sessionId}/${encodeURIComponent(varName)}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function addVirtualSignal(
+  sessionId: string,
+  payload: { var_name: string; expression: string; eval_type?: string; description?: string }
+): Promise<{ report_state: ReportState }> {
+  return request(`/add-virtual-signal/${sessionId}`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function fetchVehicleCandidates(
   sessionId: string
 ): Promise<{ candidates: { vehicle_id: string; datapoint_count: number }[]; report_state: ReportState }> {

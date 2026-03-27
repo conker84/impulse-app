@@ -25,6 +25,10 @@ interface Props {
   onAdvanceStep: () => void;
   onGoBack: () => void;
   onSelectCandidates: (selected: { alias: string; var_name: string; channel_name: string; description: string }[]) => void;
+  onDeleteSignal: (varName: string) => void;
+  onUpdateSignal: (varName: string, payload: { var_name: string; expression?: string; eval_type?: string; description?: string; alias?: string }) => void;
+  onAddVirtualSignal: (payload: { var_name: string; expression: string; eval_type?: string; description?: string }) => void;
+  channelsLoading: boolean;
   onFetchVehicleCandidates: () => void;
   onSelectVehicles: (selected: { vehicle_id: string; start_ts: string }[]) => void;
   onUpdateTimestamps: (payload: {
@@ -89,6 +93,10 @@ export default function PreviewPanel({
   onAdvanceStep,
   onGoBack,
   onSelectCandidates,
+  onDeleteSignal,
+  onUpdateSignal,
+  onAddVirtualSignal,
+  channelsLoading,
   onFetchVehicleCandidates,
   onSelectVehicles,
   onUpdateTimestamps,
@@ -200,6 +208,12 @@ export default function PreviewPanel({
         )}
         {state.wizard_step === "channels" && (
           <StepSection title="Channels" subtitle={`${state.signals.length} signal(s) defined`}>
+            {channelsLoading && (
+              <div className="card" style={{ textAlign: "center", padding: 24, color: "var(--text-muted)" }}>
+                <span className="spinner" style={{ marginRight: 8 }} />
+                Loading available channels for selected vehicles...
+              </div>
+            )}
             {state.signal_candidates.length > 0 && (
               <div ref={candidateRef} className="candidate-highlight">
                 <CandidateSelector
@@ -209,12 +223,21 @@ export default function PreviewPanel({
                 />
               </div>
             )}
-            <ChannelBrowser
-              channels={state.available_channels || []}
-              existingNames={new Set(state.signals.filter((s) => s.channel_name).map((s) => s.channel_name!))}
-              onAdd={onSelectCandidates}
+            {!channelsLoading && (
+              <ChannelBrowser
+                channels={state.available_channels || []}
+                existingNames={new Set(state.signals.filter((s) => s.channel_name).map((s) => s.channel_name!))}
+                onAdd={onSelectCandidates}
+              />
+            )}
+            <SignalsTab
+              signals={state.signals}
+              silverCatalog={state.source_data.silver_catalog}
+              silverSchema={state.source_data.silver_schema}
+              onDelete={onDeleteSignal}
+              onUpdate={onUpdateSignal}
+              onAddVirtual={onAddVirtualSignal}
             />
-            <SignalsTab signals={state.signals} silverCatalog={state.source_data.silver_catalog} silverSchema={state.source_data.silver_schema} />
           </StepSection>
         )}
         {state.wizard_step === "aggregations" && (

@@ -15,6 +15,7 @@ from server.agent import _sessions, _Session
 from server.models import (
     AggregationDefinition,
     AvailableChannel,
+    EvalType,
     Histogram1DDefinition,
     Histogram2DDefinition,
     HistogramDefinition,
@@ -250,6 +251,89 @@ async def select_candidates(session_id: str, payload: SelectCandidatesPayload):
     session.state.signal_candidates = []
 
     return {"added": added, "report_state": session.state.model_dump()}
+
+
+@router.delete("/signal/{session_id}/{var_name}")
+async def delete_signal(session_id: str, var_name: str):
+    """Remove a signal by var_name."""
+    session = _sessions.get(session_id)
+    if not session:
+        raise HTTPException(404, "Session not found")
+    idx = next((i for i, s in enumerate(session.state.signals) if s.var_name == var_name), None)
+    if idx is None:
+        raise HTTPException(404, f"Signal '{var_name}' not found.")
+    session.state.signals.pop(idx)
+    # Also remove any aggregations referencing this signal
+    session.state.aggregations = [
+        a for a in session.state.aggregations
+        if not (
+            (hasattr(a, "signal_ref") and a.signal_ref == var_name)
+            or (hasattr(a, "x_signal_ref") and a.x_signal_ref == var_name)
+            or (hasattr(a, "y_signal_ref") and a.y_signal_ref == var_name)
+            or (hasattr(a, "signal_refs") and var_name in a.signal_refs)
+        )
+    ]
+    return {"report_state": session.state.model_dump()}
+
+
+class UpdateSignalPayload(BaseModel):
+    var_name: str
+    expression: str | None = None
+    eval_type: str | None = None
+    description: str | None = None
+    alias: str | None = None
+
+
+@router.put("/signal/{session_id}/{var_name}")
+async def update_signal(session_id: str, var_name: str, payload: UpdateSignalPayload):
+    """Update an existing signal."""
+    session = _sessions.get(session_id)
+    if not session:
+        raise HTTPException(404, "Session not found")
+    sig = next((s for s in session.state.signals if s.var_name == var_name), None)
+    if sig is None:
+        raise HTTPException(404, f"Signal '{var_name}' not found.")
+    if payload.expression is not None:
+        sig.expression = payload.expression
+    if payload.eval_type is not None:
+        sig.eval_type = EvalType(payload.eval_type)
+    if payload.description is not None:
+        sig.description = payload.description
+    if payload.alias is not None:
+        sig.alias = payload.alias
+    # Handle rename
+    if payload.var_name != var_name:
+        if any(s.var_name == payload.var_name for s in session.state.signals if s is not sig):
+            raise HTTPException(400, f"Signal '{payload.var_name}' already exists.")
+        sig.var_name = payload.var_name
+    return {"report_state": session.state.model_dump()}
+
+
+class AddVirtualSignalPayload(BaseModel):
+    var_name: str
+    expression: str
+    eval_type: str = "SampleSeries"
+    description: str = ""
+
+
+@router.post("/add-virtual-signal/{session_id}")
+async def add_virtual_signal(session_id: str, payload: AddVirtualSignalPayload):
+    """Add a virtual signal via the UI (not chat)."""
+    session = _sessions.get(session_id)
+    if not session:
+        raise HTTPException(404, "Session not found")
+    if any(s.var_name == payload.var_name for s in session.state.signals):
+        raise HTTPException(400, f"Signal '{payload.var_name}' already exists.")
+    session.state.signals.append(
+        SignalDefinition(
+            var_name=payload.var_name,
+            signal_type="virtual",
+            expression=payload.expression,
+            eval_type=EvalType(payload.eval_type),
+            description=payload.description,
+        )
+    )
+    return {"report_state": session.state.model_dump()}
 
 
 @router.get("/channel-catalog/{session_id}")

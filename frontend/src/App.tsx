@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import type { ChatMessage, Histogram1DDefinition, Histogram2DDefinition, ReportState, StatisticsDefinition, WizardStep } from "./types";
-import { sendChat, scaffoldReport, deployReport, validateReport, advanceStep, goBack, setMetadata, selectCandidates, fetchVehicleCandidates, selectVehicles, updateVehicleTimestamps, getDeployStatus, cancelRun, getTokenStatus, setClusterConfig, loadReport, saveReport, suggestBins, addHistogram, addHistogram2D, addStatistics, deleteAggregation, updateAggregation, setSourceData, uploadMf4Files, triggerIngest, getIngestStatus, fetchChannelCatalog, fetchDataTimeRange } from "./api";
+import { sendChat, scaffoldReport, deployReport, validateReport, advanceStep, goBack, setMetadata, selectCandidates, fetchVehicleCandidates, selectVehicles, updateVehicleTimestamps, getDeployStatus, cancelRun, getTokenStatus, setClusterConfig, loadReport, saveReport, suggestBins, addHistogram, addHistogram2D, addStatistics, deleteAggregation, updateAggregation, setSourceData, uploadMf4Files, triggerIngest, getIngestStatus, fetchChannelCatalog, fetchDataTimeRange, deleteSignal, updateSignal, addVirtualSignal } from "./api";
 import type { DeployStatusResponse, TokenStatusResponse } from "./api";
 import type { DataSourceConfig } from "./types";
 import ChatPanel from "./components/ChatPanel";
@@ -82,6 +82,7 @@ export default function App() {
   const [deploying, setDeploying] = useState(false);
   const [validating, setValidating] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [channelsLoading, setChannelsLoading] = useState(false);
   const [jobStatus, setJobStatus] = useState<DeployStatusResponse | null>(null);
   const [vizDataSources, setVizDataSources] = useState<DataSourceConfig | null>(null);
   const [vizReportName, setVizReportName] = useState("");
@@ -118,6 +119,7 @@ export default function App() {
       !channelCatalogFetched.current
     ) {
       channelCatalogFetched.current = true;
+      setChannelsLoading(true);
       fetchChannelCatalog(sessionId)
         .then((resp) => {
           setReportState(resp.report_state);
@@ -134,7 +136,8 @@ export default function App() {
         .catch((err) => {
           console.warn("Channel catalog fetch failed:", err);
           channelCatalogFetched.current = false;
-        });
+        })
+        .finally(() => setChannelsLoading(false));
     }
   }, [reportState.wizard_step, sessionId]);
 
@@ -201,6 +204,54 @@ export default function App() {
             { role: "assistant", content: `Added ${resp.added.length} signal(s): ${resp.added.join(", ")}` },
           ]);
         }
+      } catch (err) {
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: `Error: ${err instanceof Error ? err.message : String(err)}` },
+        ]);
+      }
+    },
+    [sessionId]
+  );
+
+  const handleDeleteSignal = useCallback(
+    async (varName: string) => {
+      if (!sessionId) return;
+      try {
+        const resp = await deleteSignal(sessionId, varName);
+        setReportState(resp.report_state);
+      } catch (err) {
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: `Error: ${err instanceof Error ? err.message : String(err)}` },
+        ]);
+      }
+    },
+    [sessionId]
+  );
+
+  const handleUpdateSignal = useCallback(
+    async (varName: string, payload: { var_name: string; expression?: string; eval_type?: string; description?: string; alias?: string }) => {
+      if (!sessionId) return;
+      try {
+        const resp = await updateSignal(sessionId, varName, payload);
+        setReportState(resp.report_state);
+      } catch (err) {
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: `Error: ${err instanceof Error ? err.message : String(err)}` },
+        ]);
+      }
+    },
+    [sessionId]
+  );
+
+  const handleAddVirtualSignal = useCallback(
+    async (payload: { var_name: string; expression: string; eval_type?: string; description?: string }) => {
+      if (!sessionId) return;
+      try {
+        const resp = await addVirtualSignal(sessionId, payload);
+        setReportState(resp.report_state);
       } catch (err) {
         setMessages((prev) => [
           ...prev,
@@ -874,6 +925,10 @@ export default function App() {
         onAdvanceStep={handleAdvanceStep}
         onGoBack={handleGoBack}
         onSelectCandidates={handleSelectCandidates}
+        onDeleteSignal={handleDeleteSignal}
+        onUpdateSignal={handleUpdateSignal}
+        onAddVirtualSignal={handleAddVirtualSignal}
+        channelsLoading={channelsLoading}
         onFetchVehicleCandidates={handleFetchVehicleCandidates}
         onSelectVehicles={handleSelectVehicles}
         onUpdateTimestamps={handleUpdateTimestamps}
