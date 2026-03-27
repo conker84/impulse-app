@@ -205,17 +205,7 @@ all_rows = sorted(df.collect(), key=lambda r: (r['filename'], r['group_idx']))
 # COMMAND ----------
 
 # DBTITLE 1,Estimate bin parameters
-# Estimate bin parameters based on total datapoints and available cores
-from functools import reduce
-all_datapoints_count = reduce(lambda x,y: x + y, map(lambda x: x['sample_count'], all_rows), 0)
-num_bins_est = int(all_datapoints_count / max_datapoints_per_bin)
-try:
-  num_cores = utils.get_total_executor_cores(spark, spark.sparkContext)
-except Exception:
-  num_cores = 8
-if num_bins_est < (2 * num_cores):
-  max_datapoints_per_bin = int(all_datapoints_count / num_cores)
-max_datapoints_per_bin
+print(f"max_datapoints_per_bin: {max_datapoints_per_bin}")
 
 # COMMAND ----------
 
