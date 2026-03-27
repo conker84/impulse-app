@@ -8,27 +8,17 @@
 
 dbutils.widgets.text("catalog", "")
 dbutils.widgets.text("schema", "")
-dbutils.widgets.text("source_catalog", "")
-dbutils.widgets.text("source_schema", "")
-dbutils.widgets.text("mdf4_volume", "mdf4_uploads")
 dbutils.widgets.text("checkpoint_volume", "mdf4_checkpoint")
 
 # COMMAND ----------
 
 catalog = dbutils.widgets.get("catalog")
 schema = dbutils.widgets.get("schema")
-source_catalog = dbutils.widgets.get("source_catalog") or catalog
-source_schema = dbutils.widgets.get("source_schema") or schema
-mdf4_volume = dbutils.widgets.get("mdf4_volume")
 checkpoint_volume = dbutils.widgets.get("checkpoint_volume")
 
-# Create silver schema + checkpoint volume + status table
+# Create silver schema + checkpoint volume (source volume already exists from upload)
 spark.sql(f"CREATE SCHEMA IF NOT EXISTS {catalog}.{schema}")
 spark.sql(f"CREATE VOLUME IF NOT EXISTS {catalog}.{schema}.{checkpoint_volume}")
-
-# Create MF4 source volume (may be in a different schema than silver)
-spark.sql(f"CREATE SCHEMA IF NOT EXISTS {source_catalog}.{source_schema}")
-spark.sql(f"CREATE VOLUME IF NOT EXISTS {source_catalog}.{source_schema}.{mdf4_volume}")
 
 spark.sql(f"""
   CREATE TABLE IF NOT EXISTS {catalog}.{schema}.status (
@@ -41,4 +31,4 @@ spark.sql(f"""
   )
 """)
 
-print(f"Setup complete: silver={catalog}.{schema}, source={source_catalog}.{source_schema}.{mdf4_volume}")
+print(f"Setup complete: {catalog}.{schema}")
