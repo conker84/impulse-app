@@ -15,14 +15,11 @@ interface Props {
 
 const EVAL_TYPES = ["SampleSeries", "Intervals", "PointsInTime", "PitSeries"];
 
-function epochSecondsToDate(t: number): string {
-  return new Date(t * 1000).toISOString();
-}
-
 export default function SignalsTab({ signals, silverCatalog, silverSchema, onDelete, onUpdate, onAddVirtual }: Props) {
   const [previewSignal, setPreviewSignal] = useState<string | null>(null);
   const [previewData, setPreviewData] = useState<TimeSeriesPoint[]>([]);
   const [previewUnit, setPreviewUnit] = useState("");
+  const [previewBaseMs, setPreviewBaseMs] = useState(0); // container start_dt as epoch ms
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState("");
 
@@ -61,7 +58,11 @@ export default function SignalsTab({ signals, silverCatalog, silverSchema, onDel
         setPreviewError("No containers available.");
         return;
       }
-      const containerId = cRes.containers[0].container_id;
+      const container = cRes.containers[0];
+      const containerId = container.container_id;
+      // start_dt is the absolute timestamp for the container — t values are relative offsets in seconds
+      const baseMs = container.start_dt ? new Date(container.start_dt).getTime() : 0;
+      setPreviewBaseMs(baseMs);
 
       const sRes = await fetchTimeSeriesSignals(silverCatalog, silverSchema, containerId);
       const match = sRes.signals.find((s) => s.channel_name === channelName);
@@ -327,7 +328,7 @@ export default function SignalsTab({ signals, silverCatalog, silverSchema, onDel
             <div style={{ border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>
               <Plot
                 data={[{
-                  x: previewData.map((p) => epochSecondsToDate(p.t)),
+                  x: previewData.map((p) => new Date(previewBaseMs + p.t * 1000).toISOString()),
                   y: previewData.map((p) => p.v),
                   type: "scattergl" as const,
                   mode: "lines" as const,
