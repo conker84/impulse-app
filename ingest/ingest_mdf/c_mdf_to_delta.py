@@ -12,9 +12,7 @@
 # COMMAND ----------
 
 # DBTITLE 1,Imports
-import datetime
 import sys
-import ast
 import pandas as pd
 import numpy as np
 import pyspark.sql.functions as F
@@ -106,10 +104,7 @@ schema = schema_definitions.get_mdf4_schemas()['bronze_schema']
 
 # COMMAND ----------
 
-# Helper functions: channel discovery and bin packing
-
-def partitioner(key, numPartitions = 16):
-  return key
+# Helper functions: channel discovery and MDF reading (serverless-compatible, no RDD/sc)
 
 @pandas_udf(ArrayType(ArrayType(IntegerType())))
 def get_channel_indices(filenames: pd.Series) -> pd.Series:
@@ -131,47 +126,60 @@ def get_channel_indices(filenames: pd.Series) -> pd.Series:
     mdf.close()
   return pd.Series(result)
 
-# Reader over bins: opens each MDF once per file and streams numeric samples with metadata
-
-def read_mdf(it):
-  for (k,rows) in it:
-    prev_filename = ''
-    mdf = None
-    row_list = list(rows)
-    row_list.sort(key=lambda x: x['filename'])
-    for filename, channel_id, start_dt, group_idx, channel_idx, sample_count, bin_idx in row_list:
-      if prev_filename != filename:
-          #processing new file: Closing old file handle and initializing new mdf object
-          if mdf is not None:
-              mdf.close()
-          mdf = MDF(filename)
-          prev_filename = filename
-      channel = mdf.select([(None, group_idx, channel_idx)], copy_master=True, raw=False)[0]
-      times = np.array(channel.timestamps, dtype=np.int64)
-      values = channel.samples
-      # we only consider numeric timeseries
-      if not np.issubdtype(type(values[0]), np.number):
-          continue
-      # handle invalidation bits
-      invalid = channel.invalidation_bits
-      if invalid is not None:
-          invalid_idx = np.argwhere(invalid)
-          if len(invalid_idx) > 0:
-              values[invalid_idx] = np.nan
-      if channel.comment is not None:
-          comment_dict = ast.literal_eval(channel.comment)
-          brand = str(comment_dict.get('brand', 'NA'))
-          model = str(comment_dict.get('model', 'NA'))
-          vehicle_key = str(comment_dict.get('vehicle_key', 'NA'))
-          from_city = str(comment_dict.get('from_city', 'NA'))
-          to_city = str(comment_dict.get('to_city', 'NA'))
-          condition = str(comment_dict.get('condition', 'NA'))
-          experiment_id = str(comment_dict.get('experiment_id', 'NA'))
-      for i in range(len(times)):
-        yield (filename, channel_id, group_idx, channel_idx, channel.name, channel.unit, int(times[i]), float(values[i]),
-               brand, model, vehicle_key, from_city, to_city, condition, experiment_id)
-    if mdf is not None:
+# Reader function for applyInPandas: processes each bin group as a pandas DataFrame
+def read_mdf_pandas(pdf):
+  import ast as _ast
+  import numpy as _np
+  from asammdf import MDF as _MDF
+  pdf = pdf.sort_values("filename")
+  rows = []
+  prev_filename = ''
+  mdf = None
+  for _, r in pdf.iterrows():
+    filename = r["filename"]
+    channel_id = int(r["channel_id"])
+    group_idx = int(r["group_idx"])
+    channel_idx = int(r["channel_idx"])
+    if prev_filename != filename:
+      if mdf is not None:
         mdf.close()
+      mdf = _MDF(filename)
+      prev_filename = filename
+    channel = mdf.select([(None, group_idx, channel_idx)], copy_master=True, raw=False)[0]
+    times = _np.array(channel.timestamps, dtype=_np.int64)
+    values = channel.samples
+    if not _np.issubdtype(type(values[0]), _np.number):
+      continue
+    invalid = channel.invalidation_bits
+    if invalid is not None:
+      invalid_idx = _np.argwhere(invalid)
+      if len(invalid_idx) > 0:
+        values[invalid_idx] = _np.nan
+    brand = model = vehicle_key = from_city = to_city = condition = experiment_id = 'NA'
+    if channel.comment is not None:
+      comment_dict = _ast.literal_eval(channel.comment)
+      brand = str(comment_dict.get('brand', 'NA'))
+      model = str(comment_dict.get('model', 'NA'))
+      vehicle_key = str(comment_dict.get('vehicle_key', 'NA'))
+      from_city = str(comment_dict.get('from_city', 'NA'))
+      to_city = str(comment_dict.get('to_city', 'NA'))
+      condition = str(comment_dict.get('condition', 'NA'))
+      experiment_id = str(comment_dict.get('experiment_id', 'NA'))
+    for i in range(len(times)):
+      rows.append((filename, channel_id, group_idx, channel_idx, channel.name, channel.unit,
+                    int(times[i]), float(values[i]), brand, model, vehicle_key,
+                    from_city, to_city, condition, experiment_id))
+  if mdf is not None:
+    mdf.close()
+  if rows:
+    return pd.DataFrame(rows, columns=["filename", "channel_id", "group_idx", "channel_idx",
+                                        "channel_name", "unit", "time", "value", "brand",
+                                        "model", "vehicle_key", "from_city", "to_city",
+                                        "condition", "experiment_id"])
+  return pd.DataFrame(columns=["filename", "channel_id", "group_idx", "channel_idx",
+                                "channel_name", "unit", "time", "value", "brand",
+                                "model", "vehicle_key", "from_city", "to_city",
+                                "condition", "experiment_id"])
 
 
 # COMMAND ----------
@@ -185,7 +193,7 @@ def read_mdf(it):
 # Build per-file, per-channel plan with sample counts for bin packing
 
 df = (spark
-      .createDataFrame(sc.parallelize([(x,) for x in open_files]), "filename string")
+      .createDataFrame([(x,) for x in open_files], "filename string")
       .withColumn("channel_indices", get_channel_indices(F.col("filename")))
       .where(F.array_size(F.col("channel_indices")) > 0)
       .withColumn("idx", F.explode("channel_indices"))
@@ -209,7 +217,8 @@ all_rows = sorted(df.collect(), key=lambda r: (r['filename'], r['group_idx']))
 from functools import reduce
 all_datapoints_count = reduce(lambda x,y: x + y, map(lambda x: x['sample_count'], all_rows), 0)
 num_bins_est = int(all_datapoints_count / max_datapoints_per_bin)
-num_cores = utils.get_total_executor_cores(spark, sc)
+# Use a sensible default for serverless (no sc.defaultParallelism)
+num_cores = 8
 if num_bins_est < (2 * num_cores):
   max_datapoints_per_bin = int(all_datapoints_count / num_cores)
 max_datapoints_per_bin
@@ -218,30 +227,25 @@ max_datapoints_per_bin
 
 # DBTITLE 1,Run binpacking
 # Perform global bin packing of (file, channel) tasks to balance sample counts per partition
-# Produces bins with approximately max_datapoints_per_bin samples for parallel processing
-#Performing global binpacking 
 all_ids = [(r["filename"], r["channel_id"], r["group_idx"], r["channel_idx"], r["sample_count"]) for r in all_rows]
 bins = binpacking.to_constant_volume(all_ids, max_datapoints_per_bin, weight_pos=4)
-start_dt = datetime.datetime.now()
-bins_flattened = [(x[0], x[1], start_dt, x[2], x[3], x[4], bin_index) for bin_index in range(0,len(bins)) for x in bins[bin_index]]
+bins_flattened = [(x[0], x[1], x[2], x[3], x[4], bin_index) for bin_index in range(len(bins)) for x in bins[bin_index]]
 assert len(bins_flattened) == len(all_ids)
 
 # COMMAND ----------
 
 # DBTITLE 1,Prepare task DataFrame
 # Define intermediate Spark schema for the bin plan rows
-schema_str = "filename string, channel_id int, start_dt timestamp, group_idx int, channel_idx int, sample_count int, bin_idx int"
-df = spark.createDataFrame(sc.parallelize(bins_flattened, len(bins)), schema_str)
+schema_str = "filename string, channel_id int, group_idx int, channel_idx int, sample_count int, bin_idx int"
+df = spark.createDataFrame(bins_flattened, schema_str).repartition("bin_idx")
 
 # COMMAND ----------
 
 # DBTITLE 1,Read mdf file into DataFrame
-# Execute the read: mapPartitions over bins, convert to target schema, attach container id, project columns
+# Execute the read via mapInPandas grouped by bin_idx (serverless-compatible)
 resdf_raw = (df
-             .rdd
-             .groupBy(lambda r : r['bin_idx'], len(bins), partitioner)
-             .mapPartitions(read_mdf, preservesPartitioning=True)
-             .toDF(schema=schema)
+             .groupBy("bin_idx")
+             .applyInPandas(read_mdf_pandas, schema=schema)
              .withColumn("container_id", file2cid_map[F.col('filename')].cast('bigint'))
              .select("container_id", "channel_id", "time", "value", "filename", "group_idx", "channel_idx", "channel_name", "unit",
                      "brand", "model", "from_city", "to_city", "condition", "experiment_id")
