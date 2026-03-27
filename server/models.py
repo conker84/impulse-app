@@ -196,9 +196,9 @@ class SourceDataConfig(BaseModel):
 class WizardStep(str, Enum):
     SOURCE_DATA = "source_data"
     REPORT_NAME = "report_name"
+    VEHICLES = "vehicles"
     CHANNELS = "channels"
     AGGREGATIONS = "aggregations"
-    VEHICLES = "vehicles"
     READY = "ready"
 
 WIZARD_ORDER = list(WizardStep)

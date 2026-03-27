@@ -586,6 +586,8 @@ def _exec_preview_code(state: ReportState) -> str:
 
 _TOOL_STEP_MAP: dict[str, set[WizardStep]] = {
     "set_report_metadata": {WizardStep.REPORT_NAME},
+    "set_vehicle": {WizardStep.VEHICLES},
+    "set_data_sources": {WizardStep.VEHICLES},
     "add_physical_signal": {WizardStep.CHANNELS},
     "add_virtual_signal": {WizardStep.CHANNELS},
     "suggest_signal_candidates": {WizardStep.CHANNELS},
@@ -593,17 +595,15 @@ _TOOL_STEP_MAP: dict[str, set[WizardStep]] = {
     "add_histogram_2d": {WizardStep.AGGREGATIONS},
     "add_statistics": {WizardStep.AGGREGATIONS},
     "remove_aggregation": {WizardStep.AGGREGATIONS},
-    "set_vehicle": {WizardStep.VEHICLES},
-    "set_data_sources": {WizardStep.VEHICLES},
-    "preview_code": {WizardStep.VEHICLES, WizardStep.READY},
-    "load_skill": {WizardStep.REPORT_NAME, WizardStep.CHANNELS, WizardStep.AGGREGATIONS, WizardStep.VEHICLES, WizardStep.READY},
+    "preview_code": {WizardStep.AGGREGATIONS, WizardStep.READY},
+    "load_skill": {WizardStep.REPORT_NAME, WizardStep.VEHICLES, WizardStep.CHANNELS, WizardStep.AGGREGATIONS, WizardStep.READY},
 }
 
 _STEP_LABELS = {
     WizardStep.REPORT_NAME: "Report Name",
+    WizardStep.VEHICLES: "Vehicles",
     WizardStep.CHANNELS: "Channels",
     WizardStep.AGGREGATIONS: "Aggregations",
-    WizardStep.VEHICLES: "Vehicles",
     WizardStep.READY: "Ready",
 }
 

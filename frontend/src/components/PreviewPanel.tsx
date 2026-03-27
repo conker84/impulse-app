@@ -74,9 +74,9 @@ function canAdvance(state: ReportState): boolean {
     return false;
   }
   if (step === "report_name") return !!state.name;
+  if (step === "vehicles") return state.vehicles.length > 0;
   if (step === "channels") return state.signals.length > 0;
   if (step === "aggregations") return state.aggregations.length > 0;
-  if (step === "vehicles") return state.vehicles.length > 0;
   return false;
 }
 
@@ -187,6 +187,14 @@ export default function PreviewPanel({
         {state.wizard_step === "report_name" && (
           <MetadataForm state={state} onSaveMetadata={onSaveMetadata} />
         )}
+        {state.wizard_step === "vehicles" && (
+          <VehiclesStep
+            state={state}
+            onFetchCandidates={onFetchVehicleCandidates}
+            onSelectVehicles={onSelectVehicles}
+            onUpdateTimestamps={onUpdateTimestamps}
+          />
+        )}
         {state.wizard_step === "channels" && (
           <StepSection title="Channels" subtitle={`${state.signals.length} signal(s) defined`}>
             {state.signal_candidates.length > 0 && (
@@ -233,14 +241,6 @@ export default function PreviewPanel({
               onAdd={onAddStatistics}
             />
           </StepSection>
-        )}
-        {state.wizard_step === "vehicles" && (
-          <VehiclesStep
-            state={state}
-            onFetchCandidates={onFetchVehicleCandidates}
-            onSelectVehicles={onSelectVehicles}
-            onUpdateTimestamps={onUpdateTimestamps}
-          />
         )}
         {state.wizard_step === "ready" && (
           <ReadyPanel

@@ -161,9 +161,9 @@ def build_system_prompt(
         "The report creation follows 4 sequential steps. The user must complete each step before "
         "moving on. The current step is shown in the UI. **Only use tools relevant to the current step.**\n\n"
         "1. **Report Name** — Set the report name and description (`set_report_metadata`)\n"
-        "2. **Channels** — Define physical and virtual signals (`add_physical_signal`, `add_virtual_signal`)\n"
-        "3. **Aggregations** — Define histograms (`add_histogram`)\n"
-        "4. **Vehicles** — Configure vehicles and data sources (`set_vehicle`, `set_data_sources`)\n\n"
+        "2. **Vehicles** — Configure vehicles and data sources (`set_vehicle`, `set_data_sources`)\n"
+        "3. **Channels** — Define physical and virtual signals (`add_physical_signal`, `add_virtual_signal`). Channels are filtered to those available for the selected vehicles.\n"
+        "4. **Aggregations** — Define histograms (`add_histogram`)\n\n"
         f"### Current Step: {wizard_step.upper().replace('_', ' ')}\n\n"
         f"{step_instructions}\n\n"
         f"{signal_context}"
@@ -203,7 +203,7 @@ _STEP_INSTRUCTIONS: dict[str, str] = {
     "report_name": (
         "Ask the user for a **report name** (lowercase, underscores, no spaces) and an optional "
         "description. Use `set_report_metadata` to save it. Once done, tell the user to click "
-        "'Next Step' to proceed to defining channels."
+        "'Next Step' to proceed to vehicle selection."
     ),
     "channels": (
         "Help the user define **physical and virtual signals**.\n\n"
@@ -243,7 +243,7 @@ _STEP_INSTRUCTIONS: dict[str, str] = {
         "Help the user define **histogram aggregations** on the signals from the previous step. "
         "Use `add_histogram` to create duration, distance, duration_count, or event_count histograms. "
         "Suggest appropriate bin ranges based on the signal's physical meaning. Once all histograms "
-        "are defined, tell the user to click 'Next Step' to proceed to vehicle configuration."
+        "are defined, tell the user to click 'Next Step' to proceed to the final review."
     ),
     "vehicles": (
         "The **Vehicles** step lets users select vehicles and auto-configures data sources.\n\n"
@@ -256,7 +256,8 @@ _STEP_INSTRUCTIONS: dict[str, str] = {
         "to call `set_vehicle` or `set_data_sources` unless the user explicitly asks to add a vehicle "
         "manually or override data source settings.\n"
         "- If the user wants to set a start timestamp for a vehicle, use `set_vehicle` to update it.\n"
-        "- Once vehicles are selected, tell the user to click 'Next Step' to proceed.\n\n"
+        "- Once vehicles are selected, tell the user to click 'Next Step' to proceed to channel selection. "
+        "The available channels will be automatically filtered to only those present in the selected vehicles' data.\n\n"
         "For more detail on configuration options, call `load_skill('configure-report')`."
     ),
     "ready": (

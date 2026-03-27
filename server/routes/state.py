@@ -275,6 +275,19 @@ async def channel_catalog(session_id: str, request: Request):
     user_token = request.headers.get("X-Forwarded-Access-Token")
     logger.info("Fetching channel catalog from %s.%s", catalog, schema)
 
+    # Filter channels to only those belonging to selected vehicles' containers
+    vehicle_ids = [v.vehicle_id for v in session.state.vehicles]
+    if vehicle_ids:
+        ids_str = ", ".join(f"'{v}'" for v in vehicle_ids)
+        vehicle_filter = (
+            f"JOIN {catalog}.{schema}.container_tags ct_veh "
+            f"  ON t_name.container_id = ct_veh.container_id "
+            f"  AND ct_veh.key = 'vehicle_key' "
+            f"  AND ct_veh.value IN ({ids_str}) "
+        )
+    else:
+        vehicle_filter = ""
+
     sql = (
         f"SELECT t_name.value AS channel_name, "
         f"       COALESCE(t_unit.value, '') AS unit, "
@@ -292,6 +305,7 @@ async def channel_catalog(session_id: str, request: Request):
         f"JOIN {catalog}.{schema}.channel_metrics m "
         f"  ON t_name.container_id = m.container_id "
         f"  AND t_name.channel_id = m.channel_id "
+        f"{vehicle_filter}"
         f"WHERE t_name.key = 'channel_name' "
         f"GROUP BY t_name.value, t_unit.value "
         f"ORDER BY channel_name"
@@ -605,15 +619,15 @@ def _validate_step_complete(state: ReportState) -> str | None:
     elif step == WizardStep.REPORT_NAME:
         if not state.name:
             return "Please set a report name before continuing."
+    elif step == WizardStep.VEHICLES:
+        if len(state.vehicles) == 0:
+            return "Please add at least one vehicle before continuing."
     elif step == WizardStep.CHANNELS:
         if len(state.signals) == 0:
             return "Please add at least one signal before continuing."
     elif step == WizardStep.AGGREGATIONS:
         if len(state.aggregations) == 0:
             return "Please add at least one aggregation before continuing."
-    elif step == WizardStep.VEHICLES:
-        if len(state.vehicles) == 0:
-            return "Please add at least one vehicle before continuing."
     return None
 
 

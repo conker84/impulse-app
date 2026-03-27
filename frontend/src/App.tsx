@@ -15,9 +15,9 @@ type AppView = "landing" | "editor" | "visualize" | "timeseries";
 const WIZARD_STEPS: { key: WizardStep; label: string; icon: string }[] = [
   { key: "source_data", label: "Source Data", icon: "\uD83D\uDCC2" },
   { key: "report_name", label: "Report Name", icon: "\u270F\uFE0F" },
+  { key: "vehicles", label: "Vehicles", icon: "\uD83D\uDE97" },
   { key: "channels", label: "Channels", icon: "\uD83D\uDCE1" },
   { key: "aggregations", label: "Aggregations", icon: "\uD83D\uDCCA" },
-  { key: "vehicles", label: "Vehicles", icon: "\uD83D\uDE97" },
   { key: "ready", label: "Ready", icon: "\u2705" },
 ];
 
@@ -67,9 +67,9 @@ const INITIAL_STATE: ReportState = {
 const STEP_PLACEHOLDER: Record<WizardStep, string> = {
   source_data: "Choose your data source: upload MF4 files or connect to existing Silver layer tables...",
   report_name: "Enter a report name, e.g. 'oil_temp_report'...",
+  vehicles: "Add vehicles, e.g. 'Vehicle XY123 starting from 2024-01-01'...",
   channels: "Describe the signals you need, e.g. 'Add engine speed and oil temperature'...",
   aggregations: "Describe the histograms, e.g. 'Duration histogram for oil temp, 0-160 degC'...",
-  vehicles: "Add vehicles, e.g. 'Vehicle XY123 starting from 2024-01-01'...",
   ready: "Your report is ready! Click Deploy & Run.",
 };
 
@@ -98,13 +98,24 @@ export default function App() {
   }, []);
 
   // Auto-fetch channel catalog when entering the Channels step
+  // (filtered by selected vehicles since vehicles step comes first)
   const channelCatalogFetched = useRef(false);
+  const lastVehicleCount = useRef(0);
+
+  // Reset channel catalog fetch flag when vehicles change
+  useEffect(() => {
+    const vehicleCount = reportState.vehicles.length;
+    if (vehicleCount !== lastVehicleCount.current) {
+      lastVehicleCount.current = vehicleCount;
+      channelCatalogFetched.current = false;
+    }
+  }, [reportState.vehicles.length]);
+
   useEffect(() => {
     if (
       reportState.wizard_step === "channels" &&
       sessionId &&
-      !channelCatalogFetched.current &&
-      (!reportState.available_channels || reportState.available_channels.length === 0)
+      !channelCatalogFetched.current
     ) {
       channelCatalogFetched.current = true;
       fetchChannelCatalog(sessionId)
@@ -115,7 +126,7 @@ export default function App() {
               ...prev,
               {
                 role: "assistant" as const,
-                content: `Discovered **${resp.channels.length} channels** from your ingested data. Ask me to add signals — e.g. "add engine speed" or "show me all available channels".`,
+                content: `Discovered **${resp.channels.length} channels** available for your selected vehicles. Ask me to add signals — e.g. "add engine speed" or "show me all available channels".`,
               },
             ]);
           }

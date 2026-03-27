@@ -140,9 +140,9 @@ export interface SourceDataConfig {
 export type WizardStep =
   | "source_data"
   | "report_name"
+  | "vehicles"
   | "channels"
   | "aggregations"
-  | "vehicles"
   | "ready";
 
 export type DeploymentStatus =
