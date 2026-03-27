@@ -36,14 +36,6 @@ from utils import utils
 
 # COMMAND ----------
 
-# DBTITLE 1,Set spark configs
-# Serverless manages these automatically; only set on classic clusters
-try:
-    spark.conf.set("spark.sql.adaptive.coalescePartitions.enabled", False)
-    spark.conf.set("spark.sql.shuffle.partitions", "auto")
-except Exception:
-    pass
-
 # COMMAND ----------
 
 # MAGIC %md
