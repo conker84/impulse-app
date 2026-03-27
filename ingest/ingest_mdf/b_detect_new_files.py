@@ -52,6 +52,7 @@ print('Running on source_directory:', source_directory)
 new_files_df = (spark.readStream
   .format('cloudFiles')
   .option("cloudFiles.format", "binaryFile")  # list files regardless of content
+  .option("cloudFiles.partitionColumns", "")   # no partitions in flat volume dir
   .option('cloudFiles.maxFilesPerTrigger', max_batch_size)
   .load(source_directory)
   .withColumn('filename', F.regexp_replace(F.col("path"), "dbfs:", ""))
