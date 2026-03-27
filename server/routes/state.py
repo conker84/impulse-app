@@ -588,6 +588,65 @@ async def update_vehicle_timestamps(session_id: str, payload: UpdateTimestampsPa
     return {"report_state": session.state.model_dump()}
 
 
+@router.get("/data-time-range/{session_id}")
+async def data_time_range(session_id: str, request: Request):
+    """Query the actual time range of data for the selected vehicles.
+
+    Uses container_metrics (start_dt, stop_dt) joined with container_tags
+    to filter by selected vehicles. Returns min(start_dt) and max(stop_dt).
+    """
+    session = _sessions.get(session_id)
+    if not session:
+        raise HTTPException(404, "Session not found")
+
+    sd = session.state.source_data
+    catalog = sd.silver_catalog
+    schema = sd.silver_schema
+    if not catalog or not schema:
+        raise HTTPException(400, "Silver layer catalog/schema not configured.")
+
+    from server.mcp_tools import execute_sql
+
+    user_token = request.headers.get("X-Forwarded-Access-Token")
+
+    vehicle_ids = [v.vehicle_id for v in session.state.vehicles]
+    if vehicle_ids:
+        ids_str = ", ".join(f"'{v}'" for v in vehicle_ids)
+        vehicle_join = (
+            f"JOIN {catalog}.{schema}.container_tags ct "
+            f"  ON m.container_id = ct.container_id "
+            f"  AND ct.key = 'vehicle_key' "
+            f"  AND ct.value IN ({ids_str}) "
+        )
+    else:
+        vehicle_join = ""
+
+    sql = (
+        f"SELECT MIN(m.start_dt) AS min_start, MAX(m.stop_dt) AS max_stop "
+        f"FROM {catalog}.{schema}.container_metrics m "
+        f"{vehicle_join}"
+    )
+
+    try:
+        result = execute_sql(sql, user_token=user_token)
+    except Exception as e:
+        logger.exception("Failed to query data time range")
+        raise HTTPException(502, f"Time range query failed: {e}")
+
+    col_map = {c.lower(): i for i, c in enumerate(result["columns"])}
+    min_idx = col_map.get("min_start", 0)
+    max_idx = col_map.get("max_stop", 1)
+
+    min_start = None
+    max_stop = None
+    if result["rows"]:
+        row = result["rows"][0]
+        min_start = row[min_idx] if min_idx < len(row) and row[min_idx] not in ("", "NULL", None) else None
+        max_stop = row[max_idx] if max_idx < len(row) and row[max_idx] not in ("", "NULL", None) else None
+
+    return {"min_start": min_start, "max_stop": max_stop}
+
+
 @router.post("/go-back/{session_id}")
 async def go_back(session_id: str):
     session = _sessions.get(session_id)

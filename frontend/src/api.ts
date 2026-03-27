@@ -227,6 +227,12 @@ export async function updateVehicleTimestamps(
   });
 }
 
+export async function fetchDataTimeRange(
+  sessionId: string
+): Promise<{ min_start: string | null; max_stop: string | null }> {
+  return request(`/data-time-range/${sessionId}`);
+}
+
 export interface TokenStatusResponse {
   local_mode: boolean;
   has_token: boolean;

@@ -538,6 +538,36 @@ body {
   cursor: not-allowed;
 }
 
+/* Timestamp preset buttons */
+.ts-preset-btn {
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.ts-preset-btn:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+}
+.ts-preset-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.ts-preset-btn.ts-preset-data {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.ts-preset-btn.ts-preset-data:hover:not(:disabled) {
+  background: var(--accent);
+  color: #fff;
+}
+
 /* Loading spinner */
 .spinner {
   display: inline-block;

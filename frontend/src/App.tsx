@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import type { ChatMessage, Histogram1DDefinition, Histogram2DDefinition, ReportState, StatisticsDefinition, WizardStep } from "./types";
-import { sendChat, scaffoldReport, deployReport, validateReport, advanceStep, goBack, setMetadata, selectCandidates, fetchVehicleCandidates, selectVehicles, updateVehicleTimestamps, getDeployStatus, cancelRun, getTokenStatus, setClusterConfig, loadReport, saveReport, suggestBins, addHistogram, addHistogram2D, addStatistics, deleteAggregation, updateAggregation, setSourceData, uploadMf4Files, triggerIngest, getIngestStatus, fetchChannelCatalog } from "./api";
+import { sendChat, scaffoldReport, deployReport, validateReport, advanceStep, goBack, setMetadata, selectCandidates, fetchVehicleCandidates, selectVehicles, updateVehicleTimestamps, getDeployStatus, cancelRun, getTokenStatus, setClusterConfig, loadReport, saveReport, suggestBins, addHistogram, addHistogram2D, addStatistics, deleteAggregation, updateAggregation, setSourceData, uploadMf4Files, triggerIngest, getIngestStatus, fetchChannelCatalog, fetchDataTimeRange } from "./api";
 import type { DeployStatusResponse, TokenStatusResponse } from "./api";
 import type { DataSourceConfig } from "./types";
 import ChatPanel from "./components/ChatPanel";
@@ -537,6 +537,15 @@ export default function App() {
     [sessionId]
   );
 
+  const handleFetchDataRange = useCallback(async () => {
+    if (!sessionId) return null;
+    try {
+      return await fetchDataTimeRange(sessionId);
+    } catch {
+      return null;
+    }
+  }, [sessionId]);
+
   const handleCancelRun = useCallback(async () => {
     if (!sessionId) return;
     try {
@@ -868,6 +877,7 @@ export default function App() {
         onFetchVehicleCandidates={handleFetchVehicleCandidates}
         onSelectVehicles={handleSelectVehicles}
         onUpdateTimestamps={handleUpdateTimestamps}
+        onFetchDataRange={handleFetchDataRange}
         onDeploy={handleDeploy}
         onCancelRun={handleCancelRun}
         onClusterConfigChange={handleClusterConfigChange}

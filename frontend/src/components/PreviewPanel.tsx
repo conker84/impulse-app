@@ -32,6 +32,7 @@ interface Props {
     global_stop_ts: string | null;
     per_vehicle: { vehicle_id: string; start_ts: string; stop_ts: string | null }[];
   }) => void;
+  onFetchDataRange: () => Promise<{ min_start: string | null; max_stop: string | null } | null>;
   onDeploy: () => void;
   onCancelRun: () => void;
   onClusterConfigChange: (useAllPurpose: boolean, clusterId: string) => void;
@@ -91,6 +92,7 @@ export default function PreviewPanel({
   onFetchVehicleCandidates,
   onSelectVehicles,
   onUpdateTimestamps,
+  onFetchDataRange,
   onDeploy,
   onCancelRun,
   onClusterConfigChange,
@@ -193,6 +195,7 @@ export default function PreviewPanel({
             onFetchCandidates={onFetchVehicleCandidates}
             onSelectVehicles={onSelectVehicles}
             onUpdateTimestamps={onUpdateTimestamps}
+            onFetchDataRange={onFetchDataRange}
           />
         )}
         {state.wizard_step === "channels" && (
@@ -1121,6 +1124,7 @@ function VehiclesStep({
   onFetchCandidates,
   onSelectVehicles,
   onUpdateTimestamps,
+  onFetchDataRange,
 }: {
   state: ReportState;
   onFetchCandidates: () => void;
@@ -1130,6 +1134,7 @@ function VehiclesStep({
     global_stop_ts: string | null;
     per_vehicle: { vehicle_id: string; start_ts: string; stop_ts: string | null }[];
   }) => void;
+  onFetchDataRange: () => Promise<{ min_start: string | null; max_stop: string | null } | null>;
 }) {
   const [loading, setLoading] = useState(false);
   const [fetched, setFetched] = useState(false);
@@ -1166,12 +1171,12 @@ function VehiclesStep({
 
       {!loading && state.vehicle_candidates.length === 0 && state.vehicles.length === 0 && fetched && (
         <div className="card" style={{ color: "var(--text-muted)", fontSize: 13 }}>
-          No vehicles found in the mapping table. You can add vehicles via the chat instead.
+          No vehicles found in the data. You can add vehicles manually via the chat instead.
         </div>
       )}
 
       {state.vehicles.length > 0 && (
-        <TimestampEditor vehicles={state.vehicles} onSave={onUpdateTimestamps} />
+        <TimestampEditor vehicles={state.vehicles} onSave={onUpdateTimestamps} onFetchDataRange={onFetchDataRange} />
       )}
 
       {state.vehicles.length > 0 && (
@@ -1193,9 +1198,29 @@ function VehiclesStep({
   );
 }
 
+function _toDatetimeLocal(ts: string): string {
+  // Convert "2025-01-15 08:30:00" or ISO to "2025-01-15T08:30" for datetime-local input
+  if (!ts) return "";
+  const clean = ts.replace(" ", "T").replace(/Z$/, "");
+  return clean.slice(0, 16); // "YYYY-MM-DDTHH:MM"
+}
+
+function _lastNDays(n: number): { start: string; stop: string } {
+  const now = new Date();
+  const start = new Date(now.getTime() - n * 24 * 60 * 60 * 1000);
+  const fmt = (d: Date) =>
+    d.getFullYear() +
+    "-" + String(d.getMonth() + 1).padStart(2, "0") +
+    "-" + String(d.getDate()).padStart(2, "0") +
+    "T" + String(d.getHours()).padStart(2, "0") +
+    ":" + String(d.getMinutes()).padStart(2, "0");
+  return { start: fmt(start), stop: fmt(now) };
+}
+
 function TimestampEditor({
   vehicles,
   onSave,
+  onFetchDataRange,
 }: {
   vehicles: ReportState["vehicles"];
   onSave: (payload: {
@@ -1203,6 +1228,7 @@ function TimestampEditor({
     global_stop_ts: string | null;
     per_vehicle: { vehicle_id: string; start_ts: string; stop_ts: string | null }[];
   }) => void;
+  onFetchDataRange: () => Promise<{ min_start: string | null; max_stop: string | null } | null>;
 }) {
   const [globalStart, setGlobalStart] = useState(() => vehicles[0]?.start_ts || "");
   const [globalStop, setGlobalStop] = useState(() => vehicles[0]?.stop_ts || "");
@@ -1210,9 +1236,43 @@ function TimestampEditor({
   const [rows, setRows] = useState(() =>
     vehicles.map((v) => ({ vehicle_id: v.vehicle_id, start_ts: v.start_ts, stop_ts: v.stop_ts || "" }))
   );
+  const [loadingRange, setLoadingRange] = useState(false);
 
   const updateRow = (idx: number, field: "start_ts" | "stop_ts", value: string) => {
     setRows((prev) => prev.map((r, i) => (i === idx ? { ...r, [field]: value } : r)));
+  };
+
+  const applyPreset = (days: number) => {
+    const { start, stop } = _lastNDays(days);
+    if (perVehicle) {
+      setRows((prev) => prev.map((r) => ({ ...r, start_ts: start, stop_ts: stop })));
+    } else {
+      setGlobalStart(start);
+      setGlobalStop(stop);
+    }
+  };
+
+  const applyFromData = async () => {
+    setLoadingRange(true);
+    try {
+      const range = await onFetchDataRange();
+      if (range) {
+        const start = range.min_start ? _toDatetimeLocal(range.min_start) : "";
+        const stop = range.max_stop ? _toDatetimeLocal(range.max_stop) : "";
+        if (perVehicle) {
+          setRows((prev) => prev.map((r) => ({
+            ...r,
+            start_ts: start || r.start_ts,
+            stop_ts: stop || r.stop_ts,
+          })));
+        } else {
+          if (start) setGlobalStart(start);
+          if (stop) setGlobalStop(stop);
+        }
+      }
+    } finally {
+      setLoadingRange(false);
+    }
   };
 
   const handleSave = () => {
@@ -1249,6 +1309,21 @@ function TimestampEditor({
           />
           Per vehicle
         </label>
+      </div>
+
+      <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 8 }}>
+        <button className="ts-preset-btn" onClick={() => applyPreset(1)} title="Last 24 hours">L1D</button>
+        <button className="ts-preset-btn" onClick={() => applyPreset(7)} title="Last 7 days">L7D</button>
+        <button className="ts-preset-btn" onClick={() => applyPreset(30)} title="Last 30 days">L30D</button>
+        <button className="ts-preset-btn" onClick={() => applyPreset(90)} title="Last 90 days">L90D</button>
+        <button
+          className="ts-preset-btn ts-preset-data"
+          onClick={applyFromData}
+          disabled={loadingRange}
+          title="Set to full range of actual data"
+        >
+          {loadingRange ? "..." : "From Data"}
+        </button>
       </div>
 
       {!perVehicle && (
