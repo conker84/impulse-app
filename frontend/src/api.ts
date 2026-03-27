@@ -319,6 +319,22 @@ export async function addHistogram2D(
   });
 }
 
+export async function addStatistics(
+  sessionId: string,
+  payload: {
+    name: string;
+    signal_refs: string[];
+    stat_labels: string[];
+    event_signal_ref?: string | null;
+    description?: string;
+  }
+): Promise<{ report_state: ReportState }> {
+  return request(`/add-statistics/${sessionId}`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function deleteAggregation(
   sessionId: string,
   name: string

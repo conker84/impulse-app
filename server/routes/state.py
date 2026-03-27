@@ -23,6 +23,7 @@ from server.models import (
     SignalDefinition,
     SourceDataConfig,
     SourceDataMode,
+    StatisticsDefinition,
     VehicleCandidate,
     VehicleConfig,
     WizardStep,
@@ -900,6 +901,59 @@ async def add_histogram_2d(session_id: str, payload: AddHistogram2DPayload):
             x_signal_name=payload.x_signal_name,
             y_signal_name=payload.y_signal_name,
             values_unit=payload.values_unit,
+            description=payload.description,
+        )
+    )
+
+    return {"report_state": state.model_dump()}
+
+
+# ---------------------------------------------------------------------------
+# Statistics builder endpoint
+# ---------------------------------------------------------------------------
+
+VALID_STAT_LABELS = {"min", "max", "mean", "median", "std", "count"}
+
+
+class AddStatisticsPayload(BaseModel):
+    name: str
+    signal_refs: list[str]
+    stat_labels: list[str] = ["min", "max", "mean", "median", "std", "count"]
+    event_signal_ref: str | None = None
+    signal_names: list[str] | None = None
+    description: str = ""
+
+
+@router.post("/add-statistics/{session_id}")
+async def add_statistics(session_id: str, payload: AddStatisticsPayload):
+    """Add a statistics aggregation directly from the builder UI."""
+    session = _sessions.get(session_id)
+    if not session:
+        raise HTTPException(404, "Session not found")
+
+    state = session.state
+
+    if not payload.signal_refs:
+        raise HTTPException(400, "At least one signal is required.")
+
+    for ref in payload.signal_refs:
+        if not any(s.var_name == ref for s in state.signals):
+            raise HTTPException(400, f"Signal '{ref}' does not exist.")
+
+    if any(a.name == payload.name for a in state.aggregations):
+        raise HTTPException(400, f"Aggregation '{payload.name}' already exists.")
+
+    invalid = set(payload.stat_labels) - VALID_STAT_LABELS
+    if invalid:
+        raise HTTPException(400, f"Invalid stat labels: {invalid}")
+
+    state.aggregations.append(
+        StatisticsDefinition(
+            name=payload.name,
+            signal_refs=payload.signal_refs,
+            stat_labels=payload.stat_labels,
+            event_signal_ref=payload.event_signal_ref,
+            signal_names=payload.signal_names,
             description=payload.description,
         )
     )

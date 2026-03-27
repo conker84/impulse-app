@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from server.models import Histogram1DDefinition, Histogram2DDefinition, HistogramType, ReportState
+from server.models import Histogram1DDefinition, Histogram2DDefinition, HistogramType, ReportState, StatisticsDefinition
 
 
 # ---------------------------------------------------------------------------
@@ -160,6 +160,36 @@ def generate_histogram_page(state: ReportState) -> str:
         lines.append(",\n".join(params) + ",")
         lines.append(")")
         lines.append("my_first_page.add_aggregation(hist2d)")
+        lines.append("")
+
+    # Statistics aggregations
+    statistics = [a for a in state.aggregations if isinstance(a, StatisticsDefinition)]
+    for stats in statistics:
+        lines.append("# COMMAND ----------")
+        lines.append("")
+        lines.append("# MAGIC %md")
+        lines.append(f"# MAGIC ##### {stats.description or stats.name}")
+        lines.append("")
+        lines.append("# COMMAND ----------")
+        lines.append("")
+
+        selections_items = ", ".join(f'signals["{ref}"]' for ref in stats.signal_refs)
+        labels_repr = repr(stats.stat_labels)
+
+        params = [
+            f"    name=\"{stats.name}\"",
+            f"    selections=[{selections_items}]",
+            f"    aggregation_labels={labels_repr}",
+        ]
+        if stats.event_signal_ref:
+            params.append(f'    event=BasicEvent(name="{stats.name}_event", expr=signals["{stats.event_signal_ref}"])')
+        if stats.description:
+            params.append(f'    desc="{stats.description}"')
+
+        lines.append("stat = Statistics(")
+        lines.append(",\n".join(params) + ",")
+        lines.append(")")
+        lines.append("my_first_page.add_aggregation(stat)")
         lines.append("")
 
     return "\n".join(lines)

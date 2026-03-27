@@ -28,6 +28,7 @@ from server.models import (
     ReportState,
     SignalCandidate,
     SignalDefinition,
+    StatisticsDefinition,
     VehicleConfig,
     WizardStep,
 )
@@ -241,6 +242,44 @@ TOOLS = [
                     "description": {"type": "string"},
                 },
                 "required": ["name", "x_signal_ref", "y_signal_ref", "x_bins", "y_bins"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "add_statistics",
+            "description": (
+                "Add a statistics aggregation that computes min, max, mean, median, std, and/or count "
+                "for one or more signals. Use when the user wants summary statistics instead of histograms."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Unique aggregation ID, convention: <short_name>_stats_p<page>",
+                    },
+                    "signal_refs": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "var_names of signals to compute statistics for",
+                    },
+                    "stat_labels": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "enum": ["min", "max", "mean", "median", "std", "count"],
+                        },
+                        "description": "Which statistics to compute (default: all)",
+                    },
+                    "event_signal_ref": {
+                        "type": "string",
+                        "description": "Optional event signal ref to compute stats at event points",
+                    },
+                    "description": {"type": "string"},
+                },
+                "required": ["name", "signal_refs"],
             },
         },
     },
@@ -465,6 +504,27 @@ def _exec_add_histogram_2d(state: ReportState, **kwargs: Any) -> str:
     )
 
 
+def _exec_add_statistics(state: ReportState, **kwargs: Any) -> str:
+    name = kwargs["name"]
+    if any(a.name == name for a in state.aggregations):
+        return f"Aggregation '{name}' already exists."
+    signal_refs = kwargs["signal_refs"]
+    stat_labels = kwargs.get("stat_labels", ["min", "max", "mean", "median", "std", "count"])
+    state.aggregations.append(
+        StatisticsDefinition(
+            name=name,
+            signal_refs=signal_refs,
+            stat_labels=stat_labels,
+            event_signal_ref=kwargs.get("event_signal_ref"),
+            description=kwargs.get("description", ""),
+        )
+    )
+    return (
+        f"Added statistics aggregation '{name}' for {len(signal_refs)} signal(s) "
+        f"computing: {', '.join(stat_labels)}."
+    )
+
+
 def _exec_remove_aggregation(state: ReportState, name: str) -> str:
     idx = next((i for i, a in enumerate(state.aggregations) if a.name == name), None)
     if idx is None:
@@ -531,6 +591,7 @@ _TOOL_STEP_MAP: dict[str, set[WizardStep]] = {
     "suggest_signal_candidates": {WizardStep.CHANNELS},
     "add_histogram": {WizardStep.AGGREGATIONS},
     "add_histogram_2d": {WizardStep.AGGREGATIONS},
+    "add_statistics": {WizardStep.AGGREGATIONS},
     "remove_aggregation": {WizardStep.AGGREGATIONS},
     "set_vehicle": {WizardStep.VEHICLES},
     "set_data_sources": {WizardStep.VEHICLES},
@@ -574,6 +635,8 @@ def _dispatch_tool(
         return _exec_add_histogram(state, **args)
     if name == "add_histogram_2d":
         return _exec_add_histogram_2d(state, **args)
+    if name == "add_statistics":
+        return _exec_add_statistics(state, **args)
     if name == "remove_aggregation":
         return _exec_remove_aggregation(state, args["name"])
     if name == "set_report_metadata":

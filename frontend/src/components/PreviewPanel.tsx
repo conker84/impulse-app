@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import type { AggregationDefinition, AvailableChannel, Histogram1DDefinition, Histogram2DDefinition, ReportState, SignalCandidate, SourceDataConfig, VehicleCandidate, WizardStep } from "../types";
+import type { AggregationDefinition, AvailableChannel, Histogram1DDefinition, Histogram2DDefinition, ReportState, SignalCandidate, SourceDataConfig, StatisticsDefinition, VehicleCandidate, WizardStep } from "../types";
 import type { DeployStatusResponse } from "../api";
 import { listCatalogs, listSchemas, listVolumes } from "../api";
 import SignalsTab from "./SignalsTab";
 import AggregationsTab from "./AggregationsTab";
 import HistogramBuilder from "./HistogramBuilder";
 import Histogram2DBuilder from "./Histogram2DBuilder";
+import StatisticsBuilder from "./StatisticsBuilder";
 import ConfigTab from "./ConfigTab";
 import CodePreviewTab from "./CodePreviewTab";
 import ResultsTab from "./ResultsTab";
@@ -49,6 +50,7 @@ interface Props {
   ingestTasks: { task_key: string; life_cycle_state: string; result_state: string | null }[];
   onAddHistogram: (histogram: Histogram1DDefinition) => void;
   onAddHistogram2D: (histogram: Histogram2DDefinition) => void;
+  onAddStatistics: (stats: StatisticsDefinition) => void;
   onDeleteAggregation: (name: string) => void;
   onUpdateAggregation: (originalName: string, histogram: Histogram1DDefinition) => void;
   onSuggestBins: (type: string, signalRef: string) => Promise<{
@@ -101,6 +103,7 @@ export default function PreviewPanel({
   ingestTasks,
   onAddHistogram,
   onAddHistogram2D,
+  onAddStatistics,
   onDeleteAggregation,
   onUpdateAggregation,
   onSuggestBins,
@@ -222,6 +225,11 @@ export default function PreviewPanel({
               signals={state.signals}
               existingNames={new Set(state.aggregations.map((a) => a.name))}
               onAdd={onAddHistogram2D}
+            />
+            <StatisticsBuilder
+              signals={state.signals}
+              existingNames={new Set(state.aggregations.map((a) => a.name))}
+              onAdd={onAddStatistics}
             />
           </StepSection>
         )}

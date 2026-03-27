@@ -329,12 +329,8 @@ The `.template/` directory scaffolds a Databricks Asset Bundle that runs the Imp
 - [x] **Edit aggregations** — `PUT /api/aggregation/{session_id}/{name}`, edit icon on each 1D histogram card pre-fills HistogramBuilder form, submit overwrites.
 - [x] **Histogram2D support** — `Histogram2DDefinition` model (done in Phase 1), `add_histogram_2d` agent tool, `POST /api/add-histogram-2d` route, code gen producing `Histogram2D(x_expr=..., y_expr=..., x_bins=..., y_bins=...)`, `Histogram2DBuilder` UI with two signal dropdowns and bin inputs, 2D card in `AggregationsTab`.
   - Remaining: Skill docs (`create-histogram-2d/`), Plotly heatmap visualization for gold layer results.
-- [ ] **Statistics aggregation support** — Different model shape: no bins, multiple signals, stat labels. Framework class `Statistics` already exists.
-  1. Model: `StatisticsDefinition` with `agg_kind: Literal["statistics"]`, fields: `signal_refs: list[str]`, `stat_labels: list[str]` (from `["min", "max", "mean", "median", "std", "count"]`), `event_signal_ref`, `signal_names: list[str] | None`, `description`
-  2. Agent: new `add_statistics` tool. Step-gated to `AGGREGATIONS`.
-  3. Code gen: new branch mapping to `Statistics(selections=[...], aggregation_labels=[...], event=...)`
-  4. Skill: new `create-statistics/` skill
-  5. Frontend: new `StatisticsBuilder` form (multi-select signals, checkbox stat labels). Display in `AggregationsTab` as table-style card.
+- [x] **Statistics aggregation support** — `StatisticsDefinition` model (done in Phase 1), `add_statistics` agent tool, `POST /api/add-statistics` route, code gen producing `Statistics(selections=[...], aggregation_labels=[...])`, `StatisticsBuilder` UI with multi-select signals and checkbox stat labels, stats card in `AggregationsTab`.
+  - Remaining: Skill docs (`create-statistics/`), statistics table visualization for gold layer results.
 
 ### Visualization
 
