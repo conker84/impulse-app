@@ -1,6 +1,8 @@
 # 1D Histogram Types — Detailed Reference
 
-## HistogramDuration
+The framework uses a single `Histogram` class with an `agg_type` parameter to distinguish between histogram types.
+
+## Histogram (Duration)
 
 Measures how much **time** a signal spends in each value bin. The histogram is weighted by the duration of each sample interval.
 
@@ -9,12 +11,12 @@ Measures how much **time** a signal spends in each value bin. The histogram is w
 ### Constructor
 
 ```python
-HistogramDuration(
+Histogram(
     name="eng_spd_hist_p1",
     base_expr=signals["Eng_Spd_masked"],
     bins=[float(i) for i in range(0, 6000, 500)],
-    max_duration=100 * 1e9,      # optional, nanoseconds
     desc="Distribution of engine speed over time",
+    agg_type="duration",
     values_unit="nanoseconds",   # optional
     bins_unit="rpm"              # optional
 )
@@ -27,8 +29,10 @@ HistogramDuration(
 | `name` | str | Yes | Unique histogram ID |
 | `base_expr` | TimeSeriesExpression → SampleSeries | Yes | Signal to histogram |
 | `bins` | list[float] | Yes | Bin edges in the unit of `base_expr` |
-| `max_duration` | float | No | Max sample duration in nanoseconds. Caps individual samples to prevent outlier inflation. |
+| `event` | Event | No | Event filter (BasicEvent or ContainerEvent) |
 | `desc` | str | No | Human-readable description |
+| `agg_type` | str | No | Type label (e.g. "duration", "distance", "duration_count", "event_count") |
+| `signal_name` | str | No | Display name for the signal |
 | `values_unit` | str | No | Unit for the values axis (typically `"nanoseconds"`) |
 | `bins_unit` | str | No | Unit for the bins axis (e.g. `"rpm"`, `"°C"`) |
 
@@ -40,99 +44,74 @@ HistogramDuration(
 
 ```python
 # Basic engine speed duration histogram
-hist = HistogramDuration(
+hist = Histogram(
     name="eng_spd_hist_p1",
     base_expr=signals["Eng_Spd_masked"],
     bins=[float(i) for i in range(0, 6000, 500)],
-    max_duration=100 * 1e9,
     desc="Distribution of engine speed over time",
+    agg_type="duration",
     bins_unit="rpm"
 )
 
 # Temperature histogram with catch-all bins
-hist = HistogramDuration(
+hist = Histogram(
     name="water_temp_hist_p2",
     base_expr=signals["F_OF_EA_Wasserpumpe_masked"],
     bins=[-9999.0] + [float(i) for i in range(150, 360, 10)] + [9999.0],
-    max_duration=100 * 1e9,
     desc="Water pump temperature distribution",
+    agg_type="duration",
     values_unit="nanoseconds",
     bins_unit="°C"
 )
 
 # Histogram of a filtered/derived signal
-hist = HistogramDuration(
+hist = Histogram(
     name="opf_temp_flipflop_p1",
     base_expr=signals["temp_opf_within_flipflop"],
     bins=[float(i) for i in range(0, 1000, 100)],
-    max_duration=100 * 1e9,
     desc="OPF temperature within flipflop intervals",
+    agg_type="duration",
     bins_unit="°C"
 )
 ```
 
 ---
 
-## HistogramDistance
+## Histogram (Distance)
 
-Measures how much **distance** is traveled while a signal is in each value bin. Instead of weighting by duration, it weights by a cumulative distance signal.
+Measures how much **distance** is traveled while a signal is in each value bin.
 
-**Input:** `base_expr` and `weights_expr` must both evaluate to `SampleSeries`.
+**Input:** `base_expr` must evaluate to `SampleSeries`.
 
 ### Constructor
 
 ```python
-HistogramDistance(
+Histogram(
     name="eng_spd_hist_distance_p1",
     base_expr=signals["Eng_Spd_masked"],
-    weights_expr=signals["distance_km"],
     bins=[float(i) for i in range(0, 6000, 500)],
     desc="Distribution of engine speed over driven distance",
+    agg_type="distance",
     bins_unit="rpm"
 )
 ```
-
-### Parameters
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `name` | str | Yes | Unique histogram ID |
-| `base_expr` | TimeSeriesExpression → SampleSeries | Yes | Signal to histogram |
-| `weights_expr` | TimeSeriesExpression → SampleSeries | Yes | Cumulative distance signal (e.g. integrated vehicle speed) |
-| `bins` | list[float] | Yes | Bin edges in the unit of `base_expr` |
-| `desc` | str | No | Human-readable description |
-| `bins_unit` | str | No | Unit for the bins axis |
 
 ### When to use
 - Analyzing signal distribution weighted by distance instead of time
 - Understanding how far the vehicle drives at each speed, temperature, etc.
 
-### Examples
-
-```python
-# Engine speed weighted by driven distance
-hist = HistogramDistance(
-    name="eng_spd_hist_distance_p1",
-    base_expr=signals["Eng_Spd_masked"],
-    weights_expr=signals["distance_km"],
-    bins=[float(i) for i in range(0, 6000, 500)],
-    desc="Distribution of engine speed over driven distance",
-    bins_unit="rpm"
-)
-```
-
 ### Distance signal definition
 The distance signal is typically defined as the cumulative integral of vehicle speed:
 
 ```python
-veh_spd = query.channel_with_alias(channel_alias_name="AL_Geschwindigkeit")
+veh_spd = query.channel(channel_name="vehicle_speed")
 distance_km = (veh_spd.resample(1e8).cumtrapz() / 3600 / 1e9)
 signals["distance_km"] = distance_km
 ```
 
 ---
 
-## HistogramDurationCount
+## Histogram (Duration Count)
 
 Counts how many **events** (intervals) fall into different **duration** bins. Analyzes the distribution of how long conditions last.
 
@@ -141,28 +120,16 @@ Counts how many **events** (intervals) fall into different **duration** bins. An
 ### Constructor
 
 ```python
-HistogramDurationCount(
+Histogram(
     name="kaltstart_hist_p2",
     base_expr=signals["V_Katheizen_MotorGestartet_Drehzahl"],
     bins=[float(i) for i in np.arange(0, 210 * 1e9, 10 * 1e9)],
-    weight_const=1.0,
     desc="Distribution of catalyst heating event durations",
+    agg_type="duration_count",
     values_unit="duration count",
     bins_unit="Duration [nanoseconds]"
 )
 ```
-
-### Parameters
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `name` | str | Yes | Unique histogram ID |
-| `base_expr` | TimeSeriesExpression → Intervals | Yes | Interval expression whose durations are histogrammed |
-| `bins` | list[float] | Yes | Bin edges in **nanoseconds** (duration of intervals) |
-| `weight_const` | float | No | Constant weight per event (typically `1.0`) |
-| `desc` | str | No | Human-readable description |
-| `values_unit` | str | No | Unit for the values axis (typically `"duration count"`) |
-| `bins_unit` | str | No | Unit for the bins axis (typically `"Duration [nanoseconds]"`) |
 
 ### When to use
 - Analyzing how long specific operating conditions last
@@ -171,7 +138,7 @@ HistogramDurationCount(
 ### Important
 - Bins are in **nanoseconds** since interval durations are measured in nanoseconds.
 - Use `np.arange()` for generating nanosecond bin edges: `np.arange(0, 210 * 1e9, 10 * 1e9)` = 0 to 200 seconds in 10-second steps.
-- The `base_expr` must evaluate to `Intervals`, not `SampleSeries`. Intervals are typically created from comparison operations (e.g. `(signal > threshold) & (other_signal > threshold2)`).
+- The `base_expr` must evaluate to `Intervals`, not `SampleSeries`.
 
 ### Examples
 
@@ -180,12 +147,12 @@ HistogramDurationCount(
 V_Katheizen = (B_kh > 0.5) & (B_stend > 0.5) & (Eng_Spd_masked > 500)
 signals["V_Katheizen"] = V_Katheizen
 
-hist = HistogramDurationCount(
+hist = Histogram(
     name="kaltstart_hist_p2",
     base_expr=signals["V_Katheizen"],
     bins=[float(i) for i in np.arange(0, 210 * 1e9, 10 * 1e9)],
-    weight_const=1.0,
     desc="Distribution of catalyst heating event durations",
+    agg_type="duration_count",
     values_unit="duration count",
     bins_unit="Duration [nanoseconds]"
 )
@@ -193,67 +160,38 @@ hist = HistogramDurationCount(
 
 ---
 
-## HistogramEventCount
+## Histogram (Event Count)
 
-Counts how many **events** occur at each **signal value**. Analyzes the distribution of a continuous signal at discrete event points.
+Counts how many **events** occur at each **signal value**. Uses a `BasicEvent` to define the event trigger.
 
-**Input:** `base_expr` must evaluate to `SampleSeries`, `event_expr` must evaluate to `PointsInTime`.
+**Input:** `base_expr` must evaluate to `SampleSeries`.
 
 ### Constructor
 
 ```python
-HistogramEventCount(
+from mda_reporting.events.basic_event import BasicEvent
+
+event = BasicEvent(name="engine_stop", expr=signals["syc_rising"])
+
+hist = Histogram(
     name="tmp_opf_hist_p1",
     base_expr=signals["mean_temp_opf"],
-    event_expr=signals["syc_stsub_rising_edges"],
     bins=[float(i) for i in range(0, 1000, 100)],
-    weight_const=1.0,
+    event=event,
     desc="OPF temperature distribution at engine stop events",
+    agg_type="event_count",
     values_unit="event count",
     bins_unit="°C"
 )
 ```
-
-### Parameters
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `name` | str | Yes | Unique histogram ID |
-| `base_expr` | TimeSeriesExpression → SampleSeries | Yes | Signal whose value is sampled at event points |
-| `event_expr` | TimeSeriesExpression → PointsInTime | Yes | Event trigger (discrete time points) |
-| `bins` | list[float] | Yes | Bin edges in the unit of `base_expr` |
-| `weight_const` | float | No | Constant weight per event (typically `1.0`) |
-| `desc` | str | No | Human-readable description |
-| `values_unit` | str | No | Unit for the values axis (typically `"event count"`) |
-| `bins_unit` | str | No | Unit for the bins axis |
 
 ### When to use
 - Analyzing signal values at specific events (e.g. temperature at engine start/stop)
 - Counting how often a signal is in a certain range when an event occurs
 
 ### Important
-- `event_expr` must evaluate to `PointsInTime` (e.g. from `.rising_edges()`, `.falling_edges()`, `.change_points()`)
+- The `event` parameter takes a `BasicEvent` with an expression that evaluates to `PointsInTime`
 - `base_expr` is evaluated at the event points to determine which bin to increment
-
-### Examples
-
-```python
-# OPF temperature at engine stop events
-SyC_stSub = query.channel(link_name="MRG3EVO", signal_name="SyC_stSub")
-syc_rising = SyC_stSub.change_points(4, 5)
-signals["syc_rising"] = syc_rising
-
-hist = HistogramEventCount(
-    name="tmp_opf_hist_p1",
-    base_expr=signals["mean_temp_opf"],
-    event_expr=signals["syc_rising"],
-    bins=[float(i) for i in range(0, 1000, 100)],
-    weight_const=1.0,
-    desc="OPF temperature at engine stop",
-    values_unit="event count",
-    bins_unit="°C"
-)
-```
 
 ---
 
@@ -275,7 +213,7 @@ hist = HistogramEventCount(
 | `x_bins_unit` | string | Bins unit |
 | `x_expression` | string | Expression string |
 
-### `histogramNd_fact` (per-session data)
+### `histogram_fact` (per-session data)
 
 | Column | Type | Description |
 |---|---|---|

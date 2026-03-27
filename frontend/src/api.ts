@@ -1,4 +1,4 @@
-import type { AvailableChannel, ChatResponse, FilterRange, HistogramMeta, HistogramResult, ReportState, SavedReportSummary, ValidationResults, VehicleOption, VisualizeFilters, WizardStep } from "./types";
+import type { AggregationDefinition, AvailableChannel, ChatResponse, FilterRange, Histogram1DDefinition, HistogramMeta, HistogramResult, ReportState, SavedReportSummary, ValidationResults, VehicleOption, VisualizeFilters, WizardStep } from "./types";
 
 const BASE = "/api";
 
@@ -296,6 +296,38 @@ export async function addHistogram(
 ): Promise<{ report_state: ReportState }> {
   return request(`/add-histogram/${sessionId}`, {
     method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteAggregation(
+  sessionId: string,
+  name: string
+): Promise<{ report_state: ReportState }> {
+  return request(`/aggregation/${sessionId}/${encodeURIComponent(name)}`, {
+    method: "DELETE",
+  });
+}
+
+export async function updateAggregation(
+  sessionId: string,
+  originalName: string,
+  payload: {
+    name: string;
+    histogram_type: string;
+    signal_ref: string;
+    bins: number[];
+    bins_unit?: string | null;
+    values_unit?: string | null;
+    description?: string;
+    max_duration?: number | null;
+    event_signal_ref?: string | null;
+    weight_signal_ref?: string | null;
+    weight_const?: number | null;
+  }
+): Promise<{ report_state: ReportState }> {
+  return request(`/aggregation/${sessionId}/${encodeURIComponent(originalName)}`, {
+    method: "PUT",
     body: JSON.stringify(payload),
   });
 }

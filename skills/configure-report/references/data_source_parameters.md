@@ -30,7 +30,7 @@ Path to the signal data table(s) containing the actual time-series measurement d
 ## Optional Parameters
 
 ### `aliases`
-Path to channel aliases table. Enables use of `channel_with_alias_name()` in the QueryBuilder for resolving physical signal names from human-readable aliases.
+Path to channel aliases table. Enables use of alias-based channel lookup via `query.channel()` for resolving physical signal names from human-readable aliases.
 
 ```json
 "aliases": "catalog.schema.vw_get_channelalias_denormalized_yarp"

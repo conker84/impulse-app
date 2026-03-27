@@ -21,7 +21,7 @@ define-signals/
 
 ## Key Topics
 
-- Physical signal extraction via `query.channel()` and `query.channel_with_alias()`
+- Physical signal extraction via `query.channel()` (using channel tag key-value pairs)
 - Virtual signal creation through arithmetic, comparison, and logical operations
 - Event detection (rising/falling edges, state change points)
 - Interval creation (flipflop, expand from points)

@@ -310,29 +310,23 @@ The `.template/` directory scaffolds a Databricks Asset Bundle that runs the Imp
 
 **What needs to happen:**
 
-- [ ] **Audit the framework API** — Read the current `mda_framework_v2/src/mda_reporting/` source to understand the actual class names, module paths, and constructor signatures. Map every template import to its current equivalent (or mark as removed).
-- [ ] **Update `00_setup.py.txt`** — Fix all import paths. Remove imports for classes that no longer exist. The `Chapter` class may have been merged into `Report` or removed entirely — check `report.py`.
-- [ ] **Update `03_orchestrator.ipynb.txt`** — This is the main job notebook. It uses `Report`, `Chapter`, `Page`, `ReportConfig`, histogram classes, and `UnityCatalogSink`. All references must match the current framework.
-- [ ] **Update code generator** (`server/code_generator.py`) — `generate_histogram_page()` and `generate_orchestrator()` emit Python code with framework class references. These must match the current API.
-- [ ] **Update histogram/visualization page templates** — Any template files under `.template/template/src/chapters/` that reference old class names.
-- [ ] **Update `report_utils.py.txt`** — References `mda_reporting.persistence.unity_catalog.UnityCatalogSink` which is now at `mda_reporting.persist.report_storage`.
+- [x] **Audit the framework API** — Read the current `mda_framework_v2/src/mda_reporting/` source to understand the actual class names, module paths, and constructor signatures. Map every template import to its current equivalent (or mark as removed).
+- [x] **Update `00_setup.py.txt`** — Fix all import paths. Remove imports for classes that no longer exist. Chapter removed (Report.add_page directly). Histogram subclasses → single Histogram class with agg_type. Histogram3D, XYPlot, visual_types removed (don't exist in framework).
+- [x] **Update `03_orchestrator.ipynb.txt`** — Fixed Report constructor (needs name+spark), fixed config access (MdaConfig fields), replaced non-existent mda_reporting.utils.report_utils imports, updated report_utils function signatures.
+- [x] **Update code generator** (`server/code_generator.py`) — Histogram → single class with agg_type, Chapter removed, add_visualization→add_aggregation, config JSON restructured to MdaConfig format.
+- [x] **Update histogram/visualization page templates** — Chapter removed, HistogramDuration→Histogram(agg_type="duration"), add_visualization→add_aggregation.
+- [x] **Update `report_utils.py.txt`** — Replaced all non-existent UnityCatalogSink methods with direct Spark/Delta operations. Functions now take (catalog, schema, table_prefix) instead of sink object.
+- [x] **Update config JSON templates** — Restructured from old format to MdaConfig-compatible (source, unity_sink, query_engine, units_under_test, measurement_dimensions).
+- [x] **Update pre/post processing notebooks** — ReportConfig→MdaConfig, VisualFactNames/VisualDimensionNames→AggregationType/EventType enums, sink methods→report_utils functions.
+- [x] **Update 02_report.ipynb.txt** — Report(name, spark, config_path), report.query (not db.query), persist_results() (not write_report()).
+- [x] **Update skill docs and frontend** — channel_with_alias→channel(), HistogramDuration→Histogram, add_visualization→add_aggregation in CodePreviewTab.tsx.
 - [ ] **Test end-to-end** — After all updates, scaffold a report, deploy, and verify the job runs successfully on a cluster with the framework installed.
 
 ### Aggregation Types
 
-- [ ] **Unify aggregation model as union type** — Refactor `ReportState` to use a single `aggregations: list[AggregationDefinition]` with a discriminated union (`histogram_1d | histogram_2d | statistics`) instead of the current `histograms: list[HistogramDefinition]`. This unblocks adding new types without touching the state shape each time.
-  1. Create `AggregationDefinition = Annotated[Union[Histogram1DDefinition, Histogram2DDefinition, StatisticsDefinition], Field(discriminator="agg_kind")]` in `models.py`
-  2. Rename current `HistogramDefinition` → `Histogram1DDefinition` with `agg_kind: Literal["histogram_1d"]`
-  3. Migrate `state.histograms` → `state.aggregations` across backend routes, agent tools, code generator, and frontend `types.ts`
-  4. `HistogramsTab` → `AggregationsTab`, renders each type with its own card layout
-- [ ] **Delete aggregations** — Biggest UX pain: users must restart if they add a wrong histogram.
-  1. Backend: `DELETE /api/aggregation/{session_id}/{name}` — remove by name from `state.aggregations`
-  2. Agent: `remove_aggregation` tool (takes `name`), step-gated to `AGGREGATIONS`
-  3. Frontend: trash icon on each aggregation row in `AggregationsTab`
-- [ ] **Edit aggregations** — Pre-fill the builder form with existing values, submit overwrites.
-  1. Backend: `PUT /api/aggregation/{session_id}/{name}` — validate and replace by name
-  2. Agent: `edit_histogram` tool (same params as add, overwrites matching name), step-gated to `AGGREGATIONS`
-  3. Frontend: click an aggregation in `AggregationsTab` → opens the matching builder form pre-filled → submit overwrites
+- [x] **Unify aggregation model as union type** — Refactored `ReportState` to use `aggregations: list[AggregationDefinition]` with discriminated union (`histogram_1d | histogram_2d | statistics`). `HistogramDefinition` → `Histogram1DDefinition` with `agg_kind` discriminator. `HistogramsTab` → `AggregationsTab`. All backend/frontend references migrated.
+- [x] **Delete aggregations** — `DELETE /api/aggregation/{session_id}/{name}`, `remove_aggregation` agent tool, trash icon on each card in `AggregationsTab`.
+- [x] **Edit aggregations** — `PUT /api/aggregation/{session_id}/{name}`, edit icon on each 1D histogram card pre-fills HistogramBuilder form, submit overwrites.
 - [ ] **Histogram2D support** — Separate tool, same architectural layers as 1D histograms. Framework class `Histogram2D` already exists.
   1. Model: `Histogram2DDefinition` with `agg_kind: Literal["histogram_2d"]`, fields: `x_signal_ref`, `y_signal_ref`, `x_bins`, `y_bins`, `x_bins_unit`, `y_bins_unit`, `x_signal_name`, `y_signal_name`, `values_unit`, `description`
   2. Agent: new `add_histogram_2d` tool (separate from `add_histogram` since param shape is different — two signals, two bin arrays). Step-gated to `AGGREGATIONS`.
@@ -437,6 +431,7 @@ The `.template/` directory scaffolds a Databricks Asset Bundle that runs the Imp
   4. The `mda_framework_version.json` template should only need a `version` field — no secret scope/key/pypi_uri needed once published publicly
   5. Alternatively, if the package must stay private: make the Volume path configurable via an env var in `app.yaml` and document that deployers must upload the wheel to their own Volume
 - [ ] **Cloud-agnostic cluster node types in DAB template** — `.template/` hardcodes `i3.xlarge` (AWS). This breaks on Azure (`Standard_E8_v3`) and GCP. Fix: detect the cloud provider at scaffold time (via workspace client or env) and select an appropriate node type, or use `node_type_id: ""` with `autoscale` which lets Databricks pick. Alternatively, make the node type a template variable so it can be set per-target in `databricks.yml`.
+- [ ] **Report Gen & Ideally Ingest jobs should run on Serverless** — 
 
 ### Mercedes Compatibility Review
 

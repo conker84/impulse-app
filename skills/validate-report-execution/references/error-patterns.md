@@ -26,7 +26,7 @@ No channel alias matching ... was found
    ORDER BY ChannelAliasName_withScope
    LIMIT 20
    ```
-2. Update the `query.channel_with_alias(ChannelAliasName_withScope="...")` call with the correct alias.
+2. Update the `query.channel(...)` call with the correct tag value.
 
 ### Signal not available for session
 
@@ -51,18 +51,18 @@ LIMIT 100
 
 **Pattern:**
 ```
-TypeError: Cannot apply HistogramDuration to Intervals
+TypeError: Cannot apply Histogram to Intervals
 ```
 or
 ```
 Expected SampleSeries but got Intervals
 ```
 
-**Cause:** The `base_expr` evaluates to the wrong type. Common when a boolean condition (producing `Intervals`) is passed to `HistogramDuration` which expects `SampleSeries`.
+**Cause:** The `base_expr` evaluates to the wrong type. Common when a boolean condition (producing `Intervals`) is passed to a `Histogram` that expects `SampleSeries`.
 
 **Fix:**
-- `HistogramDuration` / `HistogramDistance` / `HistogramEventCount`: `base_expr` must be `SampleSeries` (a numeric signal, possibly filtered with `.where()`)
-- `HistogramDurationCount`: `base_expr` must be `Intervals` (a boolean condition)
+- `Histogram` with `agg_type="duration"` / `"distance"` / `"event_count"`: `base_expr` must be `SampleSeries` (a numeric signal, possibly filtered with `.where()`)
+- `Histogram` with `agg_type="duration_count"`: `base_expr` must be `Intervals` (a boolean condition)
 
 ### Operation not supported between types
 

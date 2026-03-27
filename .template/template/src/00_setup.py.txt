@@ -33,8 +33,7 @@ else:
 
 if token and pypi_uri:
     # Private PyPI: install with token auth
-    %pip install --extra-index-url https://__token__:$token@$pypi_uri bseries==$mda_framework_version --quiet
-    %pip install --extra-index-url https://__token__:$token@$pypi_uri mda-reporting==$mda_framework_version --quiet
+    %pip install --extra-index-url https://__token__:$token@$pypi_uri mda-framework-v2==$mda_framework_version --quiet
     dbutils.library.restartPython()
 else:
     # Install from UC Volume wheel
@@ -45,7 +44,6 @@ else:
 
 # configure spark
 spark.conf.set("spark.sql.shuffle.partitions", "auto")
-#spark.conf.set("spark.databricks.optimizer.deltaTableSizeThreshold", "104857600")
 
 # COMMAND ----------
 
@@ -65,15 +63,16 @@ sys.path.append(f"{base_path}/src/")
 
 # import mda reporting modules
 from mda_reporting.core.report import Report
-from mda_reporting.core.chapter import Chapter
 from mda_reporting.core.page import Page
-from mda_reporting.core.config import ReportConfig
-from mda_reporting.visualizations.histogram import HistogramDuration, HistogramDistance, HistogramDurationCount, HistogramEventCount
-from mda_reporting.visualizations.histogram2d import Histogram2DDuration, Histogram2DEventCount
-from mda_reporting.visualizations.histogram3d import Histogram3DDuration, Histogram3DEventCount
-from mda_reporting.visualizations.xy_plot import XYPlotFixedBinSize, XYPlotBinExpr, XYPlotBinsFromSeries, XYPlotEventCount
-from mda_reporting.persistence.unity_catalog import UnityCatalogSink
-from mda_reporting.visualizations.visual_types import VisualDimensionNames, VisualFactNames
+from mda_reporting.config.config_parser import MdaConfig
+from mda_reporting.aggregations.histogram import Histogram
+from mda_reporting.aggregations.histogram2d import Histogram2D
+from mda_reporting.aggregations.statistics import Statistics
+from mda_reporting.aggregations.aggregation_types import AggregationType
+from mda_reporting.events.basic_event import BasicEvent
+from mda_reporting.events.container_event import ContainerEvent
+from mda_reporting.events.event_types import EventType
+from mda_reporting.persist.report_storage import UnityCatalogSink, UnitySinkConfig
 
 from utils import report_utils
 

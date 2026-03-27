@@ -4,6 +4,16 @@ Instructions for Claude processes to test the Impulse app via Chrome DevTools MC
 
 ---
 
+> **MANDATORY FOR ALL AGENTS:** Testing means deploying to FEVM and verifying the deployed Databricks app. Local testing (localhost, local uvicorn) is NOT acceptable. You MUST:
+> 1. Deploy to your FEVM instance FIRST
+> 2. Launch a SEPARATE Chrome instance (never use the user's Chrome — see Browser Isolation below)
+> 3. Walk through the full wizard flow on the deployed app
+> 4. Only commit AFTER E2E testing passes
+>
+> See CLAUDE.md "Testing (worktree agents)" for the exact commands.
+
+---
+
 ## Prerequisites
 
 - App must be deployed (default instance or your own `--instance`, see Deploying below)
@@ -14,14 +24,14 @@ Instructions for Claude processes to test the Impulse app via Chrome DevTools MC
 
 **Default instance (main session only):**
 ```bash
-.claude/deploy-fevm.sh              # deploys "impulse" app
+test/deploy-fevm.sh              # deploys "impulse" app
 ```
 URL: `https://impulse-7474650020296832.aws.databricksapps.com`
 
 **Feature instance (worktree agents):**
 ```bash
-.claude/deploy-fevm.sh --instance feat-a              # deploys "impulse-feat-a" app
-.claude/deploy-fevm.sh --instance feat-a --skip-build  # skip frontend build
+test/deploy-fevm.sh --instance feat-a              # deploys "impulse-feat-a" app
+test/deploy-fevm.sh --instance feat-a --skip-build  # skip frontend build
 ```
 Get the URL after deploy:
 ```bash
@@ -68,6 +78,8 @@ Example: `test_agg_types_a3f1`, `test_hist2d_b7c2`
 
 ### Browser isolation: separate Chrome instances
 
+> **CRITICAL: NEVER use the user's existing Chrome.** Opening URLs with `open` or using the default Chrome profile will close the user's tabs and corrupt their session. Every agent MUST launch its own isolated Chrome instance.
+
 Chrome DevTools MCP's `select_page` is **global state** — not per-connection. Two agents sharing one Chrome instance will corrupt each other's interactions:
 
 ```
@@ -76,27 +88,36 @@ Agent B: select_page(Tab2)    ← overwrites global state
 Agent A: click(...)           ← hits Tab2 (WRONG!)
 ```
 
-**Solution: each agent launches its own Chrome instance** with a unique `--userDataDir`. This gives a completely separate Chrome process, DevTools connection, and page state.
-
-**How to set up a separate Chrome instance for your agent:**
-
-Before starting browser testing, launch Chrome DevTools MCP with a unique user data directory. From your worktree, you can use an MCP configuration override or launch manually:
+**REQUIRED: Launch a dedicated Chrome instance before any browser interaction:**
 
 ```bash
-# Launch a dedicated Chrome instance for this agent
-npx chrome-devtools-mcp@latest --userDataDir ~/.vibe/chrome/agent-{your-feature-name}
+# Launch isolated Chrome for your agent — MUST use unique user-data-dir
+"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+  --user-data-dir="/tmp/chrome-{your-feature-name}" \
+  --no-first-run --no-default-browser-check \
+  --remote-debugging-port={unique-port} \
+  "{your-app-url}" &
 ```
 
-Or use the `--isolated` flag for a temporary profile that auto-cleans:
+Example for an agent named `agg-types`:
 ```bash
-npx chrome-devtools-mcp@latest --isolated
+"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+  --user-data-dir="/tmp/chrome-agg-types" \
+  --no-first-run --no-default-browser-check \
+  --remote-debugging-port=9333 \
+  "https://impulse-agg-types-7474650020296832.aws.databricksapps.com" &
 ```
+
+**Do NOT use any of these — they will hijack the user's browser:**
+- `open "https://..."` — opens in the user's default Chrome profile
+- `open -g "https://..."` — same problem, just backgrounded
+- Any command without `--user-data-dir`
 
 **Key points:**
-- Each `--userDataDir` path spawns a separate Chrome process
+- Each `--user-data-dir` path spawns a separate Chrome process
 - Each Chrome process has independent tabs, cookies, and SSO sessions
-- Each agent's MCP tools (`click`, `fill`, `take_snapshot`) only affect their own Chrome instance
 - SSO login is required per Chrome instance (separate cookie jars)
+- Use a unique `--remote-debugging-port` per agent (9333, 9334, 9335, etc.)
 
 **If you cannot launch a separate Chrome instance** (e.g., MCP server is shared), browser testing must be **serialized** — only one agent uses Chrome at a time.
 

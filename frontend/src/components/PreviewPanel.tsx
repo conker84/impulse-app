@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import type { AvailableChannel, HistogramDefinition, ReportState, SignalCandidate, SourceDataConfig, VehicleCandidate, WizardStep } from "../types";
+import type { AggregationDefinition, AvailableChannel, Histogram1DDefinition, ReportState, SignalCandidate, SourceDataConfig, VehicleCandidate, WizardStep } from "../types";
 import type { DeployStatusResponse } from "../api";
 import { listCatalogs, listSchemas, listVolumes } from "../api";
 import SignalsTab from "./SignalsTab";
-import HistogramsTab from "./HistogramsTab";
+import AggregationsTab from "./AggregationsTab";
 import HistogramBuilder from "./HistogramBuilder";
 import ConfigTab from "./ConfigTab";
 import CodePreviewTab from "./CodePreviewTab";
@@ -46,7 +46,9 @@ interface Props {
   onUploadFiles: (files: FileList) => void;
   onTriggerIngest: () => void;
   ingestTasks: { task_key: string; life_cycle_state: string; result_state: string | null }[];
-  onAddHistogram: (histogram: HistogramDefinition) => void;
+  onAddHistogram: (histogram: Histogram1DDefinition) => void;
+  onDeleteAggregation: (name: string) => void;
+  onUpdateAggregation: (originalName: string, histogram: Histogram1DDefinition) => void;
   onSuggestBins: (type: string, signalRef: string) => Promise<{
     bins: number[]; bins_unit: string; description: string; name: string;
   }>;
@@ -69,7 +71,7 @@ function canAdvance(state: ReportState): boolean {
   }
   if (step === "report_name") return !!state.name;
   if (step === "channels") return state.signals.length > 0;
-  if (step === "aggregations") return state.histograms.length > 0;
+  if (step === "aggregations") return state.aggregations.length > 0;
   if (step === "vehicles") return state.vehicles.length > 0;
   return false;
 }
@@ -96,6 +98,8 @@ export default function PreviewPanel({
   onTriggerIngest,
   ingestTasks,
   onAddHistogram,
+  onDeleteAggregation,
+  onUpdateAggregation,
   onSuggestBins,
   jobStatus,
   onValidate,
@@ -106,6 +110,23 @@ export default function PreviewPanel({
   const isReady = state.wizard_step === "ready";
   const clusterReady = !state.use_all_purpose_cluster || !!state.all_purpose_cluster_id;
   const canDeploy = isReady && state.deployment === "not_started" && clusterReady;
+
+  const [editingHistogram, setEditingHistogram] = useState<Histogram1DDefinition | null>(null);
+
+  const handleEditAggregation = useCallback((agg: AggregationDefinition) => {
+    if (agg.agg_kind === "histogram_1d") {
+      setEditingHistogram(agg);
+    }
+  }, []);
+
+  const handleAddOrUpdateHistogram = useCallback((histogram: Histogram1DDefinition) => {
+    if (editingHistogram) {
+      onUpdateAggregation(editingHistogram.name, histogram);
+      setEditingHistogram(null);
+    } else {
+      onAddHistogram(histogram);
+    }
+  }, [editingHistogram, onAddHistogram, onUpdateAggregation]);
 
   const candidateRef = useRef<HTMLDivElement>(null);
   const prevCandidateCount = useRef(0);
@@ -180,13 +201,19 @@ export default function PreviewPanel({
           </StepSection>
         )}
         {state.wizard_step === "aggregations" && (
-          <StepSection title="Aggregations" subtitle={`${state.histograms.length} histogram(s) defined`}>
-            <HistogramsTab histograms={state.histograms} />
+          <StepSection title="Aggregations" subtitle={`${state.aggregations.length} aggregation(s) defined`}>
+            <AggregationsTab
+              aggregations={state.aggregations}
+              onDelete={onDeleteAggregation}
+              onEdit={handleEditAggregation}
+            />
             <HistogramBuilder
               signals={state.signals}
-              existingNames={new Set(state.histograms.map((h) => h.name))}
-              onAdd={onAddHistogram}
+              existingNames={new Set(state.aggregations.map((a) => a.name))}
+              onAdd={handleAddOrUpdateHistogram}
               onSuggestBins={onSuggestBins}
+              editingHistogram={editingHistogram}
+              onCancelEdit={() => setEditingHistogram(null)}
             />
           </StepSection>
         )}
@@ -389,7 +416,10 @@ function ComboBox({
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  const filtered = value
+  // If value exactly matches an option, show all (user already picked one).
+  // Otherwise filter (user is mid-search).
+  const exactMatch = options.some((o) => o.toLowerCase() === value.toLowerCase());
+  const filtered = value && !exactMatch
     ? options.filter((o) => o.toLowerCase().includes(value.toLowerCase()))
     : options;
 
@@ -1569,7 +1599,7 @@ function ReadyPanel({
       <div className="step-header">
         <div className="step-title">Report Ready</div>
         <div className="step-subtitle">
-          {state.signals.length} signals, {state.histograms.length} histograms, {state.vehicles.length} vehicles
+          {state.signals.length} signals, {state.aggregations.length} aggregations, {state.vehicles.length} vehicles
         </div>
       </div>
 
@@ -1604,8 +1634,8 @@ function ReadyPanel({
           />
           <div className="code-label" style={{ marginTop: 16 }}>Signals</div>
           <SignalsTab signals={state.signals} />
-          <div className="code-label" style={{ marginTop: 16 }}>Histograms</div>
-          <HistogramsTab histograms={state.histograms} />
+          <div className="code-label" style={{ marginTop: 16 }}>Aggregations</div>
+          <AggregationsTab aggregations={state.aggregations} />
           <div className="code-label" style={{ marginTop: 16 }}>Vehicles & Data Sources</div>
           <ConfigTab vehicles={state.vehicles} dataSources={state.data_sources} />
         </>

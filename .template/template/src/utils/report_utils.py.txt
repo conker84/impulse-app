@@ -1,23 +1,59 @@
-# Utility functions for the MDA report
+# Utility functions for the Impulse report
 from datetime import datetime
 from pyspark.sql import Column
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import current_timestamp
 import pyspark.sql.functions as F
-from mda_reporting.persistence.unity_catalog import UnityCatalogSink
 from pyspark.sql.types import *
 import uuid
 from .schemas import STATUS_TABLE_SCHEMA
 from delta.tables import DeltaTable
 
 
+def get_full_table_uri(catalog: str, schema: str, table_prefix: str, table_name: str) -> str:
+    return f"{catalog}.{schema}.{table_prefix}_{table_name}"
+
+
+def list_report_tables(catalog: str, schema: str, table_prefix: str) -> list[str]:
+    """List all tables belonging to this report (matching the table_prefix)."""
+    spark = SparkSession.getActiveSession()
+    prefix = f"{table_prefix}_"
+    tables = spark.catalog.listTables(f"{catalog}.{schema}")
+    return [t.name.removeprefix(prefix) for t in tables if t.name.startswith(prefix)]
+
+
+def get_table_version(catalog: str, schema: str, table_prefix: str, table_name: str) -> int:
+    """Get the current Delta version of a report table."""
+    spark = SparkSession.getActiveSession()
+    full_path = get_full_table_uri(catalog, schema, table_prefix, table_name)
+    try:
+        history = spark.sql(f"DESCRIBE HISTORY {full_path} LIMIT 1").collect()
+        return history[0].version if history else -1
+    except Exception:
+        return -1
+
+
+def restore_table_version(catalog: str, schema: str, table_prefix: str, table_name: str, version: int):
+    """Restore a report table to a specific Delta version."""
+    spark = SparkSession.getActiveSession()
+    full_path = get_full_table_uri(catalog, schema, table_prefix, table_name)
+    spark.sql(f"RESTORE TABLE {full_path} TO VERSION AS OF {version}")
+
+
+def drop_all_report_tables(catalog: str, schema: str, table_prefix: str):
+    """Drop all tables belonging to this report."""
+    spark = SparkSession.getActiveSession()
+    tables = list_report_tables(catalog, schema, table_prefix)
+    for table_name in tables:
+        full_path = get_full_table_uri(catalog, schema, table_prefix, table_name)
+        spark.sql(f"DROP TABLE IF EXISTS {full_path}")
+        print(f"Dropped table: {full_path}")
+
+
 # Functions to be used in the status table
 
 def create_table_if_not_exists(full_table_name: str, schema: StructType):
-    
-    """
-    Creates a Delta table with the given schema if it doesn't already exist.
-    """
+    """Creates a Delta table with the given schema if it doesn't already exist."""
     spark = SparkSession.getActiveSession()
     if not spark.catalog.tableExists(full_table_name):
         spark.createDataFrame([], schema) \
@@ -29,30 +65,25 @@ def create_table_if_not_exists(full_table_name: str, schema: StructType):
         print(f"{full_table_name} already exists")
 
 
-# We use get_table_version() from UnityCatalogSink
-def capture_table_versions(sink, exclude_tables=[]):
-    """ Get all current versions of tables of the report and exclude selected tables"""
-
-    report_tables = sink._list_tables()
+def capture_table_versions(catalog: str, schema: str, table_prefix: str, exclude_tables=[]):
+    """Get all current versions of report tables, excluding selected tables."""
+    report_tables = list_report_tables(catalog, schema, table_prefix)
     versions = {}
     for table in report_tables:
         if table not in exclude_tables:
-            version = sink.get_table_version(table)
+            version = get_table_version(catalog, schema, table_prefix, table)
             versions[table] = version
-            
     return versions
 
 
-def get_latest_problematic_run(sink: UnityCatalogSink, status_table_name: str):
-    """
-    Returns the latest problematic run (in_progress or failed w/o successful rollback)
-    """
+def get_latest_problematic_run(catalog: str, schema: str, table_prefix: str, status_table_name: str):
+    """Returns the latest problematic run (in_progress or failed w/o successful rollback)."""
     spark = SparkSession.getActiveSession()
-    full_table_path = sink.get_full_table_uri(status_table_name)
+    full_table_path = get_full_table_uri(catalog, schema, table_prefix, status_table_name)
     query = f"""
         SELECT run_id, processing_status, rollback_status, delta_versions
         FROM {full_table_path}
-        WHERE (processing_status = 'in_progress' OR 
+        WHERE (processing_status = 'in_progress' OR
               (processing_status = 'failed' AND rollback_status != 'success'))
         ORDER BY start_date DESC
         LIMIT 1
@@ -61,21 +92,20 @@ def get_latest_problematic_run(sink: UnityCatalogSink, status_table_name: str):
     return results[0] if results else None
 
 
-def add_new_run_entry(sink: UnityCatalogSink, status_table_name: str, delta_versions: dict):
+def add_new_run_entry(catalog: str, schema: str, table_prefix: str, status_table_name: str, delta_versions: dict):
     spark = SparkSession.getActiveSession()
-    full_table_path = sink.get_full_table_uri(status_table_name)
+    full_table_path = get_full_table_uri(catalog, schema, table_prefix, status_table_name)
     run_id = uuid.uuid4().int % (10 ** 8)  # 8 digit id
     start_date = datetime.now()
-    # stop_date=start_date + timedelta(minutes=30)
 
     new_entry = spark.createDataFrame(
         [
             (
                 run_id,
-                start_date,  # start_date
-                None,  # stop_date (could be updated in the postprocessing) set stop_date for testing purposes
-                "in_progress",  # processing_status
-                "not_executed",  # rollback_status (could be updated in the postprocessing)
+                start_date,
+                None,  # stop_date
+                "in_progress",
+                "not_executed",
                 delta_versions
             )
         ],
@@ -86,30 +116,32 @@ def add_new_run_entry(sink: UnityCatalogSink, status_table_name: str, delta_vers
 
     return run_id
 
-def update_delta_versions(sink: UnityCatalogSink, status_table_name: str, run_id: int, delta_versions: dict):
+
+def update_delta_versions(catalog: str, schema: str, table_prefix: str, status_table_name: str, run_id: int, delta_versions: dict):
     spark = SparkSession.getActiveSession()
-    status_table_uri = sink.get_full_table_uri(status_table_name)
+    status_table_uri = get_full_table_uri(catalog, schema, table_prefix, status_table_name)
     delta_table = DeltaTable.forName(spark, status_table_uri)
     delta_v_map = F.create_map(*[F.lit(x) for kv in delta_versions.items() for x in kv])
     delta_table.update(
-        condition = f"run_id = {run_id}",
-        set = { "delta_versions": delta_v_map}
+        condition=f"run_id = {run_id}",
+        set={"delta_versions": delta_v_map}
     )
 
-def wipe_new_tables_from_last_run(sink, last_run_versions: dict, status_table_name: str):
+
+def wipe_new_tables_from_last_run(catalog: str, schema: str, table_prefix: str, last_run_versions: dict, status_table_name: str):
     """
     Detects any tables that were not part of the last failed run (i.e. newly created tables),
     and wipes them out by replacing them with an empty version of themselves.
     """
     spark = SparkSession.getActiveSession()
-    current_tables = set(sink._list_tables())
+    current_tables = set(list_report_tables(catalog, schema, table_prefix))
     previous_tables = set(last_run_versions.keys())
     new_tables = current_tables - previous_tables
 
     for table in new_tables:
         if table == status_table_name:
-            continue  # Avoid wiping the status table
-        full_table_name = sink.get_full_table_uri(table)
+            continue
+        full_table_name = get_full_table_uri(catalog, schema, table_prefix, table)
         try:
             print(f"Detected new table since last failed run: {full_table_name}. Wiping it out")
             spark.sql(f"""
@@ -121,15 +153,15 @@ def wipe_new_tables_from_last_run(sink, last_run_versions: dict, status_table_na
             print(f"Failed to wipe out table {table}: {e}")
 
 
-def attempt_rollback_from_run(sink: UnityCatalogSink, run, status_table_name: str):
+def attempt_rollback_from_run(catalog: str, schema: str, table_prefix: str, run, status_table_name: str):
     spark = SparkSession.getActiveSession()
-    full_table_path = sink.get_full_table_uri(status_table_name)
-    
+    full_table_path = get_full_table_uri(catalog, schema, table_prefix, status_table_name)
+
     rollback_success = True
     for table_name, version in run.delta_versions.items():
         try:
             if table_name != status_table_name and version != -1:
-                sink.restore_table_version(table_name, version)
+                restore_table_version(catalog, schema, table_prefix, table_name, version)
                 print(f"Restored {table_name} to version {version}")
         except Exception as e:
             rollback_success = False
@@ -137,14 +169,12 @@ def attempt_rollback_from_run(sink: UnityCatalogSink, run, status_table_name: st
 
     rollback_status = 'success' if rollback_success else 'failed'
 
-    # Ensure that once we fixed a problematic run (rollback was successful), it will not be detected again in the next execution of the workflow
-    # This means processing_status needs to be != 'in_progress' and rollback_status needs to be == 'success'
     spark.sql(f"""
         UPDATE {full_table_path}
-        SET 
+        SET
             stop_date = current_timestamp(),
             rollback_status = '{rollback_status}',
-            processing_status = CASE 
+            processing_status = CASE
                 WHEN processing_status = 'in_progress' THEN 'failed'
                 ELSE processing_status
             END
@@ -155,22 +185,14 @@ def attempt_rollback_from_run(sink: UnityCatalogSink, run, status_table_name: st
         raise Exception(f"Failed to rollback tables from previous failed run {run.run_id}. Manual action required.")
 
 
-def update_run_success(sink: UnityCatalogSink, status_table_name: str, current_run_id: int):
-    """
-    It updates the processing status of the current run in the status table.
-    If a there is a successful run, we set it to processing_status ‘success’ and current timestamp as stop_date
-
-    Args:
-        sink: UnityCatalogSink
-        status_table_name: str
-        run_id: ID of the execution to be updated
-    """
+def update_run_success(catalog: str, schema: str, table_prefix: str, status_table_name: str, current_run_id: int):
+    """Update processing status of a successful run."""
     spark = SparkSession.getActiveSession()
-    full_table_path = sink.get_full_table_uri(status_table_name)
+    full_table_path = get_full_table_uri(catalog, schema, table_prefix, status_table_name)
 
     spark.sql(f"""
         UPDATE {full_table_path}
-        SET 
+        SET
             stop_date = current_timestamp(),
             processing_status = 'success',
             rollback_status = 'not_executed'
@@ -180,14 +202,10 @@ def update_run_success(sink: UnityCatalogSink, status_table_name: str, current_r
     print(f"run_id {current_run_id} has been set as 'success'")
 
 
-def update_run_failure(sink, status_table_name, current_run_id):
+def update_run_failure(catalog: str, schema: str, table_prefix: str, status_table_name: str, current_run_id: int):
     spark = SparkSession.getActiveSession()
-    full_table_path = sink.get_full_table_uri(status_table_name)
+    full_table_path = get_full_table_uri(catalog, schema, table_prefix, status_table_name)
 
-    # We exlude status table from the list of tables to restore
-    # delta_versions.pop(status_table_name, None)
-
-    # Looking up the delta versions from the status table of the current_run_id
     run_data = spark.sql(f"""
         SELECT delta_versions
         FROM {full_table_path}
@@ -199,10 +217,9 @@ def update_run_failure(sink, status_table_name, current_run_id):
 
     delta_versions = run_data[0].delta_versions
 
-    # Set processing_status to 'failed' and rollback_status to 'pending'
     spark.sql(f"""
         UPDATE {full_table_path}
-        SET 
+        SET
             stop_date = current_timestamp(),
             processing_status = 'failed',
             rollback_status = 'pending'
@@ -213,15 +230,14 @@ def update_run_failure(sink, status_table_name, current_run_id):
 
     rollback_success = True
     for table, version in delta_versions.items():
-        if table != status_table_name and version != -1:  # We exlude status table from the list of tables to restore
+        if table != status_table_name and version != -1:
             try:
-                sink.restore_table_version(table, version)
+                restore_table_version(catalog, schema, table_prefix, table, version)
                 print(f"Restored {table} to version {version}")
             except Exception as e:
                 rollback_success = False
                 print(e)
 
-    # 3. Update rollback status
     status = 'success' if rollback_success else 'failed'
     spark.sql(f"""
         UPDATE {full_table_path}
@@ -229,71 +245,26 @@ def update_run_failure(sink, status_table_name, current_run_id):
         WHERE run_id = {current_run_id}
     """)
 
-def update_global_report_table(target_table, source_table, attr_list):
-    """
-    Merge the source table into the target table based on the given attribute list.
 
-    Args:
-        target_table: The target table to merge into.
-        source_table: The source table to merge from.
-        attr_list: List of attributes to compare for updates.
-    """
+def update_global_report_table(target_table, source_table, attr_list):
+    """Merge the source table into the target table based on the given attribute list."""
     merge_cond = "target.name = source.name"
     attr_cond = " OR ".join([f"target.{field} <> source.{field}" for field in attr_list])
     (target_table.alias("target")
      .merge(source_table.alias("source"), merge_cond)
-     .whenMatchedUpdate(condition=attr_cond, set={attr : f"source.{attr}" for attr in attr_list})
+     .whenMatchedUpdate(condition=attr_cond, set={attr: f"source.{attr}" for attr in attr_list})
      .execute()
      )
 
 
-# Function to convert timestamp to epoch time in nanoseconds
 def timestamp_to_epoch_nano(timestamp):
+    """Convert timestamp string to epoch time in nanoseconds."""
     dt = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
     epoch = datetime.utcfromtimestamp(0)
     epoch_nano = int((dt - epoch).total_seconds() * 1e9)
     return epoch_nano
 
 
-def get_table_path_config(report):
-    """
-    Get configuration settings for table paths from the report configuration.
-
-    Args:
-        report: The report object
-
-    Returns:
-        tuple: (catalog, schema, table_prefix)
-    """
-    config = report.get_config()
-    catalog = config.get_sink().catalog
-    schema = config.get_sink().schema
-    table_prefix = config.get_sink().table_prefix
-    return catalog, schema, table_prefix
-
-
-def get_table_path(report, table_name):
-    """
-    Get the full table path for a given table name.
-
-    Args:
-        report: The report object
-        table_name: The name of the table
-
-    Returns:
-        str: The full table path
-    """
-    catalog, schema, table_prefix = get_table_path_config(report)
-    return f"{catalog}.{schema}.{table_prefix}_{table_name}"
-
-
 def nanoseconds_to_timestamp(nanoseconds_col: Column) -> Column:
-    """convert epoch nanoseconds to timestamp using spark functions
-
-    args:
-        nanoseconds_col: column containing epoch time in nanoseconds
-
-    returns:
-        column containing timestamp
-    """
+    """Convert epoch nanoseconds to timestamp using spark functions."""
     return F.to_timestamp(F.from_unixtime(nanoseconds_col / 1e9))

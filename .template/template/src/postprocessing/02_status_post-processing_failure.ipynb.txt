@@ -72,16 +72,13 @@
    },
    "outputs": [],
    "source": [
-    "report_config = ReportConfig()\n",
-    "report_config.parse_from_json(config_path)\n",
+    "config = MdaConfig.model_validate(json.load(open(config_path)))\n",
     "\n",
-    "catalog = report_config.data_config['destination']['catalog']\n",
-    "schema = report_config.data_config['destination']['schema']\n",
-    "table_prefix = report_config.data_config['destination']['table_prefix']\n",
-    " \n",
-    "sink = UnityCatalogSink(catalog, schema, table_prefix)\n",
+    "catalog = config.unity_sink.catalog\n",
+    "schema_ = config.unity_sink.schema\n",
+    "table_prefix = config.unity_sink.table_prefix\n",
     "\n",
-    "print(f\"report destination: {catalog}.{schema}.{table_prefix}_*\")\n",
+    "print(f\"report destination: {catalog}.{schema_}.{table_prefix}_*\")\n",
     "print(f\"status table name: {status_table_name}\")"
    ]
   },
@@ -103,13 +100,14 @@
    },
    "outputs": [],
    "source": [
-    "from utils.report_utils import update_run_failure ,wipe_new_tables_from_last_run,get_latest_problematic_run\n",
+    "from utils.report_utils import update_run_failure, wipe_new_tables_from_last_run, get_latest_problematic_run\n",
     "\n",
-    "last_problematic_run = get_latest_problematic_run(sink,status_table_name)\n",
-    "#In case there is a new table detected from the last failed run, we need to wipe it out\n",
-    "wipe_new_tables_from_last_run(sink, last_problematic_run.delta_versions, status_table_name) #Special Case\n",
+    "last_problematic_run = get_latest_problematic_run(catalog, schema_, table_prefix, status_table_name)\n",
+    "# In case there is a new table detected from the last failed run, we need to wipe it out\n",
+    "if last_problematic_run:\n",
+    "    wipe_new_tables_from_last_run(catalog, schema_, table_prefix, last_problematic_run.delta_versions, status_table_name)\n",
     "\n",
-    "update_run_failure(sink,status_table_name,current_run_id)"
+    "update_run_failure(catalog, schema_, table_prefix, status_table_name, current_run_id)"
    ]
   },
   {

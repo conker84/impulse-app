@@ -109,8 +109,8 @@
    },
    "outputs": [],
    "source": [
-    "my_report = Report(config_path=config_path)\n",
-    "query = my_report.db.query\n"
+    "my_report = Report(name=\"report\", spark=spark, config_path=config_path)\n",
+    "query = my_report.query\n"
    ]
   },
   {
@@ -228,11 +228,9 @@
    },
    "outputs": [],
    "source": [
-    "from utils.report_utils import get_table_path, get_table_path_config\n",
-    "\n",
-    "# determine and write report\n",
+    "# determine and persist report results\n",
     "report_dfs, report_meta_dfs, sessions_df = my_report.determine_report()\n",
-    "my_report.write_report()"
+    "my_report.persist_results()"
    ]
   }
  ],

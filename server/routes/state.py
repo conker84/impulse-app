@@ -13,7 +13,9 @@ from pydantic import BaseModel
 from server.agent import _sessions, _Session
 
 from server.models import (
+    AggregationDefinition,
     AvailableChannel,
+    Histogram1DDefinition,
     HistogramDefinition,
     HistogramType,
     ReportState,
@@ -605,8 +607,8 @@ def _validate_step_complete(state: ReportState) -> str | None:
         if len(state.signals) == 0:
             return "Please add at least one signal before continuing."
     elif step == WizardStep.AGGREGATIONS:
-        if len(state.histograms) == 0:
-            return "Please add at least one histogram before continuing."
+        if len(state.aggregations) == 0:
+            return "Please add at least one aggregation before continuing."
     elif step == WizardStep.VEHICLES:
         if len(state.vehicles) == 0:
             return "Please add at least one vehicle before continuing."
@@ -764,14 +766,14 @@ async def add_histogram(session_id: str, payload: AddHistogramPayload):
     if not any(s.var_name == payload.signal_ref for s in state.signals):
         raise HTTPException(400, f"Signal '{payload.signal_ref}' does not exist.")
 
-    if any(h.name == payload.name for h in state.histograms):
-        raise HTTPException(400, f"Histogram '{payload.name}' already exists.")
+    if any(a.name == payload.name for a in state.aggregations):
+        raise HTTPException(400, f"Aggregation '{payload.name}' already exists.")
 
     if not payload.bins or len(payload.bins) < 2:
         raise HTTPException(400, "At least 2 bin edges are required.")
 
-    state.histograms.append(
-        HistogramDefinition(
+    state.aggregations.append(
+        Histogram1DDefinition(
             name=payload.name,
             histogram_type=HistogramType(payload.histogram_type),
             signal_ref=payload.signal_ref,
@@ -784,6 +786,61 @@ async def add_histogram(session_id: str, payload: AddHistogramPayload):
             weight_signal_ref=payload.weight_signal_ref,
             weight_const=payload.weight_const,
         )
+    )
+
+    return {"report_state": state.model_dump()}
+
+
+@router.delete("/aggregation/{session_id}/{name}")
+async def delete_aggregation(session_id: str, name: str):
+    """Remove an aggregation by name."""
+    session = _sessions.get(session_id)
+    if not session:
+        raise HTTPException(404, "Session not found")
+
+    state = session.state
+    idx = next((i for i, a in enumerate(state.aggregations) if a.name == name), None)
+    if idx is None:
+        raise HTTPException(404, f"Aggregation '{name}' not found.")
+
+    state.aggregations.pop(idx)
+    return {"report_state": state.model_dump()}
+
+
+@router.put("/aggregation/{session_id}/{name}")
+async def update_aggregation(session_id: str, name: str, payload: AddHistogramPayload):
+    """Replace an existing aggregation by name."""
+    session = _sessions.get(session_id)
+    if not session:
+        raise HTTPException(404, "Session not found")
+
+    state = session.state
+    idx = next((i for i, a in enumerate(state.aggregations) if a.name == name), None)
+    if idx is None:
+        raise HTTPException(404, f"Aggregation '{name}' not found.")
+
+    if not any(s.var_name == payload.signal_ref for s in state.signals):
+        raise HTTPException(400, f"Signal '{payload.signal_ref}' does not exist.")
+
+    if not payload.bins or len(payload.bins) < 2:
+        raise HTTPException(400, "At least 2 bin edges are required.")
+
+    # If name changed, check uniqueness
+    if payload.name != name and any(a.name == payload.name for a in state.aggregations):
+        raise HTTPException(400, f"Aggregation '{payload.name}' already exists.")
+
+    state.aggregations[idx] = Histogram1DDefinition(
+        name=payload.name,
+        histogram_type=HistogramType(payload.histogram_type),
+        signal_ref=payload.signal_ref,
+        bins=payload.bins,
+        bins_unit=payload.bins_unit,
+        values_unit=payload.values_unit,
+        description=payload.description,
+        max_duration=payload.max_duration,
+        event_signal_ref=payload.event_signal_ref,
+        weight_signal_ref=payload.weight_signal_ref,
+        weight_const=payload.weight_const,
     )
 
     return {"report_state": state.model_dump()}

@@ -27,7 +27,8 @@ export interface SignalDefinition {
   description: string;
 }
 
-export interface HistogramDefinition {
+export interface Histogram1DDefinition {
+  agg_kind: "histogram_1d";
   name: string;
   histogram_type: "duration" | "distance" | "duration_count" | "event_count";
   signal_ref: string;
@@ -40,6 +41,39 @@ export interface HistogramDefinition {
   weight_signal_ref: string | null;
   weight_const: number | null;
 }
+
+export interface Histogram2DDefinition {
+  agg_kind: "histogram_2d";
+  name: string;
+  x_signal_ref: string;
+  y_signal_ref: string;
+  x_bins: number[];
+  y_bins: number[];
+  x_bins_unit: string | null;
+  y_bins_unit: string | null;
+  x_signal_name: string | null;
+  y_signal_name: string | null;
+  values_unit: string | null;
+  description: string;
+}
+
+export interface StatisticsDefinition {
+  agg_kind: "statistics";
+  name: string;
+  signal_refs: string[];
+  stat_labels: string[];
+  event_signal_ref: string | null;
+  signal_names: string[] | null;
+  description: string;
+}
+
+export type AggregationDefinition =
+  | Histogram1DDefinition
+  | Histogram2DDefinition
+  | StatisticsDefinition;
+
+// Backward-compatible alias
+export type HistogramDefinition = Histogram1DDefinition;
 
 export interface VehicleCandidate {
   vehicle_id: string;
@@ -128,7 +162,7 @@ export interface ReportState {
   available_channels: AvailableChannel[];
   signal_candidates: SignalCandidate[];
   signals: SignalDefinition[];
-  histograms: HistogramDefinition[];
+  aggregations: AggregationDefinition[];
   vehicle_candidates: VehicleCandidate[];
   vehicles: VehicleConfig[];
   data_sources: DataSourceConfig;

@@ -21,6 +21,7 @@ from server.models import (
     DataSourceConfig,
     DeploymentStatus,
     EvalType,
+    Histogram1DDefinition,
     HistogramDefinition,
     HistogramType,
     ReportState,
@@ -168,16 +169,36 @@ TOOLS = [
                     "bins_unit": {"type": "string"},
                     "max_duration": {
                         "type": "number",
-                        "description": "Max sample duration in nanoseconds (HistogramDuration only)",
+                        "description": "Max sample duration in nanoseconds (duration type only)",
                     },
                     "event_signal_ref": {
                         "type": "string",
-                        "description": "Event trigger signal ref (HistogramEventCount only)",
+                        "description": "Event trigger signal ref (event_count type only)",
                     },
                     "weight_const": {"type": "number"},
                     "description": {"type": "string"},
                 },
                 "required": ["name", "histogram_type", "signal_ref", "bins"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "remove_aggregation",
+            "description": (
+                "Remove an aggregation (histogram, statistics, etc.) by name. "
+                "Use when the user wants to delete or redo an aggregation."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Name of the aggregation to remove",
+                    },
+                },
+                "required": ["name"],
             },
         },
     },
@@ -360,10 +381,10 @@ def _exec_suggest_candidates(state: ReportState, candidates: list[dict]) -> str:
 
 def _exec_add_histogram(state: ReportState, **kwargs: Any) -> str:
     name = kwargs["name"]
-    if any(h.name == name for h in state.histograms):
-        return f"Histogram '{name}' already exists."
-    state.histograms.append(
-        HistogramDefinition(
+    if any(a.name == name for a in state.aggregations):
+        return f"Aggregation '{name}' already exists."
+    state.aggregations.append(
+        Histogram1DDefinition(
             name=name,
             histogram_type=HistogramType(kwargs["histogram_type"]),
             signal_ref=kwargs["signal_ref"],
@@ -378,6 +399,14 @@ def _exec_add_histogram(state: ReportState, **kwargs: Any) -> str:
         )
     )
     return f"Added {kwargs['histogram_type']} histogram '{name}' on signal '{kwargs['signal_ref']}' with {len(kwargs.get('bins', []))} bin edges."
+
+
+def _exec_remove_aggregation(state: ReportState, name: str) -> str:
+    idx = next((i for i, a in enumerate(state.aggregations) if a.name == name), None)
+    if idx is None:
+        return f"Aggregation '{name}' not found."
+    removed = state.aggregations.pop(idx)
+    return f"Removed {removed.agg_kind} aggregation '{name}'."
 
 
 def _exec_set_report_metadata(state: ReportState, name: str, description: str = "", creator: str = "") -> str:
@@ -437,6 +466,7 @@ _TOOL_STEP_MAP: dict[str, set[WizardStep]] = {
     "add_virtual_signal": {WizardStep.CHANNELS},
     "suggest_signal_candidates": {WizardStep.CHANNELS},
     "add_histogram": {WizardStep.AGGREGATIONS},
+    "remove_aggregation": {WizardStep.AGGREGATIONS},
     "set_vehicle": {WizardStep.VEHICLES},
     "set_data_sources": {WizardStep.VEHICLES},
     "preview_code": {WizardStep.VEHICLES, WizardStep.READY},
@@ -477,6 +507,8 @@ def _dispatch_tool(
         return _exec_suggest_candidates(state, args["candidates"])
     if name == "add_histogram":
         return _exec_add_histogram(state, **args)
+    if name == "remove_aggregation":
+        return _exec_remove_aggregation(state, args["name"])
     if name == "set_report_metadata":
         return _exec_set_report_metadata(state, args["name"], args.get("description", ""), args.get("creator", ""))
     if name == "set_vehicle":

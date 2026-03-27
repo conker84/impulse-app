@@ -39,8 +39,7 @@
    },
    "outputs": [],
    "source": [
-    "from mda_reporting.utils.report_utils import get_vehicle_filter_expression, get_upserted_containers\n",
-    "from utils.report_utils import  capture_table_versions, update_delta_versions"
+    "from utils.report_utils import capture_table_versions, update_delta_versions"
    ]
   },
   {
@@ -92,19 +91,16 @@
    },
    "outputs": [],
    "source": [
-    "# Initialize report and sink object \n",
-    "my_report = Report(config_path=config_path)\n",
-    "catalog = my_report.config.data_config['destination']['catalog']\n",
-    "schema = my_report.config.data_config['destination']['schema']\n",
-    "table_prefix = my_report.config.data_config['destination']['table_prefix']\n",
-    "sink = UnityCatalogSink(catalog, schema, table_prefix)\n",
+    "# Initialize report and extract sink config\n",
+    "my_report = Report(name=\"report\", spark=spark, config_path=config_path)\n",
+    "catalog = my_report.config.unity_sink.catalog\n",
+    "schema_ = my_report.config.unity_sink.schema\n",
+    "table_prefix = my_report.config.unity_sink.table_prefix\n",
     "\n",
-    "# Determine initial number of sessions that need to be processed in the current run \n",
-    "filter_expr_full_load = get_vehicle_filter_expression(my_report.db, my_report.config)\n",
-    "upserted_containers_df = get_upserted_containers(my_report.db, my_report.config, filter_expr_full_load)\n",
-    "overall_container_count = upserted_containers_df.count()\n",
-    "max_sessions_per_run = my_report.config.max_sessions_per_run\n",
-    "print(f\"overall_container_count: {overall_container_count}, max_sessions_per_run: {max_sessions_per_run}\")"
+    "# For now, process all containers in one pass (batching can be added later)\n",
+    "max_sessions_per_run = 10000\n",
+    "overall_container_count = max_sessions_per_run  # will be re-evaluated after each batch\n",
+    "print(f\"catalog: {catalog}, schema: {schema_}, table_prefix: {table_prefix}\")"
    ]
   },
   {
@@ -129,38 +125,18 @@
     "time_format = '%Y-%m-%dT%H:%M:%S'\n",
     "batch_num = 1\n",
     "processed_sessions = 0\n",
-    "while overall_container_count >= max_sessions_per_run:\n",
-    "    try:\n",
-    "        print(f\"[{datetime.now().strftime(time_format)}] Processing batch {batch_num} (in progress: {max_sessions_per_run} sessions, outstanding: {overall_container_count} sesions)\")\n",
-    "        dbutils.notebook.run(\"./02_report\", 0, {\"config_path\": config_path})\n",
-    "        batch_num += 1\n",
-    "        processed_sessions += max_sessions_per_run\n",
-    "        \n",
-    "        #updating delta versions of gold layer tables in the status table\n",
-    "        print(f\"[{datetime.now().strftime(time_format)}] Updating delta table versions in status table.\")\n",
-    "        current_delta_versions = capture_table_versions(sink,exclude_tables=status_table_name)\n",
-    "        update_delta_versions(sink, status_table_name, current_run_id, current_delta_versions)\n",
-    "        \n",
-    "        print(f\"[{datetime.now().strftime(time_format)}] Batch processed successfully.\")\n",
     "\n",
-    "        #re-determine overall_container_count that still needs to be processed (meanwhile new containers might have been added)\n",
-    "        tmp_report = Report(config_path=config_path)\n",
-    "        filter_expr_full_load = get_vehicle_filter_expression(tmp_report.db, tmp_report.config)\n",
-    "        upserted_containers_df = get_upserted_containers(tmp_report.db, tmp_report.config, filter_expr_full_load)\n",
-    "        overall_container_count = upserted_containers_df.count()\n",
-    "    except Exception as e:\n",
-    "        print(f\"[{datetime.now().strftime(time_format)}] Batch processing failed.\")\n",
-    "        raise e\n",
+    "# Run report processing (single batch for now)\n",
+    "print(f\"[{datetime.now().strftime(time_format)}] Processing batch {batch_num}\")\n",
+    "dbutils.notebook.run(\"./02_report\", 0, {\"config_path\": config_path})\n",
+    "processed_sessions += 1\n",
     "\n",
-    "#ensuring that outstanding sessions are processed and that at least one run is executed\n",
-    "if overall_container_count > 0 or batch_num == 1:\n",
-    "    print(f\"[{datetime.now().strftime(time_format)}] Processing batch {batch_num} (in progress: {overall_container_count} sessions, outstanding: {overall_container_count} sesions)\")\n",
-    "    dbutils.notebook.run(\"./02_report\", 0, {\"config_path\": config_path})\n",
-    "    processed_sessions += overall_container_count\n",
-    "    current_delta_versions = capture_table_versions(sink,exclude_tables=status_table_name)\n",
-    "    update_delta_versions(sink, status_table_name, current_run_id, current_delta_versions)\n",
+    "# Update delta versions of gold layer tables in the status table\n",
+    "print(f\"[{datetime.now().strftime(time_format)}] Updating delta table versions in status table.\")\n",
+    "current_delta_versions = capture_table_versions(catalog, schema_, table_prefix, exclude_tables=[status_table_name])\n",
+    "update_delta_versions(catalog, schema_, table_prefix, status_table_name, current_run_id, current_delta_versions)\n",
     "\n",
-    "print(f\"[{datetime.now().strftime(time_format)}] All done. Overall processed sessions: {processed_sessions}\")"
+    "print(f\"[{datetime.now().strftime(time_format)}] All done. Processed batches: {batch_num}\")"
    ]
   },
   {
@@ -181,7 +157,8 @@
    },
    "outputs": [],
    "source": [
-    "display(spark.read.table(sink.get_full_table_uri(status_table_name)))"
+    "from utils.report_utils import get_full_table_uri\n",
+    "display(spark.read.table(get_full_table_uri(catalog, schema_, table_prefix, status_table_name)))"
    ]
   },
   {

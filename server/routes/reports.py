@@ -77,7 +77,7 @@ async def load_saved_report(report_id: str, request: Request):
         description=data.get("description", ""),
         creator=data.get("creator", ""),
         signals=data.get("signals", []),
-        histograms=data.get("histograms", []),
+        aggregations=data.get("aggregations", data.get("histograms", [])),
         vehicles=data.get("vehicles", []),
         data_sources=DataSourceConfig(**data["data_sources"]) if data.get("data_sources") else DataSourceConfig(),
         use_all_purpose_cluster=data.get("use_all_purpose_cluster", False),

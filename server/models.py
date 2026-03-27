@@ -1,19 +1,21 @@
 """Pydantic data models for Impulse report state.
 
-SignalDefinition  <- define-channels skill
-HistogramDefinition <- create-histogram-1d skill
-VehicleConfig     <- configure-report skill (vehicles section)
-DataSourceConfig  <- configure-report skill (data section)
-ReportState       <- aggregation of all the above
-ChatMessage       <- chat endpoint I/O
+SignalDefinition   <- define-channels skill
+Histogram1DDefinition <- create-histogram-1d skill
+Histogram2DDefinition <- (future) create-histogram-2d skill
+StatisticsDefinition  <- (future) create-statistics skill
+VehicleConfig      <- configure-report skill (vehicles section)
+DataSourceConfig   <- configure-report skill (data section)
+ReportState        <- aggregation of all the above
+ChatMessage        <- chat endpoint I/O
 """
 
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Literal
+from typing import Annotated, Any, Literal, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Discriminator, Field, Tag
 
 
 # ---------------------------------------------------------------------------
@@ -58,7 +60,7 @@ class SignalDefinition(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Histogram definitions (from create-histogram-1d skill)
+# Aggregation definitions (discriminated union)
 # ---------------------------------------------------------------------------
 
 class HistogramType(str, Enum):
@@ -68,7 +70,8 @@ class HistogramType(str, Enum):
     EVENT_COUNT = "event_count"
 
 
-class HistogramDefinition(BaseModel):
+class Histogram1DDefinition(BaseModel):
+    agg_kind: Literal["histogram_1d"] = "histogram_1d"
     name: str
     histogram_type: HistogramType = HistogramType.DURATION
     signal_ref: str
@@ -80,6 +83,50 @@ class HistogramDefinition(BaseModel):
     event_signal_ref: str | None = None
     weight_signal_ref: str | None = None
     weight_const: float | None = None
+
+
+class Histogram2DDefinition(BaseModel):
+    agg_kind: Literal["histogram_2d"] = "histogram_2d"
+    name: str
+    x_signal_ref: str
+    y_signal_ref: str
+    x_bins: list[float] = Field(default_factory=list)
+    y_bins: list[float] = Field(default_factory=list)
+    x_bins_unit: str | None = None
+    y_bins_unit: str | None = None
+    x_signal_name: str | None = None
+    y_signal_name: str | None = None
+    values_unit: str | None = None
+    description: str = ""
+
+
+class StatisticsDefinition(BaseModel):
+    agg_kind: Literal["statistics"] = "statistics"
+    name: str
+    signal_refs: list[str] = Field(default_factory=list)
+    stat_labels: list[str] = Field(default_factory=lambda: ["min", "max", "mean", "median", "std", "count"])
+    event_signal_ref: str | None = None
+    signal_names: list[str] | None = None
+    description: str = ""
+
+
+def _get_agg_kind(v: Any) -> str:
+    if isinstance(v, dict):
+        return v.get("agg_kind", "histogram_1d")
+    return getattr(v, "agg_kind", "histogram_1d")
+
+
+AggregationDefinition = Annotated[
+    Union[
+        Annotated[Histogram1DDefinition, Tag("histogram_1d")],
+        Annotated[Histogram2DDefinition, Tag("histogram_2d")],
+        Annotated[StatisticsDefinition, Tag("statistics")],
+    ],
+    Discriminator(_get_agg_kind),
+]
+
+# Backward-compatible alias
+HistogramDefinition = Histogram1DDefinition
 
 
 # ---------------------------------------------------------------------------
@@ -175,6 +222,7 @@ class ValidationLevel(BaseModel):
 class ValidationResults(BaseModel):
     levels: list[ValidationLevel] = Field(default_factory=list)
     histogram_summary: list[dict[str, Any]] = Field(default_factory=list)
+    aggregation_summary: list[dict[str, Any]] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -190,7 +238,7 @@ class ReportState(BaseModel):
     available_channels: list[AvailableChannel] = Field(default_factory=list)
     signal_candidates: list[SignalCandidate] = Field(default_factory=list)
     signals: list[SignalDefinition] = Field(default_factory=list)
-    histograms: list[HistogramDefinition] = Field(default_factory=list)
+    aggregations: list[AggregationDefinition] = Field(default_factory=list)
     vehicle_candidates: list[VehicleCandidate] = Field(default_factory=list)
     vehicles: list[VehicleConfig] = Field(default_factory=list)
     data_sources: DataSourceConfig = Field(default_factory=DataSourceConfig)

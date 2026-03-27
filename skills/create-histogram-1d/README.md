@@ -22,8 +22,8 @@ create-histogram-1d/
 - Constructor parameters per type
 - Bin definition patterns (equidistant, numpy, catch-all, custom)
 - Expression type requirements and verification
-- Integration into report pages (`page.add_visualization()`)
-- Persistence schema (histogram_dimension + histogramNd_fact)
+- Integration into report pages (`page.add_aggregation()`)
+- Persistence schema (histogram_dimension + histogram_fact)
 
 ## When to Use
 

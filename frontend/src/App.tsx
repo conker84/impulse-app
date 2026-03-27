@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import type { ChatMessage, HistogramDefinition, ReportState, WizardStep } from "./types";
-import { sendChat, scaffoldReport, deployReport, validateReport, advanceStep, goBack, setMetadata, selectCandidates, fetchVehicleCandidates, selectVehicles, updateVehicleTimestamps, getDeployStatus, cancelRun, getTokenStatus, setClusterConfig, loadReport, saveReport, suggestBins, addHistogram, setSourceData, uploadMf4Files, triggerIngest, getIngestStatus, fetchChannelCatalog } from "./api";
+import type { ChatMessage, Histogram1DDefinition, ReportState, WizardStep } from "./types";
+import { sendChat, scaffoldReport, deployReport, validateReport, advanceStep, goBack, setMetadata, selectCandidates, fetchVehicleCandidates, selectVehicles, updateVehicleTimestamps, getDeployStatus, cancelRun, getTokenStatus, setClusterConfig, loadReport, saveReport, suggestBins, addHistogram, deleteAggregation, updateAggregation, setSourceData, uploadMf4Files, triggerIngest, getIngestStatus, fetchChannelCatalog } from "./api";
 import type { DeployStatusResponse, TokenStatusResponse } from "./api";
 import type { DataSourceConfig } from "./types";
 import ChatPanel from "./components/ChatPanel";
@@ -40,7 +40,7 @@ const INITIAL_STATE: ReportState = {
   available_channels: [],
   signal_candidates: [],
   signals: [],
-  histograms: [],
+  aggregations: [],
   vehicle_candidates: [],
   vehicles: [],
   data_sources: {
@@ -200,7 +200,7 @@ export default function App() {
   );
 
   const handleAddHistogram = useCallback(
-    async (histogram: HistogramDefinition) => {
+    async (histogram: Histogram1DDefinition) => {
       if (!sessionId) return;
       try {
         const resp = await addHistogram(sessionId, histogram);
@@ -226,6 +226,46 @@ export default function App() {
     async (type: string, signalRef: string) => {
       if (!sessionId) throw new Error("No active session.");
       return suggestBins(sessionId, { histogram_type: type, signal_ref: signalRef });
+    },
+    [sessionId]
+  );
+
+  const handleDeleteAggregation = useCallback(
+    async (name: string) => {
+      if (!sessionId) return;
+      try {
+        const resp = await deleteAggregation(sessionId, name);
+        setReportState(resp.report_state);
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: `Removed aggregation **${name}**.` },
+        ]);
+      } catch (err) {
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: `Error: ${err instanceof Error ? err.message : String(err)}` },
+        ]);
+      }
+    },
+    [sessionId]
+  );
+
+  const handleUpdateAggregation = useCallback(
+    async (originalName: string, histogram: Histogram1DDefinition) => {
+      if (!sessionId) return;
+      try {
+        const resp = await updateAggregation(sessionId, originalName, histogram);
+        setReportState(resp.report_state);
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: `Updated aggregation **${histogram.name}**.` },
+        ]);
+      } catch (err) {
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: `Error: ${err instanceof Error ? err.message : String(err)}` },
+        ]);
+      }
     },
     [sessionId]
   );
@@ -765,6 +805,8 @@ export default function App() {
         onTriggerIngest={handleTriggerIngest}
         ingestTasks={ingestTasks}
         onAddHistogram={handleAddHistogram}
+        onDeleteAggregation={handleDeleteAggregation}
+        onUpdateAggregation={handleUpdateAggregation}
         onSuggestBins={handleSuggestBins}
         jobStatus={jobStatus}
         onValidate={handleValidate}

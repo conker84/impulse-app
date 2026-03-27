@@ -1,7 +1,7 @@
-import { useState } from "react";
-import type { HistogramDefinition, SignalDefinition } from "../types";
+import { useState, useEffect } from "react";
+import type { Histogram1DDefinition, SignalDefinition } from "../types";
 
-type HistogramType = HistogramDefinition["histogram_type"];
+type HistogramType = Histogram1DDefinition["histogram_type"];
 
 interface BinSuggestion {
   bins: number[];
@@ -13,8 +13,10 @@ interface BinSuggestion {
 interface Props {
   signals: SignalDefinition[];
   existingNames: Set<string>;
-  onAdd: (histogram: HistogramDefinition) => void;
+  onAdd: (histogram: Histogram1DDefinition) => void;
   onSuggestBins: (type: string, signalRef: string) => Promise<BinSuggestion>;
+  editingHistogram?: Histogram1DDefinition | null;
+  onCancelEdit?: () => void;
 }
 
 const HISTOGRAM_TYPES: {
@@ -61,6 +63,8 @@ export default function HistogramBuilder({
   existingNames,
   onAdd,
   onSuggestBins,
+  editingHistogram,
+  onCancelEdit,
 }: Props) {
   const [selectedType, setSelectedType] = useState<HistogramType | null>(null);
   const [signalRef, setSignalRef] = useState("");
@@ -74,6 +78,28 @@ export default function HistogramBuilder({
   const [weightSignalRef, setWeightSignalRef] = useState("");
   const [suggesting, setSuggesting] = useState(false);
   const [error, setError] = useState("");
+
+  const isEditing = !!editingHistogram;
+
+  useEffect(() => {
+    if (editingHistogram) {
+      setSelectedType(editingHistogram.histogram_type);
+      setSignalRef(editingHistogram.signal_ref);
+      setName(editingHistogram.name);
+      setDescription(editingHistogram.description || "");
+      setBinsText(editingHistogram.bins.join(", "));
+      setBinsUnit(editingHistogram.bins_unit || "");
+      if (editingHistogram.max_duration) {
+        setMaxDurationEnabled(true);
+        setMaxDurationSec(String(editingHistogram.max_duration / 1e9));
+      } else {
+        setMaxDurationEnabled(false);
+        setMaxDurationSec("");
+      }
+      setEventSignalRef(editingHistogram.event_signal_ref || "");
+      setWeightSignalRef(editingHistogram.weight_signal_ref || "");
+    }
+  }, [editingHistogram]);
 
   const resetForm = () => {
     setSignalRef("");
@@ -144,12 +170,14 @@ export default function HistogramBuilder({
       name.trim() ||
       makeUniqueName(`${signalRef}_${selectedType}_p1`, existingNames);
 
-    if (existingNames.has(finalName)) {
+    // In edit mode, allow keeping the same name
+    if (!isEditing && existingNames.has(finalName)) {
       setError(`Name '${finalName}' already exists. Choose a different name.`);
       return;
     }
 
-    const histogram: HistogramDefinition = {
+    const histogram: Histogram1DDefinition = {
+      agg_kind: "histogram_1d",
       name: finalName,
       histogram_type: selectedType,
       signal_ref: signalRef,
@@ -176,8 +204,14 @@ export default function HistogramBuilder({
     };
 
     onAdd(histogram);
-    setSelectedType(null);
-    resetForm();
+    if (!isEditing) {
+      setSelectedType(null);
+      resetForm();
+    } else if (onCancelEdit) {
+      onCancelEdit();
+      setSelectedType(null);
+      resetForm();
+    }
   };
 
   const canSuggest = !!selectedType && !!signalRef && !suggesting;
@@ -185,7 +219,18 @@ export default function HistogramBuilder({
 
   return (
     <div className="histogram-builder">
-      <div className="histogram-builder-header">Add Histogram</div>
+      <div className="histogram-builder-header">
+        {isEditing ? "Edit Histogram" : "Add Histogram"}
+        {isEditing && onCancelEdit && (
+          <button
+            className="action-btn"
+            style={{ marginLeft: "auto", fontSize: 12, padding: "2px 8px" }}
+            onClick={() => { onCancelEdit(); setSelectedType(null); resetForm(); }}
+          >
+            Cancel
+          </button>
+        )}
+      </div>
 
       <div className="histogram-type-grid">
         {HISTOGRAM_TYPES.map((ht) => (
@@ -386,7 +431,7 @@ export default function HistogramBuilder({
             disabled={!canAdd}
             onClick={handleAdd}
           >
-            Add Histogram
+            {isEditing ? "Save Changes" : "Add Histogram"}
           </button>
         </div>
       )}

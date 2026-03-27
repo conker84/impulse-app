@@ -24,10 +24,10 @@ There are four types of 1D histograms. Choose the right one based on what the us
 
 | Type | Class | What it measures | Input expression type |
 |---|---|---|---|
-| **Duration** | `HistogramDuration` | Time spent in each value bin | `SampleSeries` |
-| **Distance** | `HistogramDistance` | Distance traveled in each value bin | `SampleSeries` + distance `SampleSeries` |
-| **Duration Count** | `HistogramDurationCount` | Number of events by their duration | `Intervals` |
-| **Event Count** | `HistogramEventCount` | Number of events at signal values | `SampleSeries` + event `PointsInTime` |
+| **Duration** | `Histogram(agg_type="duration")` | Time spent in each value bin | `SampleSeries` |
+| **Distance** | `Histogram(agg_type="distance")` | Distance traveled in each value bin | `SampleSeries` |
+| **Duration Count** | `Histogram(agg_type="duration_count")` | Number of events by their duration | `Intervals` |
+| **Event Count** | `Histogram(agg_type="event_count")` | Number of events at signal values | `SampleSeries` + event `BasicEvent` |
 
 ## Steps
 
@@ -39,10 +39,10 @@ Review the "Currently Defined Signals" section in the system prompt. Each signal
 
 Ask the user what they want to analyze. Map their intent to the correct type:
 
-- "How long does the signal spend in each range?" → **HistogramDuration**
-- "How much distance is covered at each signal value?" → **HistogramDistance**
-- "How long do events/conditions last?" → **HistogramDurationCount**
-- "How often does an event occur at each signal value?" → **HistogramEventCount**
+- "How long does the signal spend in each range?" → **duration**
+- "How much distance is covered at each signal value?" → **distance**
+- "How long do events/conditions last?" → **duration_count**
+- "How often does an event occur at each signal value?" → **event_count**
 
 ### 3. Collect parameters
 

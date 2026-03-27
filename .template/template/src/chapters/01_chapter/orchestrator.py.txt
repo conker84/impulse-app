@@ -10,9 +10,4 @@
 
 # COMMAND ----------
 
-my_first_chapter = Chapter(name="First Chapter", description="This is my first chapter")
-my_report.add_chapter(my_first_chapter)
-
-# COMMAND ----------
-
-# MAGIC %run "./pages/01_engine_speed_analysis" 
+# MAGIC %run "./pages/01_engine_speed_analysis"

@@ -4,12 +4,12 @@
 # MAGIC
 # MAGIC This notebook defines all signals and derived calculations used in the report.
 # MAGIC
-# MAGIC **Purpose**: Create and process signals that will be used in visualizations.
+# MAGIC **Purpose**: Create and process signals that will be used in aggregations.
 
 # COMMAND ----------
 
 # engine speed signals
-Eng_Spd = query.channel_with_alias(ChannelAliasName_withScope="AL_OTTO_Drehzahl")
+Eng_Spd = query.channel(channel_name="engine_speed")
 Eng_Spd_masked = Eng_Spd.where((Eng_Spd >= 0) & (Eng_Spd <= 7000))
 
 # COMMAND ----------
@@ -21,4 +21,4 @@ signals = {
 }
 
 # make all variables available in the global scope
-globals().update(locals()) 
+globals().update(locals())

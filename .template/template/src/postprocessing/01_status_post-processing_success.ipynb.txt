@@ -73,17 +73,14 @@
    },
    "outputs": [],
    "source": [
-    "report_config = ReportConfig()\n",
-    "report_config.parse_from_json(config_path)\n",
+    "config = MdaConfig.model_validate(json.load(open(config_path)))\n",
     "\n",
-    "catalog = report_config.data_config['destination']['catalog']\n",
-    "schema = report_config.data_config['destination']['schema']\n",
-    "table_prefix = report_config.data_config['destination']['table_prefix']\n",
-    "global_report_table_path = report_config.data_config.get('source', {}).get('global_report_table', None)\n",
+    "catalog = config.unity_sink.catalog\n",
+    "schema_ = config.unity_sink.schema\n",
+    "table_prefix = config.unity_sink.table_prefix\n",
     "\n",
-    "sink = UnityCatalogSink(catalog, schema, table_prefix)\n",
     "status_table_name=dbutils.widgets.get(\"status_table_name\")\n",
-    "print(f\"report destination: {catalog}.{schema}.{table_prefix}_*\")\n",
+    "print(f\"report destination: {catalog}.{schema_}.{table_prefix}_*\")\n",
     "print(f\"status table name: {status_table_name}\")"
    ]
   },
@@ -121,10 +118,10 @@
    },
    "outputs": [],
    "source": [
-    "from utils.report_utils import update_run_success\n",
+    "from utils.report_utils import update_run_success, get_full_table_uri\n",
     "\n",
-    "update_run_success(sink, status_table_name, current_run_id)\n",
-    "display(sink.read_table(status_table_name))"
+    "update_run_success(catalog, schema_, table_prefix, status_table_name, current_run_id)\n",
+    "display(spark.read.table(get_full_table_uri(catalog, schema_, table_prefix, status_table_name)))"
    ]
   },
   {
@@ -161,21 +158,9 @@
    },
    "outputs": [],
    "source": [
-    "metadata_cfg = report_config.get_metadata_config()\n",
-    "if global_report_table_path and metadata_cfg:\n",
-    "    report_name = metadata_cfg['report_name']\n",
-    "    report_config.get_or_set_report_id(report_name)\n",
-    "    report_id = report_config.report_id\n",
-    "    now_ts = datetime.now()\n",
-    "    #We work with the assumption that the global report table already exists and that we have an entry for this report\n",
-    "    spark.sql(f\"\"\"\n",
-    "        UPDATE {global_report_table_path}\n",
-    "        SET \n",
-    "            last_report_run = current_timestamp()\n",
-    "        WHERE name = \\'{report_name}\\'\n",
-    "    \"\"\")\n",
-    "\n",
-    "    display(spark.read.table(global_report_table_path))"
+    "# Global report table update is not part of the standard framework config.\n",
+    "# If your deployment uses a global report registry, add update logic here.\n",
+    "print(\"Global report table update: skipped (not configured)\")"
    ]
   },
   {
@@ -215,11 +200,22 @@
    },
    "outputs": [],
    "source": [
-    "table_names = [n.value for n in VisualFactNames]\n",
-    "table_names.extend([n.value for n in VisualDimensionNames])\n",
+    "# Enumerate all gold layer table names from the framework's type enums\n",
+    "table_names = []\n",
+    "for agg_type in AggregationType:\n",
+    "    table_names.append(agg_type.get_fact_table_name())\n",
+    "    table_names.append(agg_type.get_dimension_table_name())\n",
+    "for evt_type in EventType:\n",
+    "    fact = evt_type.get_fact_table_name()\n",
+    "    dim = evt_type.get_dimension_table_name()\n",
+    "    if fact not in table_names:\n",
+    "        table_names.append(fact)\n",
+    "    if dim not in table_names:\n",
+    "        table_names.append(dim)\n",
     "table_names.extend([\"session_dimension\", \"report_summary\"])\n",
+    "\n",
     "for table_name in table_names:\n",
-    "    table_path = f\"{catalog}.{schema}.{table_prefix}_{table_name}\"\n",
+    "    table_path = f\"{catalog}.{schema_}.{table_prefix}_{table_name}\"\n",
     "    curr_ts = datetime.now().strftime(\"%Y-%m-%d %H:%M:%S\")\n",
     "    if spark.catalog.tableExists(table_path):\n",
     "        print(f\"[{curr_ts}] Optimizing table: {table_path}\")\n",

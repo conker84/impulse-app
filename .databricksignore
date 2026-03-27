@@ -1,4 +1,6 @@
 # Frontend source & build tooling (only frontend/dist/ is needed at runtime)
+# NOTE: Each entry must be specific — wildcard frontend/* patterns cause
+# databricks sync to skip the entire frontend/ tree including frontend/dist/.
 frontend/src/
 frontend/node_modules/
 frontend/package-lock.json

@@ -82,11 +82,11 @@ Physical signals are added through a two-step flow: first search for aliases via
 # By channel name and device name
 signal = query.channel(channel_name="Eng_Spd", device_name="CAN")
 
-# By alias (requires aliases table in config)
-signal = query.channel_with_alias(channel_alias_name="AL_EngineSpeed")
+# By channel tag (any tag key-value pair from channel_tags table)
+signal = query.channel(channel_alias_name="AL_EngineSpeed")
 
-# By alias with scope (preferred — uses ChannelAliasName_withScope)
-signal = query.channel_with_alias(ChannelAliasName_withScope="AL_OTTO_Drehzahl")
+# By tag with scope (uses any configured tag column as keyword)
+signal = query.channel(ChannelAliasName_withScope="AL_OTTO_Drehzahl")
 ```
 
 The keywords passed to `channel()` depend on the configured query solver and how signals are identified in the measurement database. Common patterns:
@@ -119,7 +119,7 @@ When the user provides a descriptive name (e.g. "Drehzahl", "temperature", "spee
 
 4. The generated code will use the selected alias:
    ```python
-   signal = query.channel_with_alias(ChannelAliasName_withScope="<selected_alias>")
+   signal = query.channel(ChannelAliasName_withScope="<selected_alias>")
    ```
 
 **Available columns in the aliases table:**

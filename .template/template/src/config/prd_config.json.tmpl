@@ -1,72 +1,35 @@
 {
-  "metadata": {
-    "report_name": "{{.report_name}} Report",
-    "description": "This is my {{.report_name}} Report",
-    "report_creator": "",
-    "source_code": ""
+  "source": {
+    "container_metrics_table": "<catalog.schema.container_metrics>",
+    "channel_metrics_table": "<catalog.schema.channel_metrics>",
+    "channels_table": "<catalog.schema.channels>"
   },
-  "data": {
-    "source": {
-      "container_metrics": "<container_metrics_table>",
-      "channel_metrics": "<channel_metrics_table>",
-      "channels": "<channels_table>",
-      "aliases": "<aliases>",
-      "aliases_copy_table_name": "channel_aliases",
-      "device_aliases": "<device_aliases>",
-      "device_aliases_copy_table_name": "device_aliases"
-    },
-    "destination": {
-      "catalog": "",
-      "schema": "",
-      "table_prefix": "t"
-    },
-    "query_solver": {
-      "name": "narrow_solver",
-      "rle_data": "true",
-      "config": "default",
-      "max_sessions_per_run": 10000,
-      "max_batch_size": 10000
-    }
+  "unity_sink": {
+    "catalog": "<destination_catalog>",
+    "schema": "<destination_schema>",
+    "table_prefix": "{{.report_name}}_report"
   },
-  "vehicles": [
+  "units_under_test": [
     {
-      "vehicle_id": {
-        "col_name": "test_object_id",
-        "col_type": "string",
+      "uut_name": {
+        "col_name": "vehicle_key",
         "value": "<vehicle_id>"
       },
       "start_ts": {
-        "col_name": "measurement_first_data_point_timestamp",
-        "col_type": "timestamp",
+        "col_name": "start_dt",
         "value": "<start_date>"
-      },
-      "stop_ts": {
-        "col_name": "measurement_last_data_point_timestamp",
-        "col_type": "timestamp",
-        "value": "<end_date>"
       }
     }
   ],
-  "session_metric_table": {
-    "columns": [
-      "measurement_first_data_point_timestamp",
-      "measurement_last_data_point_timestamp",
-      "measurement_session_start_odo_mileage",
-      "measurement_session_end_odo_mileage",
-      "test_object_id"
-    ],
-    "checkpoint_col_name": "measurement_first_data_point_timestamp",
-    "col_name_mappings": [
-      {
-        "existing_col_name": "measurement_first_data_point_timestamp",
-        "new_col_name": "first_data_point_timestamp",
-        "casting_type": "timestamp"
-      },
-      {
-        "existing_col_name": "measurement_last_data_point_timestamp",
-        "new_col_name": "last_data_point_timestamp",
-        "casting_type": "timestamp"
-      }
-    ]
-  }
+  "query_engine": {
+    "solver": "BasicNarrowSolver",
+    "data_type": "RLE",
+    "drop_implausible_data": false
+  },
+  "measurement_dimensions": [
+    "container_id",
+    "vehicle_key",
+    "start_ts",
+    "stop_ts"
+  ]
 }
