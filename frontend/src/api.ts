@@ -1,4 +1,4 @@
-import type { AggregationDefinition, AvailableChannel, ChatResponse, FilterRange, Histogram1DDefinition, HistogramMeta, HistogramResult, ReportState, SavedReportSummary, ValidationResults, VehicleOption, VisualizeFilters, WizardStep } from "./types";
+import type { AggregationDefinition, AggregationMeta, AvailableChannel, ChatResponse, FilterRange, Heatmap2DResult, Histogram1DDefinition, HistogramMeta, HistogramResult, ReportState, SavedReportSummary, StatisticsResult, ValidationResults, VehicleOption, VisualizeFilters, WizardStep } from "./types";
 
 const BASE = "/api";
 
@@ -457,6 +457,58 @@ export async function fetchHistogramData(
       min_mileage: filters.min_mileage,
       max_mileage: filters.max_mileage,
       group_by_vehicle: filters.group_by_vehicle,
+    }),
+  });
+}
+
+export async function fetchVisualizeAggregations(
+  catalog: string, schema: string, prefix: string,
+): Promise<{ aggregations: AggregationMeta[] }> {
+  return request(`/visualize/aggregations?${vizParams(catalog, schema, prefix)}`);
+}
+
+export async function fetchHistogram2DData(
+  catalog: string,
+  schema: string,
+  prefix: string,
+  histogramNames: string[],
+  filters: VisualizeFilters,
+): Promise<{ histograms: Record<string, Heatmap2DResult> }> {
+  return request("/visualize/histogram2d-data", {
+    method: "POST",
+    body: JSON.stringify({
+      catalog,
+      schema_name: schema,
+      prefix,
+      histogram_names: histogramNames,
+      vehicle_ids: filters.vehicle_ids.length > 0 ? filters.vehicle_ids : null,
+      start_ts: filters.start_ts,
+      end_ts: filters.end_ts,
+      min_mileage: filters.min_mileage,
+      max_mileage: filters.max_mileage,
+    }),
+  });
+}
+
+export async function fetchStatisticsData(
+  catalog: string,
+  schema: string,
+  prefix: string,
+  statisticsNames: string[],
+  filters: VisualizeFilters,
+): Promise<{ statistics: Record<string, StatisticsResult> }> {
+  return request("/visualize/statistics-data", {
+    method: "POST",
+    body: JSON.stringify({
+      catalog,
+      schema_name: schema,
+      prefix,
+      statistics_names: statisticsNames,
+      vehicle_ids: filters.vehicle_ids.length > 0 ? filters.vehicle_ids : null,
+      start_ts: filters.start_ts,
+      end_ts: filters.end_ts,
+      min_mileage: filters.min_mileage,
+      max_mileage: filters.max_mileage,
     }),
   });
 }

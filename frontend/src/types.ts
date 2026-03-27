@@ -233,6 +233,53 @@ export interface FilterRange {
   max_mileage: number | null;
 }
 
+// Aggregation metadata (unified across 1D, 2D, statistics)
+export interface AggregationMeta {
+  visual_id: number;
+  name: string;
+  agg_type: "histogram_1d" | "histogram_2d" | "statistics";
+  type: string;            // histogram sub-type (duration, distance, etc.) or ""
+  description: string;
+  bins_unit: string;
+  values_unit: string;
+  x_bins_unit: string;
+  y_bins_unit: string;
+}
+
+// 2D histogram heatmap data
+export interface Heatmap2DCell {
+  x_bin_id: number;
+  y_bin_id: number;
+  x_bin_name: string;
+  y_bin_name: string;
+  hist_value: number;
+}
+
+export interface Heatmap2DResult {
+  x_labels: string[];
+  y_labels: string[];
+  z: number[][];           // z[y_idx][x_idx]
+  x_bins_unit: string;
+  y_bins_unit: string;
+  values_unit: string;
+  description: string;
+}
+
+// Statistics table data
+export interface StatisticsRow {
+  signal_name: string;
+  aggregation_label: string;
+  value: number;
+  event_instance_id: string | null;
+}
+
+export interface StatisticsResult {
+  rows: StatisticsRow[];
+  signal_names: string[];
+  stat_labels: string[];
+  description: string;
+}
+
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
