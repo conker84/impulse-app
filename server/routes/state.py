@@ -568,6 +568,19 @@ async def select_vehicles(session_id: str, payload: SelectVehiclesPayload, reque
     return {"added": added, "report_state": session.state.model_dump()}
 
 
+@router.delete("/vehicle/{session_id}/{vehicle_id}")
+async def delete_vehicle(session_id: str, vehicle_id: str):
+    """Remove a vehicle by ID."""
+    session = _sessions.get(session_id)
+    if not session:
+        raise HTTPException(404, "Session not found")
+    idx = next((i for i, v in enumerate(session.state.vehicles) if v.vehicle_id == vehicle_id), None)
+    if idx is None:
+        raise HTTPException(404, f"Vehicle '{vehicle_id}' not found.")
+    session.state.vehicles.pop(idx)
+    return {"report_state": session.state.model_dump()}
+
+
 def _auto_resolve_data_sources(session: _Session, vehicle_ids: list[str], user_token: str | None = None):
     """Query the mapping table to auto-fill data source config for the selected vehicles.
 

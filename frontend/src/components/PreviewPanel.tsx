@@ -31,6 +31,7 @@ interface Props {
   channelsLoading: boolean;
   onFetchVehicleCandidates: () => void;
   onSelectVehicles: (selected: { vehicle_id: string; start_ts: string }[]) => void;
+  onDeleteVehicle: (vehicleId: string) => void;
   onUpdateTimestamps: (payload: {
     global_start_ts: string;
     global_stop_ts: string | null;
@@ -99,6 +100,7 @@ export default function PreviewPanel({
   channelsLoading,
   onFetchVehicleCandidates,
   onSelectVehicles,
+  onDeleteVehicle,
   onUpdateTimestamps,
   onFetchDataRange,
   onDeploy,
@@ -202,6 +204,7 @@ export default function PreviewPanel({
             state={state}
             onFetchCandidates={onFetchVehicleCandidates}
             onSelectVehicles={onSelectVehicles}
+            onDeleteVehicle={onDeleteVehicle}
             onUpdateTimestamps={onUpdateTimestamps}
             onFetchDataRange={onFetchDataRange}
           />
@@ -1147,12 +1150,14 @@ function VehiclesStep({
   state,
   onFetchCandidates,
   onSelectVehicles,
+  onDeleteVehicle,
   onUpdateTimestamps,
   onFetchDataRange,
 }: {
   state: ReportState;
   onFetchCandidates: () => void;
   onSelectVehicles: (selected: { vehicle_id: string; start_ts: string }[]) => void;
+  onDeleteVehicle: (vehicleId: string) => void;
   onUpdateTimestamps: (payload: {
     global_start_ts: string;
     global_stop_ts: string | null;
@@ -1162,14 +1167,23 @@ function VehiclesStep({
 }) {
   const [loading, setLoading] = useState(false);
   const [fetched, setFetched] = useState(false);
+  const [showCandidates, setShowCandidates] = useState(false);
 
+  // Auto-fetch on first render when no vehicles exist
   useEffect(() => {
     if (state.vehicle_candidates.length === 0 && state.vehicles.length === 0 && !fetched) {
       setLoading(true);
       setFetched(true);
+      setShowCandidates(true);
       Promise.resolve(onFetchCandidates()).finally(() => setLoading(false));
     }
   }, [state.vehicle_candidates.length, state.vehicles.length, fetched, onFetchCandidates]);
+
+  const handleLoadMore = () => {
+    setLoading(true);
+    setShowCandidates(true);
+    Promise.resolve(onFetchCandidates()).finally(() => setLoading(false));
+  };
 
   return (
     <div>
@@ -1185,11 +1199,14 @@ function VehiclesStep({
         </div>
       )}
 
-      {!loading && state.vehicle_candidates.length > 0 && (
+      {!loading && showCandidates && state.vehicle_candidates.length > 0 && (
         <VehicleCandidateSelector
           candidates={state.vehicle_candidates}
           existingIds={new Set(state.vehicles.map((v) => v.vehicle_id))}
-          onConfirm={onSelectVehicles}
+          onConfirm={(selected) => {
+            onSelectVehicles(selected);
+            setShowCandidates(false);
+          }}
         />
       )}
 
@@ -1197,6 +1214,47 @@ function VehiclesStep({
         <div className="card" style={{ color: "var(--text-muted)", fontSize: 13 }}>
           No vehicles found in the data. You can add vehicles manually via the chat instead.
         </div>
+      )}
+
+      {/* Selected vehicles list with delete */}
+      {state.vehicles.length > 0 && (
+        <div className="candidate-selector" style={{ marginTop: 12 }}>
+          <div className="candidate-header">
+            <span className="candidate-title">Selected Vehicles ({state.vehicles.length})</span>
+          </div>
+          <div className="candidate-list" style={{ maxHeight: 200 }}>
+            {state.vehicles.map((v) => (
+              <div key={v.vehicle_id} className="candidate-row" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div className="candidate-info">
+                  <div className="candidate-alias">{v.vehicle_id}</div>
+                  <div className="candidate-meta">
+                    {v.start_ts && <span style={{ fontSize: 11, opacity: 0.6 }}>from {v.start_ts}</span>}
+                    {v.stop_ts && <span style={{ fontSize: 11, opacity: 0.6 }}> to {v.stop_ts}</span>}
+                  </div>
+                </div>
+                <button
+                  className="action-btn danger"
+                  style={{ fontSize: 10, padding: "2px 6px", flexShrink: 0 }}
+                  onClick={() => onDeleteVehicle(v.vehicle_id)}
+                  title="Remove vehicle"
+                >
+                  &#x2715;
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Add more vehicles button */}
+      {!loading && !showCandidates && (
+        <button
+          className="action-btn"
+          style={{ marginTop: 8, fontSize: 11 }}
+          onClick={handleLoadMore}
+        >
+          + Add More Vehicles
+        </button>
       )}
 
       {state.vehicles.length > 0 && (
@@ -1207,16 +1265,6 @@ function VehiclesStep({
         <div style={{ marginTop: 16 }}>
           <ConfigTab vehicles={state.vehicles} dataSources={state.data_sources} />
         </div>
-      )}
-
-      {state.vehicle_candidates.length === 0 && state.vehicles.length > 0 && !loading && (
-        <button
-          className="action-btn"
-          style={{ marginTop: 8 }}
-          onClick={() => { setFetched(false); }}
-        >
-          Load more vehicles
-        </button>
       )}
     </div>
   );

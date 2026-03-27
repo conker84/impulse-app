@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import type { ChatMessage, Histogram1DDefinition, Histogram2DDefinition, ReportState, StatisticsDefinition, WizardStep } from "./types";
-import { sendChat, scaffoldReport, deployReport, validateReport, advanceStep, goBack, setMetadata, selectCandidates, fetchVehicleCandidates, selectVehicles, updateVehicleTimestamps, getDeployStatus, cancelRun, getTokenStatus, setClusterConfig, loadReport, saveReport, suggestBins, addHistogram, addHistogram2D, addStatistics, deleteAggregation, updateAggregation, setSourceData, uploadMf4Files, triggerIngest, getIngestStatus, fetchChannelCatalog, fetchDataTimeRange, deleteSignal, updateSignal, addVirtualSignal } from "./api";
+import { sendChat, scaffoldReport, deployReport, validateReport, advanceStep, goBack, setMetadata, selectCandidates, fetchVehicleCandidates, selectVehicles, updateVehicleTimestamps, getDeployStatus, cancelRun, getTokenStatus, setClusterConfig, loadReport, saveReport, suggestBins, addHistogram, addHistogram2D, addStatistics, deleteAggregation, updateAggregation, setSourceData, uploadMf4Files, triggerIngest, getIngestStatus, fetchChannelCatalog, fetchDataTimeRange, deleteSignal, updateSignal, addVirtualSignal, deleteVehicle } from "./api";
 import type { DeployStatusResponse, TokenStatusResponse } from "./api";
 import type { DataSourceConfig } from "./types";
 import ChatPanel from "./components/ChatPanel";
@@ -564,6 +564,22 @@ export default function App() {
     [sessionId]
   );
 
+  const handleDeleteVehicle = useCallback(
+    async (vehicleId: string) => {
+      if (!sessionId) return;
+      try {
+        const resp = await deleteVehicle(sessionId, vehicleId);
+        setReportState(resp.report_state);
+      } catch (err) {
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: `Error: ${err instanceof Error ? err.message : String(err)}` },
+        ]);
+      }
+    },
+    [sessionId]
+  );
+
   const handleUpdateTimestamps = useCallback(
     async (payload: {
       global_start_ts: string;
@@ -931,6 +947,7 @@ export default function App() {
         channelsLoading={channelsLoading}
         onFetchVehicleCandidates={handleFetchVehicleCandidates}
         onSelectVehicles={handleSelectVehicles}
+        onDeleteVehicle={handleDeleteVehicle}
         onUpdateTimestamps={handleUpdateTimestamps}
         onFetchDataRange={handleFetchDataRange}
         onDeploy={handleDeploy}

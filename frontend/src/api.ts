@@ -241,6 +241,13 @@ export async function selectVehicles(
   });
 }
 
+export async function deleteVehicle(
+  sessionId: string,
+  vehicleId: string
+): Promise<{ report_state: ReportState }> {
+  return request(`/vehicle/${sessionId}/${encodeURIComponent(vehicleId)}`, { method: "DELETE" });
+}
+
 export async function updateVehicleTimestamps(
   sessionId: string,
   payload: {
