@@ -9,34 +9,6 @@
 # COMMAND ----------
 
 import sys, os, json
-base_path = os.path.dirname(os.path.abspath("__file__"))
-base_path = base_path[:base_path.find('src')]
-
-# COMMAND ----------
-
-# Install the bundled Impulse framework wheel from the lib/ directory
-import glob as _glob
-_whl_pattern = os.path.join(base_path, "lib", "mda_framework_v2-*.whl")
-_whls = sorted(_glob.glob(_whl_pattern))
-if not _whls:
-    raise FileNotFoundError(f"No framework wheel found matching {_whl_pattern}")
-_whl_path = _whls[-1]
-
-# COMMAND ----------
-
-import subprocess
-subprocess.check_call([sys.executable, "-m", "pip", "install", _whl_path, "--quiet"])
-dbutils.library.restartPython()
-
-# COMMAND ----------
-
-# configure spark
-spark.conf.set("spark.sql.shuffle.partitions", "auto")
-
-# COMMAND ----------
-
-# Re-import after restartPython() clears all state
-import sys, os, json
 import numpy as np
 import uuid
 from pyspark.sql import Window
@@ -48,6 +20,11 @@ import matplotlib.pyplot as plt
 base_path = os.path.dirname(os.path.abspath("__file__"))
 base_path = base_path[:base_path.find('src')]
 sys.path.append(f"{base_path}/src/")
+
+# COMMAND ----------
+
+# configure spark
+spark.conf.set("spark.sql.shuffle.partitions", "auto")
 
 # import mda reporting modules
 from mda_reporting.core.report import Report

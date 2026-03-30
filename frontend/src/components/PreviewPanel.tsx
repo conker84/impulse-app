@@ -1575,101 +1575,120 @@ function formatElapsed(seconds: number): string {
   return m > 0 ? `${m}m ${s}s` : `${s}s`;
 }
 
-function JobStatusTracker({ status }: { status: DeployStatusResponse }) {
-  const isRunning = status.status === "running";
-  const isCompleted = status.status === "completed";
-  const isFailed = status.status === "failed";
+// Known execution order for job tasks (dependency chain from jobs.yml)
+const TASK_ORDER = ["pre_processing", "Vehicle_Config_Available", "report_orchestration"];
+
+function RunTimeline({
+  deployment,
+  jobStatus,
+}: {
+  deployment: ReportState["deployment"];
+  jobStatus: DeployStatusResponse | null;
+}) {
+  const deployPhases: { key: string; label: string; doneWhen: ReportState["deployment"][] }[] = [
+    { key: "scaffold", label: "Scaffolding report", doneWhen: ["deploying", "running", "completed"] },
+    { key: "deploy", label: "Deploying bundle", doneWhen: ["running", "completed"] },
+  ];
+
+  const isFailed = deployment === "failed";
+  const isCompleted = deployment === "completed";
+  const jobTasks = jobStatus?.tasks || [];
+
+  // Sort job tasks by known dependency order
+  const sortedTasks = [...jobTasks].sort((a, b) => {
+    const ai = TASK_ORDER.indexOf(a.task_key);
+    const bi = TASK_ORDER.indexOf(b.task_key);
+    return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+  });
+
+  function stepIcon(done: boolean, active: boolean, failed: boolean) {
+    if (done) return <span style={{ color: "var(--success)" }}>✓</span>;
+    if (failed) return <span style={{ color: "var(--error)" }}>✕</span>;
+    if (active) return <span className="spinner" style={{ width: 14, height: 14 }} />;
+    return <span style={{ color: "var(--text-muted)" }}>○</span>;
+  }
 
   return (
     <div className="job-tracker">
       <div className="job-tracker-header">
         <span className="job-tracker-title">
-          {isRunning && <><span className="spinner" style={{ marginRight: 8 }} />Job Running</>}
-          {isCompleted && <span style={{ color: "var(--success)" }}>Job Completed</span>}
-          {isFailed && <span style={{ color: "var(--error)" }}>Job Failed</span>}
-          {!isRunning && !isCompleted && !isFailed && `Status: ${status.status}`}
+          {isCompleted
+            ? <span style={{ color: "var(--success)" }}>Report Completed</span>
+            : isFailed
+              ? <span style={{ color: "var(--error)" }}>Run Failed</span>
+              : <><span className="spinner" style={{ marginRight: 8 }} />Running Report</>}
         </span>
-        <span className="job-tracker-elapsed">{formatElapsed(status.elapsed_seconds)}</span>
+        {jobStatus && <span className="job-tracker-elapsed">{formatElapsed(jobStatus.elapsed_seconds)}</span>}
       </div>
 
-      {status.run_url && (
+      <div className="job-tracker-tasks">
+        {/* Deploy phases */}
+        {deployPhases.map((phase) => {
+          const done = phase.doneWhen.includes(deployment) || isCompleted;
+          const active =
+            (phase.key === "scaffold" && deployment === "scaffolding") ||
+            (phase.key === "deploy" && deployment === "deploying");
+          const failed = isFailed && !done && active;
+
+          return (
+            <div key={phase.key} className="job-tracker-task" style={{ color: done ? "var(--success)" : active ? "var(--accent)" : failed ? "var(--error)" : "var(--text-muted)" }}>
+              <span className="job-tracker-task-icon">{stepIcon(done, active, failed)}</span>
+              <span className="job-tracker-task-name">{phase.label}</span>
+              <span className="job-tracker-task-state">
+                {done ? "DONE" : active ? "IN PROGRESS" : failed ? "FAILED" : ""}
+              </span>
+            </div>
+          );
+        })}
+
+        {/* Job tasks — only show once we have a run */}
+        {sortedTasks.map((t) => {
+          const taskDone = t.result_state === "SUCCESS";
+          const taskFail = t.result_state === "FAILED" || t.result_state === "TIMEDOUT" || t.result_state === "EXCLUDED";
+          const taskRunning = t.life_cycle_state === "RUNNING";
+          let color = "var(--text-muted)";
+          if (taskDone) color = "var(--success)";
+          else if (taskFail) color = "var(--error)";
+          else if (taskRunning) color = "var(--accent)";
+
+          return (
+            <div key={t.task_key} className="job-tracker-task" style={{ color }}>
+              <span className="job-tracker-task-icon">{stepIcon(taskDone, taskRunning, taskFail)}</span>
+              <span className="job-tracker-task-name">{t.task_key}</span>
+              <span className="job-tracker-task-state">
+                {t.result_state || t.life_cycle_state || "—"}
+              </span>
+            </div>
+          );
+        })}
+
+        {/* Placeholder for job tasks while waiting for run to start */}
+        {sortedTasks.length === 0 && (deployment === "running" || deployment === "deploying" || deployment === "scaffolding") && !isFailed && (
+          TASK_ORDER.map((key) => (
+            <div key={key} className="job-tracker-task" style={{ color: "var(--text-muted)" }}>
+              <span className="job-tracker-task-icon">○</span>
+              <span className="job-tracker-task-name">{key}</span>
+              <span className="job-tracker-task-state">—</span>
+            </div>
+          ))
+        )}
+      </div>
+
+      {jobStatus?.run_url && (
         <a
           className="job-tracker-link"
-          href={status.run_url}
+          href={jobStatus.run_url}
           target="_blank"
           rel="noopener noreferrer"
+          style={{ marginTop: 8, display: "inline-block" }}
         >
           View in Databricks &rarr;
         </a>
       )}
 
-      {status.tasks && status.tasks.length > 0 && (
-        <div className="job-tracker-tasks">
-          {status.tasks.map((t) => {
-            const taskDone = t.result_state === "SUCCESS";
-            const taskFail = t.result_state === "FAILED" || t.result_state === "TIMEDOUT";
-            const taskRunning = t.life_cycle_state === "RUNNING";
-            const taskPending = t.life_cycle_state === "PENDING" || t.life_cycle_state === "BLOCKED";
-            let icon = "○";
-            let color = "var(--text-muted)";
-            if (taskDone) { icon = "✓"; color = "var(--success)"; }
-            else if (taskFail) { icon = "✕"; color = "var(--error)"; }
-            else if (taskRunning) { icon = "▸"; color = "var(--accent)"; }
-            else if (taskPending) { icon = "○"; color = "var(--text-muted)"; }
-
-            return (
-              <div key={t.task_key} className="job-tracker-task" style={{ color }}>
-                <span className="job-tracker-task-icon">{icon}</span>
-                <span className="job-tracker-task-name">{t.task_key}</span>
-                <span className="job-tracker-task-state">
-                  {t.result_state || t.life_cycle_state || "—"}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function DeploymentTracker({ deployment }: { deployment: ReportState["deployment"] }) {
-  const steps: { key: ReportState["deployment"]; label: string }[] = [
-    { key: "scaffolding", label: "Scaffolding report" },
-    { key: "deploying", label: "Deploying bundle" },
-    { key: "running", label: "Job submitted" },
-  ];
-
-  return (
-    <div className="deploy-tracker">
-      <div className="deploy-tracker-title">Deployment Progress</div>
-      <div className="deploy-tracker-steps">
-        {steps.map((s) => {
-          const isFailed = deployment === "failed";
-          const stepOrder = steps.findIndex((x) => x.key === s.key);
-          const currentOrder = steps.findIndex((x) => x.key === deployment);
-          const isDone = currentOrder > stepOrder || deployment === "completed";
-          const isActive = s.key === deployment;
-
-          let icon = "○";
-          let color = "var(--text-muted)";
-          if (isDone) { icon = "✓"; color = "var(--success)"; }
-          else if (isActive && !isFailed) { icon = ""; color = "var(--accent)"; }
-          else if (isFailed && isActive) { icon = "✕"; color = "var(--error)"; }
-
-          return (
-            <div key={s.key} className="deploy-tracker-step" style={{ color }}>
-              <span className="deploy-tracker-step-icon">
-                {isActive && !isFailed ? <span className="spinner" style={{ width: 14, height: 14 }} /> : icon}
-              </span>
-              <span className="deploy-tracker-step-label">{s.label}</span>
-            </div>
-          );
-        })}
-      </div>
-      {deployment === "failed" && (
+      {isFailed && (
         <div style={{ color: "var(--error)", fontSize: 13, marginTop: 8 }}>
-          Deployment failed. Check the chat for details.
+          Check the chat for error details.
         </div>
       )}
     </div>
@@ -1752,11 +1771,7 @@ function ReadyPanel({
   onClusterConfigChange: (useAllPurpose: boolean, clusterId: string) => void;
   onViewResults: () => void;
 }) {
-  const isDeploying = state.deployment === "scaffolding" || state.deployment === "deploying";
-  const showDeployTracker = isDeploying || (state.deployment === "failed" && !jobStatus);
-  const isJobPhase = state.deployment === "running" || state.deployment === "completed" || (state.deployment === "failed" && !!jobStatus);
-  const showJobTracker = isJobPhase && jobStatus;
-  const hasActivity = deploying || showDeployTracker || showJobTracker;
+  const hasActivity = deploying || state.deployment === "scaffolding" || state.deployment === "deploying" || state.deployment === "running" || state.deployment === "completed" || state.deployment === "failed";
 
   return (
     <div>
@@ -1767,16 +1782,9 @@ function ReadyPanel({
         </div>
       </div>
 
-      {hasActivity && !showDeployTracker && !showJobTracker && (
-        <div className="deploy-tracker">
-          <div className="deploy-tracker-title">
-            <span className="spinner" style={{ width: 14, height: 14, marginRight: 8 }} />
-            Waiting for deployment to complete...
-          </div>
-        </div>
+      {hasActivity && (
+        <RunTimeline deployment={state.deployment} jobStatus={jobStatus} />
       )}
-      {showDeployTracker && <DeploymentTracker deployment={state.deployment} />}
-      {showJobTracker && <JobStatusTracker status={jobStatus} />}
 
       {!hasActivity && (
         <>
@@ -1805,7 +1813,7 @@ function ReadyPanel({
         </>
       )}
 
-      {hasActivity && !showDeployTracker && (
+      {hasActivity && (state.deployment === "running" || state.deployment === "completed" || state.deployment === "failed") && (
         <ResultsTab
           deployment={state.deployment}
           validation={state.validation}

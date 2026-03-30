@@ -4,6 +4,8 @@ resources:
       name: {{.report_name}}
       tasks:
         - task_key: pre_processing
+          libraries:
+            - whl: ../lib/mda_framework_v2-*.whl
           notebook_task:
             notebook_path: ../src/preprocessing/01_status_pre-processing.ipynb
             base_parameters:
@@ -19,6 +21,8 @@ resources:
           depends_on:
             - task_key: Vehicle_Config_Available
               outcome: "true"
+          libraries:
+            - whl: ../lib/mda_framework_v2-*.whl
           notebook_task:
             notebook_path: ../src/03_orchestrator.ipynb
             base_parameters:
