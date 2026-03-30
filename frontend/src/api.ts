@@ -1,4 +1,4 @@
-import type { AggregationDefinition, AggregationMeta, AvailableChannel, ChatResponse, FilterRange, Heatmap2DResult, Histogram1DDefinition, HistogramMeta, HistogramResult, ReportState, SavedReportSummary, StatisticsResult, TimeSeriesContainer, TimeSeriesPoint, TimeSeriesSignal, ValidationResults, VehicleOption, VisualizeFilters, WizardStep } from "./types";
+import type { AggregationDefinition, AggregationMeta, AvailableChannel, ChatResponse, Heatmap2DResult, Histogram1DDefinition, HistogramMeta, HistogramResult, ReportState, SavedReportSummary, StatisticsResult, TimeSeriesContainer, TimeSeriesPoint, TimeSeriesSignal, ValidationResults, WizardStep } from "./types";
 
 const BASE = "/api";
 
@@ -466,24 +466,11 @@ export async function fetchVisualizeHistograms(
   return request(`/visualize/histograms?${vizParams(catalog, schema, prefix)}`);
 }
 
-export async function fetchVisualizeVehicles(
-  catalog: string, schema: string, prefix: string,
-): Promise<{ vehicles: VehicleOption[] }> {
-  return request(`/visualize/vehicles?${vizParams(catalog, schema, prefix)}`);
-}
-
-export async function fetchVisualizeFilterRange(
-  catalog: string, schema: string, prefix: string,
-): Promise<FilterRange> {
-  return request(`/visualize/filter-range?${vizParams(catalog, schema, prefix)}`);
-}
-
 export async function fetchHistogramData(
   catalog: string,
   schema: string,
   prefix: string,
   histogramNames: string[],
-  filters: VisualizeFilters,
 ): Promise<{ histograms: Record<string, HistogramResult> }> {
   return request("/visualize/histogram-data", {
     method: "POST",
@@ -492,12 +479,6 @@ export async function fetchHistogramData(
       schema_name: schema,
       prefix,
       histogram_names: histogramNames,
-      vehicle_ids: filters.vehicle_ids.length > 0 ? filters.vehicle_ids : null,
-      start_ts: filters.start_ts,
-      end_ts: filters.end_ts,
-      min_mileage: filters.min_mileage,
-      max_mileage: filters.max_mileage,
-      group_by_vehicle: filters.group_by_vehicle,
     }),
   });
 }
@@ -513,7 +494,6 @@ export async function fetchHistogram2DData(
   schema: string,
   prefix: string,
   histogramNames: string[],
-  filters: VisualizeFilters,
 ): Promise<{ histograms: Record<string, Heatmap2DResult> }> {
   return request("/visualize/histogram2d-data", {
     method: "POST",
@@ -522,11 +502,6 @@ export async function fetchHistogram2DData(
       schema_name: schema,
       prefix,
       histogram_names: histogramNames,
-      vehicle_ids: filters.vehicle_ids.length > 0 ? filters.vehicle_ids : null,
-      start_ts: filters.start_ts,
-      end_ts: filters.end_ts,
-      min_mileage: filters.min_mileage,
-      max_mileage: filters.max_mileage,
     }),
   });
 }
@@ -536,7 +511,6 @@ export async function fetchStatisticsData(
   schema: string,
   prefix: string,
   statisticsNames: string[],
-  filters: VisualizeFilters,
 ): Promise<{ statistics: Record<string, StatisticsResult> }> {
   return request("/visualize/statistics-data", {
     method: "POST",
@@ -545,11 +519,6 @@ export async function fetchStatisticsData(
       schema_name: schema,
       prefix,
       statistics_names: statisticsNames,
-      vehicle_ids: filters.vehicle_ids.length > 0 ? filters.vehicle_ids : null,
-      start_ts: filters.start_ts,
-      end_ts: filters.end_ts,
-      min_mileage: filters.min_mileage,
-      max_mileage: filters.max_mileage,
     }),
   });
 }

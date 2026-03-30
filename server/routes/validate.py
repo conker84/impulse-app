@@ -59,7 +59,7 @@ def _check_table_existence(fqn: str, prefix: str, user_token: str | None = None)
         result = execute_sql(f"SHOW TABLES IN {fqn} LIKE '{prefix}*'", user_token=user_token)
         tables = [row[1] for row in result["rows"]] if result["rows"] else []
 
-        expected_patterns = ["histogram_dimension", "histogram_fact", "session_dimension"]
+        expected_patterns = ["histogram_dimension", "histogram_fact"]
         found = {p: any(p in t for t in tables) for p in expected_patterns}
         all_found = all(found.values())
 
@@ -76,7 +76,6 @@ def _check_row_counts(fqn: str, prefix: str, user_token: str | None = None) -> V
     tables_to_check = [
         f"{prefix}_histogram_dimension",
         f"{prefix}_histogram_fact",
-        f"{prefix}_session_dimension",
     ]
     counts: dict[str, int] = {}
     try:

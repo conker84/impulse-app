@@ -212,27 +212,6 @@ export interface HistogramResult {
   series: Record<string, HistogramBinData[]>;
 }
 
-export interface VehicleOption {
-  id: string;
-  name: string;
-}
-
-export interface VisualizeFilters {
-  vehicle_ids: string[];
-  start_ts: string | null;
-  end_ts: string | null;
-  min_mileage: number | null;
-  max_mileage: number | null;
-  group_by_vehicle: boolean;
-}
-
-export interface FilterRange {
-  min_ts: string | null;
-  max_ts: string | null;
-  min_mileage: number | null;
-  max_mileage: number | null;
-}
-
 // Aggregation metadata (unified across 1D, 2D, statistics)
 export interface AggregationMeta {
   visual_id: number;

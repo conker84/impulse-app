@@ -212,7 +212,7 @@
     "        table_names.append(fact)\n",
     "    if dim not in table_names:\n",
     "        table_names.append(dim)\n",
-    "table_names.extend([\"session_dimension\", \"report_summary\"])\n",
+    "table_names.extend([\"report_summary\"])\n",
     "\n",
     "for table_name in table_names:\n",
     "    table_path = f\"{catalog}.{schema_}.{table_prefix}_{table_name}\"\n",

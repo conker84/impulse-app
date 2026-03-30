@@ -2,17 +2,12 @@ import { useState, useEffect, useCallback } from "react";
 import type {
   AggregationMeta,
   DataSourceConfig,
-  FilterRange,
   Heatmap2DResult,
   HistogramResult,
   StatisticsResult,
-  VehicleOption,
-  VisualizeFilters,
 } from "../types";
 import {
   fetchVisualizeAggregations,
-  fetchVisualizeVehicles,
-  fetchVisualizeFilterRange,
   fetchHistogramData,
   fetchHistogram2DData,
   fetchStatisticsData,
@@ -27,15 +22,6 @@ interface Props {
   onBack: () => void;
 }
 
-const EMPTY_FILTERS: VisualizeFilters = {
-  vehicle_ids: [],
-  start_ts: null,
-  end_ts: null,
-  min_mileage: null,
-  max_mileage: null,
-  group_by_vehicle: false,
-};
-
 const AGG_TYPE_LABELS: Record<string, string> = {
   histogram_1d: "1D",
   histogram_2d: "2D",
@@ -46,10 +32,7 @@ export default function VisualizeView({ dataSources, reportName, onBack }: Props
   const { destination_catalog: catalog, destination_schema: schema, table_prefix: prefix } = dataSources;
 
   const [aggMeta, setAggMeta] = useState<AggregationMeta[]>([]);
-  const [vehicles, setVehicles] = useState<VehicleOption[]>([]);
-  const [filterRange, setFilterRange] = useState<FilterRange | null>(null);
   const [selectedAggs, setSelectedAggs] = useState<Set<string>>(new Set());
-  const [filters, setFilters] = useState<VisualizeFilters>(EMPTY_FILTERS);
 
   // Results keyed by name
   const [hist1DResults, setHist1DResults] = useState<Record<string, HistogramResult>>({});
@@ -67,16 +50,10 @@ export default function VisualizeView({ dataSources, reportName, onBack }: Props
     let cancelled = false;
     setLoading(true);
     setError(null);
-    Promise.all([
-      fetchVisualizeAggregations(catalog, schema, prefix),
-      fetchVisualizeVehicles(catalog, schema, prefix),
-      fetchVisualizeFilterRange(catalog, schema, prefix),
-    ])
-      .then(([aggRes, vehRes, rangeRes]) => {
+    fetchVisualizeAggregations(catalog, schema, prefix)
+      .then((aggRes) => {
         if (cancelled) return;
         setAggMeta(aggRes.aggregations);
-        setVehicles(vehRes.vehicles);
-        setFilterRange(rangeRes);
       })
       .catch((err) => {
         if (cancelled) return;
@@ -108,7 +85,7 @@ export default function VisualizeView({ dataSources, reportName, onBack }: Props
 
       if (hist1DNames.length > 0) {
         promises.push(
-          fetchHistogramData(catalog, schema, prefix, hist1DNames, filters)
+          fetchHistogramData(catalog, schema, prefix, hist1DNames)
             .then((r) => setHist1DResults(r.histograms))
         );
       } else {
@@ -117,7 +94,7 @@ export default function VisualizeView({ dataSources, reportName, onBack }: Props
 
       if (hist2DNames.length > 0) {
         promises.push(
-          fetchHistogram2DData(catalog, schema, prefix, hist2DNames, filters)
+          fetchHistogram2DData(catalog, schema, prefix, hist2DNames)
             .then((r) => setHist2DResults(r.histograms))
         );
       } else {
@@ -126,7 +103,7 @@ export default function VisualizeView({ dataSources, reportName, onBack }: Props
 
       if (statsNames.length > 0) {
         promises.push(
-          fetchStatisticsData(catalog, schema, prefix, statsNames, filters)
+          fetchStatisticsData(catalog, schema, prefix, statsNames)
             .then((r) => setStatsResults(r.statistics))
         );
       } else {
@@ -139,7 +116,7 @@ export default function VisualizeView({ dataSources, reportName, onBack }: Props
     } finally {
       setFetching(false);
     }
-  }, [catalog, schema, prefix, selectedAggs, filters, aggMeta]);
+  }, [catalog, schema, prefix, selectedAggs, aggMeta]);
 
   const toggleAgg = (name: string) => {
     setSelectedAggs((prev) => {
@@ -156,24 +133,6 @@ export default function VisualizeView({ dataSources, reportName, onBack }: Props
     } else {
       setSelectedAggs(new Set(aggMeta.map((a) => a.name)));
     }
-  };
-
-  const toggleVehicle = (vid: string) => {
-    setFilters((prev) => {
-      const ids = prev.vehicle_ids.includes(vid)
-        ? prev.vehicle_ids.filter((v) => v !== vid)
-        : [...prev.vehicle_ids, vid];
-      return { ...prev, vehicle_ids: ids };
-    });
-  };
-
-  const toggleAllVehicles = () => {
-    setFilters((prev) => {
-      if (prev.vehicle_ids.length === vehicles.length) {
-        return { ...prev, vehicle_ids: [] };
-      }
-      return { ...prev, vehicle_ids: vehicles.map((v) => v.id) };
-    });
   };
 
   if (loading) {
@@ -209,12 +168,6 @@ export default function VisualizeView({ dataSources, reportName, onBack }: Props
     || Object.keys(hist2DResults).length > 0
     || Object.keys(statsResults).length > 0;
 
-  // Check if any 1D histograms are selected (to show group-by-vehicle toggle)
-  const has1DSelected = selectedNames.some((n) => {
-    const m = aggMeta.find((a) => a.name === n);
-    return m?.agg_type === "histogram_1d";
-  });
-
   return (
     <div className="visualize-layout">
       <div className="visualize-sidebar">
@@ -222,103 +175,6 @@ export default function VisualizeView({ dataSources, reportName, onBack }: Props
           <button className="action-btn" onClick={onBack} title="Back to Home">Home</button>
           <span className="viz-report-name" title={reportName}>{reportName}</span>
         </div>
-
-        {/* Vehicle filter */}
-        <div className="viz-section">
-          <div className="viz-section-title">
-            Vehicles
-            {vehicles.length > 0 && (
-              <label className="viz-toggle-all">
-                <input
-                  type="checkbox"
-                  checked={filters.vehicle_ids.length === vehicles.length && vehicles.length > 0}
-                  onChange={toggleAllVehicles}
-                />
-                All
-              </label>
-            )}
-          </div>
-          <div className="viz-checkbox-list">
-            {vehicles.map((v) => (
-              <label key={v.id} className="viz-checkbox-row">
-                <input
-                  type="checkbox"
-                  checked={filters.vehicle_ids.includes(v.id)}
-                  onChange={() => toggleVehicle(v.id)}
-                />
-                <span className="viz-checkbox-label">{v.name}</span>
-              </label>
-            ))}
-            {vehicles.length === 0 && (
-              <div className="viz-hint">No vehicles found</div>
-            )}
-          </div>
-        </div>
-
-        {/* Time range filter */}
-        <div className="viz-section">
-          <div className="viz-section-title">Time Range</div>
-          <div className="viz-filter-row">
-            <label className="form-label">Start</label>
-            <input
-              className="form-input"
-              type="datetime-local"
-              value={filters.start_ts || ""}
-              onChange={(e) => setFilters((p) => ({ ...p, start_ts: e.target.value || null }))}
-            />
-          </div>
-          <div className="viz-filter-row">
-            <label className="form-label">End</label>
-            <input
-              className="form-input"
-              type="datetime-local"
-              value={filters.end_ts || ""}
-              onChange={(e) => setFilters((p) => ({ ...p, end_ts: e.target.value || null }))}
-            />
-          </div>
-          {filterRange && (
-            <div className="viz-hint">
-              Data range: {filterRange.min_ts?.slice(0, 10) || "?"} to {filterRange.max_ts?.slice(0, 10) || "?"}
-            </div>
-          )}
-        </div>
-
-        {/* Mileage filter */}
-        <div className="viz-section">
-          <div className="viz-section-title">Mileage Range (km)</div>
-          <div className="viz-filter-row" style={{ display: "flex", gap: 6 }}>
-            <input
-              className="form-input"
-              type="number"
-              placeholder={filterRange?.min_mileage != null ? String(Math.floor(filterRange.min_mileage)) : "Min"}
-              value={filters.min_mileage ?? ""}
-              onChange={(e) => setFilters((p) => ({ ...p, min_mileage: e.target.value ? Number(e.target.value) : null }))}
-              style={{ flex: 1 }}
-            />
-            <input
-              className="form-input"
-              type="number"
-              placeholder={filterRange?.max_mileage != null ? String(Math.ceil(filterRange.max_mileage)) : "Max"}
-              value={filters.max_mileage ?? ""}
-              onChange={(e) => setFilters((p) => ({ ...p, max_mileage: e.target.value ? Number(e.target.value) : null }))}
-              style={{ flex: 1 }}
-            />
-          </div>
-        </div>
-
-        {/* Group by vehicle toggle — only relevant for 1D histograms */}
-        {has1DSelected && (
-          <div className="viz-section">
-            <label className="viz-checkbox-row">
-              <input
-                type="checkbox"
-                checked={filters.group_by_vehicle}
-                onChange={(e) => setFilters((p) => ({ ...p, group_by_vehicle: e.target.checked }))}
-              />
-              <span className="viz-checkbox-label">Group by vehicle</span>
-            </label>
-          </div>
-        )}
 
         {/* Aggregation selector */}
         <div className="viz-section">
