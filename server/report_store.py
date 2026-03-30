@@ -1,9 +1,8 @@
 """Persistent report definition storage backed by Lakebase.
 
-Stores only the wizard-configured subset of ReportState (metadata,
-signals, aggregations, vehicles, data sources, compute flag).
-Transient fields like deployment status, run IDs, and candidates
-are excluded.
+Stores the wizard-configured subset of ReportState plus deployment
+results (run URL, deployment status, validation). Transient fields
+like candidates and deploy_started_at are excluded.
 
 In local mode every function is a no-op / returns empty data.
 """
@@ -28,6 +27,10 @@ _PERSISTED_KEYS = frozenset({
     "vehicles",
     "data_sources",
     "use_all_purpose_cluster",
+    "run_id",
+    "run_url",
+    "deployment",
+    "validation",
 })
 
 

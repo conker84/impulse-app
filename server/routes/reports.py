@@ -82,6 +82,10 @@ async def load_saved_report(report_id: str, request: Request):
         data_sources=DataSourceConfig(**data["data_sources"]) if data.get("data_sources") else DataSourceConfig(),
         use_all_purpose_cluster=data.get("use_all_purpose_cluster", False),
         wizard_step=WizardStep.READY,
+        run_id=data.get("run_id"),
+        run_url=data.get("run_url"),
+        deployment=data.get("deployment", "not_started"),
+        validation=data.get("validation"),
     )
 
     if state.use_all_purpose_cluster and IS_DATABRICKS_APP:
