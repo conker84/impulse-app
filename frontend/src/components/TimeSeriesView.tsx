@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import Plot from "react-plotly.js";
 import type { TimeSeriesContainer, TimeSeriesSignal, TimeSeriesPoint } from "../types";
 import {
@@ -25,6 +25,61 @@ interface TraceData {
   totalPoints: number;
 }
 
+type ViewMode = "line" | "daily" | "hourly" | "minutely";
+
+function toISOTimestamps(points: TimeSeriesPoint[], baseMs: number): string[] {
+  return points.map((p) => new Date(baseMs + p.t * 1000).toISOString());
+}
+
+function bucketBoxPlots(
+  points: TimeSeriesPoint[],
+  baseMs: number,
+  mode: "daily" | "hourly" | "minutely",
+): { x: string[]; low: number[]; q1: number[]; median: number[]; q3: number[]; high: number[] } {
+  const buckets = new Map<string, number[]>();
+
+  for (const p of points) {
+    const d = new Date(baseMs + p.t * 1000);
+    let key: string;
+    if (mode === "daily") {
+      key = d.toISOString().slice(0, 10); // YYYY-MM-DD
+    } else if (mode === "hourly") {
+      key = d.toISOString().slice(0, 13) + ":00"; // YYYY-MM-DDTHH:00
+    } else {
+      key = d.toISOString().slice(0, 16); // YYYY-MM-DDTHH:MM
+    }
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key)!.push(p.v);
+  }
+
+  const x: string[] = [];
+  const low: number[] = [];
+  const q1: number[] = [];
+  const median: number[] = [];
+  const q3: number[] = [];
+  const high: number[] = [];
+
+  const sorted = Array.from(buckets.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+  for (const [key, vals] of sorted) {
+    if (vals.length === 0) continue;
+    vals.sort((a, b) => a - b);
+    const pct = (p: number) => {
+      const idx = (p / 100) * (vals.length - 1);
+      const lo = Math.floor(idx);
+      const hi = Math.ceil(idx);
+      return lo === hi ? vals[lo] : vals[lo] + (vals[hi] - vals[lo]) * (idx - lo);
+    };
+    x.push(key);
+    low.push(vals[0]);
+    q1.push(pct(25));
+    median.push(pct(50));
+    q3.push(pct(75));
+    high.push(vals[vals.length - 1]);
+  }
+
+  return { x, low, q1, median, q3, high };
+}
+
 export default function TimeSeriesView({ onBack, initialCatalog, initialSchema, settingsButton }: Props) {
   // UC browser
   const [catalogs, setCatalogs] = useState<string[]>([]);
@@ -42,9 +97,20 @@ export default function TimeSeriesView({ onBack, initialCatalog, initialSchema, 
   const [traces, setTraces] = useState<TraceData[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<ViewMode>("line");
 
   // Debounce zoom/pan
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Resolve container start_dt for timestamp conversion
+  const activeContainer = useMemo(
+    () => containers.find((c) => c.container_id === selectedContainer),
+    [containers, selectedContainer],
+  );
+  const baseMs = useMemo(
+    () => (activeContainer?.start_dt ? new Date(activeContainer.start_dt).getTime() : 0),
+    [activeContainer],
+  );
 
   // Load catalogs on mount
   useEffect(() => {
@@ -93,7 +159,7 @@ export default function TimeSeriesView({ onBack, initialCatalog, initialSchema, 
   };
 
   // Fetch data for selected signals
-  const fetchData = useCallback(async (xMin?: number, xMax?: number) => {
+  const fetchDataInner = useCallback(async (xMin?: number, xMax?: number) => {
     if (!catalog || !schema || selectedContainer == null || selectedSignals.size === 0) return;
     setLoading(true);
     setError(null);
@@ -124,41 +190,110 @@ export default function TimeSeriesView({ onBack, initialCatalog, initialSchema, 
     }
   }, [catalog, schema, selectedContainer, selectedSignals, signals]);
 
-  const handleShow = () => fetchData();
+  const handleShow = () => fetchDataInner();
 
-  // Handle zoom/pan — debounce refetch
+  // Handle zoom/pan — debounce refetch (line chart only, box plots don't zoom-refetch)
   const handleRelayout = useCallback((event: Record<string, any>) => {
-    const xMin = event["xaxis.range[0]"] as number | undefined;
-    const xMax = event["xaxis.range[1]"] as number | undefined;
-    if (xMin == null || xMax == null) return;
+    if (viewMode !== "line") return;
+    // When x-axis is type: "date", Plotly sends date strings for ranges
+    const xMinRaw = event["xaxis.range[0]"];
+    const xMaxRaw = event["xaxis.range[1]"];
+    if (xMinRaw == null || xMaxRaw == null) return;
+
+    // Convert date strings back to epoch seconds for the API
+    const xMinSec = (new Date(xMinRaw).getTime() - baseMs) / 1000;
+    const xMaxSec = (new Date(xMaxRaw).getTime() - baseMs) / 1000;
+    if (isNaN(xMinSec) || isNaN(xMaxSec)) return;
 
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
-      fetchData(xMin, xMax);
+      fetchDataInner(xMinSec, xMaxSec);
     }, 400);
-  }, [fetchData]);
+  }, [fetchDataInner, viewMode, baseMs]);
 
   // Build Plotly traces
   const units = new Set(traces.map((t) => t.unit).filter(Boolean));
   const unitList = Array.from(units);
   const useDualAxis = unitList.length === 2;
 
-  const plotlyTraces = traces.map((trace, i) => {
-    const yAxisIdx = useDualAxis && trace.unit === unitList[1] ? 2 : 1;
-    return {
-      x: trace.points.map((p) => p.t),
-      y: trace.points.map((p) => p.v),
-      name: `${trace.channelName}${trace.unit ? ` (${trace.unit})` : ""}`,
-      type: "scattergl" as const,
-      mode: "lines" as const,
-      line: { color: PALETTE[i % PALETTE.length], width: 1.5 },
-      yaxis: yAxisIdx === 2 ? "y2" : "y",
-      hovertemplate: `<b>${trace.channelName}</b><br>t=%{x:.3f}s<br>v=%{y:.4f} ${trace.unit}<extra></extra>`,
-    };
-  });
+  const plotlyTraces = useMemo(() => {
+    if (viewMode === "line") {
+      return traces.map((trace, i) => {
+        const yAxisIdx = useDualAxis && trace.unit === unitList[1] ? 2 : 1;
+        const xDates = toISOTimestamps(trace.points, baseMs);
+        return {
+          x: xDates,
+          y: trace.points.map((p) => p.v),
+          name: `${trace.channelName}${trace.unit ? ` (${trace.unit})` : ""}`,
+          type: "scattergl" as const,
+          mode: "lines" as const,
+          line: { color: PALETTE[i % PALETTE.length], width: 1.5 },
+          yaxis: yAxisIdx === 2 ? ("y2" as const) : ("y" as const),
+          hovertemplate: `<b>${trace.channelName}</b><br>%{x}<br>%{y:.4f} ${trace.unit}<extra></extra>`,
+        };
+      });
+    }
+
+    // Box plot mode
+    const boxMode = viewMode as "daily" | "hourly" | "minutely";
+    return traces.flatMap((trace, i) => {
+      const yAxisIdx = useDualAxis && trace.unit === unitList[1] ? 2 : 1;
+      const box = bucketBoxPlots(trace.points, baseMs, boxMode);
+      const color = PALETTE[i % PALETTE.length];
+      const name = `${trace.channelName}${trace.unit ? ` (${trace.unit})` : ""}`;
+
+      // Use candlestick-like box rendering: median line + q1-q3 filled area + whiskers
+      return [
+        // IQR box (q1 to q3)
+        {
+          x: [...box.x, ...box.x.slice().reverse()],
+          y: [...box.q3, ...box.q1.slice().reverse()],
+          fill: "toself" as const,
+          fillcolor: color + "30",
+          line: { color, width: 1 },
+          name,
+          type: "scatter" as const,
+          mode: "lines" as const,
+          yaxis: yAxisIdx === 2 ? ("y2" as const) : ("y" as const),
+          showlegend: true,
+          hoverinfo: "skip" as const,
+        },
+        // Median line
+        {
+          x: box.x,
+          y: box.median,
+          type: "scatter" as const,
+          mode: "lines+markers" as const,
+          line: { color, width: 2 },
+          marker: { size: 4, color },
+          name: `${name} median`,
+          yaxis: yAxisIdx === 2 ? ("y2" as const) : ("y" as const),
+          showlegend: false,
+          hovertemplate: `<b>${trace.channelName}</b><br>%{x}<br>median: %{y:.4f} ${trace.unit}<extra></extra>`,
+        },
+        // Whiskers (min-max)
+        {
+          x: [...box.x, ...box.x.slice().reverse()],
+          y: [...box.high, ...box.low.slice().reverse()],
+          fill: "toself" as const,
+          fillcolor: color + "10",
+          line: { color, width: 0.5, dash: "dot" as const },
+          name: `${name} range`,
+          type: "scatter" as const,
+          mode: "lines" as const,
+          yaxis: yAxisIdx === 2 ? ("y2" as const) : ("y" as const),
+          showlegend: false,
+          hoverinfo: "skip" as const,
+        },
+      ];
+    });
+  }, [traces, viewMode, baseMs, useDualAxis, unitList]);
 
   const layout = mergeLayout({
-    xaxis: { title: "Time (s)" },
+    xaxis: {
+      title: "Time",
+      type: "date" as const,
+    },
     yaxis: { title: useDualAxis ? unitList[0] : (unitList[0] || "value") },
     ...(useDualAxis ? {
       yaxis2: {
@@ -305,9 +440,21 @@ export default function TimeSeriesView({ onBack, initialCatalog, initialSchema, 
               <span className="chart-card-title">
                 {traces.map((t) => t.channelName).join(", ")}
               </span>
-              <span className="viz-hint" style={{ flexShrink: 0, marginLeft: 8 }}>
-                {traces.reduce((sum, t) => sum + t.totalPoints, 0).toLocaleString()} total pts
-              </span>
+              <div style={{ display: "flex", alignItems: "center", gap: 4, marginLeft: "auto", flexShrink: 0 }}>
+                {(["line", "daily", "hourly", "minutely"] as ViewMode[]).map((m) => (
+                  <button
+                    key={m}
+                    className={`action-btn${viewMode === m ? " primary" : ""}`}
+                    style={{ padding: "2px 8px", fontSize: 11 }}
+                    onClick={() => setViewMode(m)}
+                  >
+                    {m === "line" ? "Line" : m.charAt(0).toUpperCase() + m.slice(1)}
+                  </button>
+                ))}
+                <span className="viz-hint" style={{ marginLeft: 8 }}>
+                  {traces.reduce((sum, t) => sum + t.totalPoints, 0).toLocaleString()} pts
+                </span>
+              </div>
             </div>
             <Plot
               data={plotlyTraces}
