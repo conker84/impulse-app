@@ -7,6 +7,7 @@ interface Props {
   onLoadReport: (reportId: string) => void;
   onVisualize: (reportId: string) => void;
   onTimeSeries?: () => void;
+  settingsButton?: React.ReactNode;
 }
 
 function ReportIcon({ size = 48 }: { size?: number }) {
@@ -32,7 +33,7 @@ function CardReportIcon() {
   );
 }
 
-export default function LandingScreen({ onNewReport, onLoadReport, onVisualize, onTimeSeries }: Props) {
+export default function LandingScreen({ onNewReport, onLoadReport, onVisualize, onTimeSeries, settingsButton }: Props) {
   const [reports, setReports] = useState<SavedReportSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -79,6 +80,7 @@ export default function LandingScreen({ onNewReport, onLoadReport, onVisualize, 
 
   return (
     <div className="landing-screen">
+      {settingsButton && <div className="landing-settings-corner">{settingsButton}</div>}
       <div className="landing-container">
         <div className="landing-hero">
           <div className="landing-icon">

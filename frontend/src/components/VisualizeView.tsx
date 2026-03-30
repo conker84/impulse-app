@@ -20,6 +20,7 @@ interface Props {
   dataSources: DataSourceConfig;
   reportName: string;
   onBack: () => void;
+  settingsButton?: React.ReactNode;
 }
 
 const AGG_TYPE_LABELS: Record<string, string> = {
@@ -28,7 +29,7 @@ const AGG_TYPE_LABELS: Record<string, string> = {
   statistics: "Stats",
 };
 
-export default function VisualizeView({ dataSources, reportName, onBack }: Props) {
+export default function VisualizeView({ dataSources, reportName, onBack, settingsButton }: Props) {
   const { destination_catalog: catalog, destination_schema: schema, table_prefix: prefix } = dataSources;
 
   const [aggMeta, setAggMeta] = useState<AggregationMeta[]>([]);
@@ -175,6 +176,7 @@ export default function VisualizeView({ dataSources, reportName, onBack }: Props
           <div className="viz-sidebar-header">
             <button className="action-btn" onClick={onBack} title="Back to Home">Home</button>
             <span className="viz-report-name" title={reportName}>{reportName}</span>
+            {settingsButton}
           </div>
 
           {/* Aggregation selector */}

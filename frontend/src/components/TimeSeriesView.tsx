@@ -14,6 +14,7 @@ interface Props {
   onBack: () => void;
   initialCatalog?: string;
   initialSchema?: string;
+  settingsButton?: React.ReactNode;
 }
 
 interface TraceData {
@@ -24,7 +25,7 @@ interface TraceData {
   totalPoints: number;
 }
 
-export default function TimeSeriesView({ onBack, initialCatalog, initialSchema }: Props) {
+export default function TimeSeriesView({ onBack, initialCatalog, initialSchema, settingsButton }: Props) {
   // UC browser
   const [catalogs, setCatalogs] = useState<string[]>([]);
   const [schemas, setSchemas] = useState<string[]>([]);
@@ -179,6 +180,7 @@ export default function TimeSeriesView({ onBack, initialCatalog, initialSchema }
         <div className="viz-sidebar-header">
           <button className="action-btn" onClick={onBack} title="Back to Home">Home</button>
           <span className="viz-report-name">Explore Time Series</span>
+          {settingsButton}
         </div>
 
         {/* Catalog / Schema pickers */}
