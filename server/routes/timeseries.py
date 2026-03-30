@@ -168,7 +168,7 @@ async def get_timeseries_data(
     request: Request,
     x_min: int | None = Query(None, description="Min timestamp (nanoseconds)"),
     x_max: int | None = Query(None, description="Max timestamp (nanoseconds)"),
-    n_points: int = Query(1500, ge=100, le=10000),
+    n_points: int = Query(5000, ge=100, le=50000),
 ):
     """Fetch time series data for a single channel, downsampled with LTTB.
 

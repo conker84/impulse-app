@@ -451,9 +451,21 @@ export default function TimeSeriesView({ onBack, initialCatalog, initialSchema, 
                     {m === "line" ? "Line" : m.charAt(0).toUpperCase() + m.slice(1)}
                   </button>
                 ))}
-                <span className="viz-hint" style={{ marginLeft: 8 }}>
-                  {traces.reduce((sum, t) => sum + t.totalPoints, 0).toLocaleString()} pts
-                </span>
+                {(() => {
+                  const totalRaw = traces.reduce((sum, t) => sum + t.totalPoints, 0);
+                  const totalShown = traces.reduce((sum, t) => sum + t.points.length, 0);
+                  const isDownsampled = totalShown < totalRaw;
+                  return (
+                    <span className="viz-hint" style={{ marginLeft: 8 }} title={isDownsampled ? `Downsampled from ${totalRaw.toLocaleString()} to ${totalShown.toLocaleString()} points via LTTB` : undefined}>
+                      {totalRaw.toLocaleString()} pts
+                      {isDownsampled && (
+                        <span style={{ color: "var(--warning, #f59e0b)", marginLeft: 4 }}>
+                          (showing {totalShown.toLocaleString()})
+                        </span>
+                      )}
+                    </span>
+                  );
+                })()}
               </div>
             </div>
             <Plot

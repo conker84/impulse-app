@@ -550,7 +550,7 @@ export async function fetchTimeSeriesData(
   channelId: number,
   xMin?: number,
   xMax?: number,
-  nPoints: number = 1500,
+  nPoints: number = 5000,
 ): Promise<{ data: TimeSeriesPoint[]; total_points: number }> {
   let url = `/timeseries/data?catalog=${enc(catalog)}&schema=${enc(schema)}&container_id=${containerId}&channel_id=${channelId}&n_points=${nPoints}`;
   if (xMin != null) url += `&x_min=${xMin}`;
