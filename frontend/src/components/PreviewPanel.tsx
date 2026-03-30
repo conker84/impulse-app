@@ -1809,6 +1809,16 @@ function ReadyPanel({
               </div>
             )}
           </div>
+          {state.run_url && (
+            <div className="card" style={{ borderLeft: "3px solid var(--primary)" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ fontSize: 13, fontWeight: 600 }}>Last Job Run</div>
+                <a href={state.run_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12 }}>
+                  View in Databricks &rarr;
+                </a>
+              </div>
+            </div>
+          )}
           <ClusterConfigSection
             useAllPurpose={state.use_all_purpose_cluster}
             clusterId={state.all_purpose_cluster_id}

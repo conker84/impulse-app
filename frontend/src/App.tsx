@@ -168,6 +168,8 @@ export default function App() {
               content: "Report job completed successfully. Click \"View Results\" to see your data.",
             }]);
           }
+          // Auto-save so run_url and deployment status persist for re-open
+          if (sessionId) saveReport(sessionId).catch(() => {});
         }
       } catch {
         // ignore transient errors during polling
