@@ -224,29 +224,6 @@
    ]
   },
   {
-   "cell_type": "code",
-   "execution_count": 0,
-   "metadata": {
-    "application/vnd.databricks.v1+cell": {
-     "cellMetadata": {
-      "byteLimit": 2048000,
-      "rowLimit": 10000
-     },
-     "inputWidgets": {},
-     "nuid": "3490a4fc-7fe7-4ea9-8727-d4b082e18a15",
-     "showTitle": false,
-     "tableResultSettingsMap": {},
-     "title": ""
-    }
-   },
-   "outputs": [],
-   "source": [
-    "# Vehicle configuration comes from units_under_test in the config\n",
-    "vehicle_cfg_available = len(config.units_under_test) > 0\n",
-    "print(f\"Units under test configured: {vehicle_cfg_available} ({len(config.units_under_test)} entries)\")"
-   ]
-  },
-  {
    "cell_type": "markdown",
    "metadata": {
     "application/vnd.databricks.v1+cell": {
@@ -351,28 +328,6 @@
    "source": [
     "dbutils.jobs.taskValues.set(key=\"current_run_id\", value=str(current_run_id))\n",
     "print(f\"current_run_id: {current_run_id}\")\n"
-   ]
-  },
-  {
-   "cell_type": "code",
-   "execution_count": 0,
-   "metadata": {
-    "application/vnd.databricks.v1+cell": {
-     "cellMetadata": {
-      "byteLimit": 2048000,
-      "rowLimit": 10000
-     },
-     "inputWidgets": {},
-     "nuid": "14b75cec-da98-41fb-a9e6-5072b365dcad",
-     "showTitle": false,
-     "tableResultSettingsMap": {},
-     "title": ""
-    }
-   },
-   "outputs": [],
-   "source": [
-    "dbutils.jobs.taskValues.set(key=\"vehicle_cfg_available\", value=str(vehicle_cfg_available))\n",
-    "print(f\"vehicle_cfg_available: {vehicle_cfg_available}\")"
    ]
   }
  ],
