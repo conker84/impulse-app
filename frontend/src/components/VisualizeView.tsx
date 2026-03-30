@@ -171,60 +171,65 @@ export default function VisualizeView({ dataSources, reportName, onBack }: Props
   return (
     <div className="visualize-layout">
       <div className="visualize-sidebar">
-        <div className="viz-sidebar-header">
-          <button className="action-btn" onClick={onBack} title="Back to Home">Home</button>
-          <span className="viz-report-name" title={reportName}>{reportName}</span>
-        </div>
-
-        {/* Aggregation selector */}
-        <div className="viz-section">
-          <div className="viz-section-title">
-            Aggregations
-            {aggMeta.length > 0 && (
-              <label className="viz-toggle-all">
-                <input
-                  type="checkbox"
-                  checked={selectedAggs.size === aggMeta.length && aggMeta.length > 0}
-                  onChange={toggleAllAggs}
-                />
-                All
-              </label>
-            )}
+        <div className="viz-sidebar-scroll">
+          <div className="viz-sidebar-header">
+            <button className="action-btn" onClick={onBack} title="Back to Home">Home</button>
+            <span className="viz-report-name" title={reportName}>{reportName}</span>
           </div>
-          <div className="viz-checkbox-list">
-            {aggMeta.map((a) => (
-              <label key={a.name} className="viz-checkbox-row">
-                <input
-                  type="checkbox"
-                  checked={selectedAggs.has(a.name)}
-                  onChange={() => toggleAgg(a.name)}
-                />
-                <div className="viz-hist-info">
-                  <span className="viz-checkbox-label">
-                    {a.name}
-                    <span className={`viz-agg-badge viz-agg-badge--${a.agg_type}`}>
-                      {AGG_TYPE_LABELS[a.agg_type] || a.agg_type}
+
+          {/* Aggregation selector */}
+          <div className="viz-section">
+            <div className="viz-section-title">
+              Aggregations
+              {aggMeta.length > 0 && (
+                <label className="viz-toggle-all">
+                  <input
+                    type="checkbox"
+                    checked={selectedAggs.size === aggMeta.length && aggMeta.length > 0}
+                    onChange={toggleAllAggs}
+                  />
+                  All
+                </label>
+              )}
+            </div>
+            <div className="viz-checkbox-list">
+              {aggMeta.map((a) => (
+                <label key={a.name} className="viz-checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={selectedAggs.has(a.name)}
+                    onChange={() => toggleAgg(a.name)}
+                  />
+                  <div className="viz-hist-info">
+                    <span className="viz-checkbox-label">
+                      {a.name}
+                      <span className={`viz-agg-badge viz-agg-badge--${a.agg_type}`}>
+                        {AGG_TYPE_LABELS[a.agg_type] || a.agg_type}
+                      </span>
                     </span>
-                  </span>
-                  {a.description && <span className="viz-hist-desc">{a.description}</span>}
-                  {a.type && a.agg_type === "histogram_1d" && <span className="viz-hist-type">{a.type}</span>}
-                </div>
-              </label>
-            ))}
+                    {a.description && <span className="viz-hist-desc">{a.description}</span>}
+                    {a.type && a.agg_type === "histogram_1d" && <span className="viz-hist-type">{a.type}</span>}
+                  </div>
+                </label>
+              ))}
+            </div>
           </div>
         </div>
 
-        <button
-          className="action-btn primary viz-apply-btn"
-          disabled={selectedAggs.size === 0 || fetching}
-          onClick={handleFetchData}
-        >
-          {fetching ? (
-            <><span className="spinner" style={{ width: 14, height: 14, marginRight: 6 }} />Loading...</>
-          ) : (
-            `Show ${selectedAggs.size} Aggregation${selectedAggs.size !== 1 ? "s" : ""}`
-          )}
-        </button>
+        <div className="viz-sidebar-footer">
+          <button
+            className="action-btn primary"
+            style={{ width: "100%" }}
+            disabled={selectedAggs.size === 0 || fetching}
+            onClick={handleFetchData}
+          >
+            {fetching ? (
+              <><span className="spinner" style={{ width: 14, height: 14, marginRight: 6 }} />Loading...</>
+            ) : (
+              `Show ${selectedAggs.size} Aggregation${selectedAggs.size !== 1 ? "s" : ""}`
+            )}
+          </button>
+        </div>
       </div>
 
       <div className="visualize-main">
