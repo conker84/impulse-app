@@ -254,7 +254,7 @@ def generate_config_json(state: ReportState) -> dict[str, Any]:
         },
         "units_under_test": units_under_test,
         "query_engine": {
-            "solver": "BasicNarrowSolver",
+            "solver": "DeltaSolver",
             "data_type": "RLE",
             "drop_implausible_data": False,
         },
