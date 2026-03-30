@@ -229,7 +229,7 @@
    "outputs": [],
    "source": [
     "# determine and persist report results\n",
-    "report_dfs, report_meta_dfs, sessions_df = my_report.determine_report()\n",
+    "my_report.determine_report()\n",
     "my_report.persist_results()"
    ]
   }
