@@ -127,8 +127,45 @@
     "processed_sessions = 0\n",
     "\n",
     "# Run report processing (single batch for now)\n",
-    "print(f\"[{datetime.now().strftime(time_format)}] Processing batch {batch_num}\")\n",
-    "dbutils.notebook.run(\"./02_report\", 0, {\"config_path\": config_path})\n",
+    "print(f\"[{datetime.now().strftime(time_format)}] Processing batch {batch_num}\")"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 0,
+   "metadata": {
+    "application/vnd.databricks.v1+cell": {
+     "cellMetadata": {},
+     "inputWidgets": {},
+     "nuid": "a1b2c3d4-e5f6-7890-abcd-run02report",
+     "showTitle": false,
+     "tableResultSettingsMap": {},
+     "title": ""
+    }
+   },
+   "outputs": [],
+   "source": [
+    "%run ./02_report"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 0,
+   "metadata": {
+    "application/vnd.databricks.v1+cell": {
+     "cellMetadata": {
+      "byteLimit": 2048000,
+      "rowLimit": 10000
+     },
+     "inputWidgets": {},
+     "nuid": "c4d5e6f7-8901-2345-abcd-postreport",
+     "showTitle": false,
+     "tableResultSettingsMap": {},
+     "title": ""
+    }
+   },
+   "outputs": [],
+   "source": [
     "processed_sessions += 1\n",
     "\n",
     "# Update delta versions of gold layer tables in the status table\n",
