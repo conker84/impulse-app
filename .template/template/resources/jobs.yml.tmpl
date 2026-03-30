@@ -4,8 +4,7 @@ resources:
       name: {{.report_name}}
       tasks:
         - task_key: pre_processing
-          libraries:
-            - whl: ../lib/mda_framework_v2-*.whl
+          environment_key: impulse
           notebook_task:
             notebook_path: ../src/preprocessing/01_status_pre-processing.ipynb
             base_parameters:
@@ -21,12 +20,17 @@ resources:
           depends_on:
             - task_key: Vehicle_Config_Available
               outcome: "true"
-          libraries:
-            - whl: ../lib/mda_framework_v2-*.whl
+          environment_key: impulse
           notebook_task:
             notebook_path: ../src/03_orchestrator.ipynb
             base_parameters:
               config_path: "./config/${bundle.target}_config.json"
+      environments:
+        - environment_key: impulse
+          spec:
+            client: "1"
+            dependencies:
+              - ../lib/mda_framework_v2-0.0.4-py3-none-any.whl
       permissions:
         - level: CAN_MANAGE
           group_name: ${var.manage_group}
