@@ -14,7 +14,7 @@ resources:
             - task_key: pre_processing
           environment_key: impulse
           notebook_task:
-            notebook_path: ../src/02_report.ipynb
+            notebook_path: ../src/report.py
             base_parameters:
               config_path: "./config/${bundle.target}_config.json"
         - task_key: post_processing

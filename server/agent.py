@@ -576,11 +576,10 @@ def _exec_set_data_sources(state: ReportState, **kwargs: Any) -> str:
 
 
 def _exec_preview_code(state: ReportState) -> str:
-    from server.code_generator import generate_signal_definitions, generate_histogram_page, generate_config_json
+    from server.code_generator import generate_report_notebook, generate_config_json
 
     parts = ["## Generated Code Preview\n"]
-    parts.append("### 01_signal_definitions.py\n```python\n" + generate_signal_definitions(state) + "\n```\n")
-    parts.append("### Histogram Page\n```python\n" + generate_histogram_page(state) + "\n```\n")
+    parts.append("### report.py\n```python\n" + generate_report_notebook(state) + "\n```\n")
     parts.append("### dev_config.json\n```json\n" + json.dumps(generate_config_json(state), indent=2) + "\n```\n")
     return "\n".join(parts)
 
