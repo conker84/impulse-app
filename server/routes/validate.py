@@ -103,7 +103,7 @@ def _check_histogram_values(fqn: str, prefix: str, user_token: str | None = None
     try:
         sql = (
             f"SELECT d.name, "
-            f"COUNT(DISTINCT f.global_session_id) AS sessions, "
+            f"COUNT(DISTINCT f.container_id) AS sessions, "
             f"ROUND(SUM(f.hist_value), 2) AS total_value, "
             f"COUNT(CASE WHEN f.hist_value > 0 THEN 1 END) AS non_zero_bins "
             f"FROM {fqn}.{prefix}_histogram_fact f "

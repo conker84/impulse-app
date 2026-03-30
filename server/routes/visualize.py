@@ -48,7 +48,7 @@ async def list_histograms(
 
     try:
         result = execute_sql(
-            f"SELECT visual_id, name, type, description, bins_unit, values_unit, page_number "
+            f"SELECT visual_id, name, agg_type, description, bins_unit, values_unit, page_number "
             f"FROM {tbl} ORDER BY page_number, visual_id",
             user_token=token,
         )
@@ -157,7 +157,7 @@ def _fetch_dimension_metadata(
 ) -> dict[str, dict[str, str]]:
     names_str = ", ".join(f"'{n}'" for n in histogram_names)
     result = execute_sql(
-        f"SELECT name, type, description, bins_unit, values_unit "
+        f"SELECT name, agg_type, description, bins_unit, values_unit "
         f"FROM {dim_tbl} WHERE name IN ({names_str})",
         user_token=token,
     )
@@ -193,7 +193,7 @@ async def list_aggregations(
     try:
         tbl = _table(catalog, schema, prefix, "histogram_dimension")
         result = execute_sql(
-            f"SELECT visual_id, name, type, description, bins_unit, values_unit "
+            f"SELECT visual_id, name, agg_type, description, bins_unit, values_unit "
             f"FROM {tbl} ORDER BY visual_id",
             user_token=token,
         )
