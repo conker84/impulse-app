@@ -118,7 +118,7 @@ def _strip_txt_suffix(report_dir: str) -> None:
 
 
 def _apply_all_purpose_cluster(report_dir: str) -> None:
-    """Modify jobs.yml to run report_orchestration on an existing all-purpose cluster.
+    """Modify jobs.yml to run report_generation on an existing all-purpose cluster.
 
     The template defaults to serverless (no cluster config on the task).
     This patches in ``existing_cluster_id: ${var.existing_cluster_id}``
@@ -135,7 +135,7 @@ def _apply_all_purpose_cluster(report_dir: str) -> None:
     new_lines: list[str] = []
     for i, line in enumerate(lines):
         new_lines.append(line)
-        if line.strip() == "- task_key: report_orchestration":
+        if line.strip() == "- task_key: report_generation":
             # Find the indentation of the next line (depends_on) to match it
             if i + 1 < len(lines):
                 next_line = lines[i + 1]
@@ -146,7 +146,7 @@ def _apply_all_purpose_cluster(report_dir: str) -> None:
 
     with open(jobs_path, "w") as f:
         f.writelines(new_lines)
-    logger.info("Patched jobs.yml to use existing_cluster_id for report_orchestration")
+    logger.info("Patched jobs.yml to use existing_cluster_id for report_generation")
 
 
 router = APIRouter(prefix="/api", tags=["deploy"])

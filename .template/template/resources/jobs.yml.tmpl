@@ -16,15 +16,23 @@ resources:
             op: EQUAL_TO
             left: {{print "\"{{tasks.pre_processing.values.vehicle_cfg_available}}\""}}
             right: "True"
-        - task_key: report_orchestration
+        - task_key: report_generation
           depends_on:
             - task_key: Vehicle_Config_Available
               outcome: "true"
           environment_key: impulse
           notebook_task:
-            notebook_path: ../src/03_orchestrator.ipynb
+            notebook_path: ../src/02_report.ipynb
             base_parameters:
               config_path: "./config/${bundle.target}_config.json"
+        - task_key: post_processing
+          depends_on:
+            - task_key: report_generation
+          environment_key: impulse
+          notebook_task:
+            notebook_path: ../src/postprocessing/01_status_post-processing_success.ipynb
+            base_parameters:
+              config_path: "../config/${bundle.target}_config.json"
       environments:
         - environment_key: impulse
           spec:

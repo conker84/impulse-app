@@ -799,7 +799,7 @@ class ClusterConfigPayload(BaseModel):
 
 @router.post("/set-cluster-config/{session_id}")
 async def set_cluster_config(session_id: str, payload: ClusterConfigPayload, request: Request):
-    """Configure whether the report_orchestration task runs on a job cluster or all-purpose cluster.
+    """Configure whether the report_generation task runs on a job cluster or all-purpose cluster.
 
     When switching to all-purpose mode with an empty cluster ID, the stored
     cluster ID from Lakebase is auto-populated.
