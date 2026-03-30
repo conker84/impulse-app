@@ -63,7 +63,6 @@ interface Props {
     bins: number[]; bins_unit: string; description: string; name: string;
   }>;
   jobStatus: DeployStatusResponse | null;
-  onValidate: () => void;
   deploying: boolean;
   validating: boolean;
   saving: boolean;
@@ -120,7 +119,6 @@ export default function PreviewPanel({
   onUpdateAggregation,
   onSuggestBins,
   jobStatus,
-  onValidate,
   deploying,
   validating,
   saving,
@@ -277,7 +275,6 @@ export default function PreviewPanel({
             state={state}
             deploying={deploying}
             jobStatus={jobStatus}
-            onValidate={onValidate}
             validating={validating}
             onClusterConfigChange={onClusterConfigChange}
             onViewResults={onViewResults}
@@ -329,14 +326,10 @@ export default function PreviewPanel({
             Cancel Run
           </button>
         )}
-        {isReady && (
-          <button
-            className="action-btn"
-            disabled={state.deployment !== "completed" || validating}
-            onClick={onValidate}
-          >
-            {validating ? <><span className="spinner" /> Validating...</> : "Validate"}
-          </button>
+        {isReady && validating && (
+          <span className="action-btn" style={{ opacity: 0.6, pointerEvents: "none" }}>
+            <span className="spinner" /> Validating...
+          </span>
         )}
       </div>
     </div>
@@ -1758,7 +1751,6 @@ function ReadyPanel({
   state,
   deploying,
   jobStatus,
-  onValidate,
   validating,
   onClusterConfigChange,
   onViewResults,
@@ -1766,7 +1758,6 @@ function ReadyPanel({
   state: ReportState;
   deploying: boolean;
   jobStatus: DeployStatusResponse | null;
-  onValidate: () => void;
   validating: boolean;
   onClusterConfigChange: (useAllPurpose: boolean, clusterId: string) => void;
   onViewResults: () => void;
@@ -1818,7 +1809,6 @@ function ReadyPanel({
           deployment={state.deployment}
           validation={state.validation}
           runUrl={state.run_url}
-          onValidate={onValidate}
           validating={validating}
         />
       )}

@@ -159,11 +159,29 @@ export default function App() {
             deployment: status.status as ReportState["deployment"],
           }));
           setDeploying(false);
-          const msg =
-            status.status === "completed"
-              ? "Report job completed successfully! You can now validate the results."
-              : `Report job failed. ${status.result_state || ""}`;
-          setMessages((prev) => [...prev, { role: "assistant", content: msg }]);
+          if (status.status === "failed") {
+            setMessages((prev) => [...prev, { role: "assistant", content: `Report job failed. ${status.result_state || ""}` }]);
+          } else {
+            // Auto-validate on completion
+            setValidating(true);
+            try {
+              const results = await validateReport(sessionId);
+              setReportState((prev) => ({ ...prev, validation: results }));
+              const passed = results.levels.every((l) => l.passed);
+              const withData = results.histogram_summary.filter((h) => h.status === "OK").length;
+              const total = results.histogram_summary.length;
+              setMessages((prev) => [...prev, {
+                role: "assistant",
+                content: passed
+                  ? `Report completed and validated. ${withData}/${total} histograms have data.`
+                  : "Report completed but validation found issues. Check the Results tab for details.",
+              }]);
+            } catch {
+              setMessages((prev) => [...prev, { role: "assistant", content: "Report completed. Validation could not be run automatically." }]);
+            } finally {
+              setValidating(false);
+            }
+          }
         }
       } catch {
         // ignore transient errors during polling
@@ -804,35 +822,6 @@ export default function App() {
     }
   }, [sessionId, startPolling, tokenStatus]);
 
-  const handleValidate = useCallback(async () => {
-    if (!sessionId) return;
-    setValidating(true);
-    try {
-      const results = await validateReport(sessionId);
-      setReportState((prev) => ({ ...prev, validation: results }));
-
-      const passed = results.levels.every((l) => l.passed);
-      const withData = results.histogram_summary.filter((h) => h.status === "OK").length;
-      const total = results.histogram_summary.length;
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: passed
-            ? `Validation passed. ${withData}/${total} histograms have data.`
-            : `Validation has issues. Check the Results tab for details.`,
-        },
-      ]);
-    } catch (err) {
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: `Validation error: ${err instanceof Error ? err.message : String(err)}` },
-      ]);
-    } finally {
-      setValidating(false);
-    }
-  }, [sessionId]);
-
   const currentStepIdx = WIZARD_STEPS.findIndex((s) => s.key === reportState.wizard_step);
 
   const showSettingsIcon = !tokenStatus?.local_mode;
@@ -967,7 +956,7 @@ export default function App() {
         onUpdateAggregation={handleUpdateAggregation}
         onSuggestBins={handleSuggestBins}
         jobStatus={jobStatus}
-        onValidate={handleValidate}
+
         deploying={deploying}
         validating={validating}
         saving={saving}

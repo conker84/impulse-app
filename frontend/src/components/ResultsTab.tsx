@@ -4,36 +4,16 @@ interface Props {
   deployment: DeploymentStatus;
   validation: ValidationResults | null;
   runUrl: string | null;
-  onValidate: () => void;
   validating: boolean;
 }
 
-function StatusBadge({ status }: { status: DeploymentStatus }) {
-  const map: Record<DeploymentStatus, { cls: string; label: string }> = {
-    not_started: { cls: "", label: "Not Started" },
-    scaffolding: { cls: "running", label: "Scaffolding" },
-    deploying: { cls: "running", label: "Deploying" },
-    running: { cls: "running", label: "Running" },
-    completed: { cls: "ok", label: "Completed" },
-    failed: { cls: "empty", label: "Failed" },
-  };
-  const { cls, label } = map[status];
-  return <span className={`badge ${cls}`}>{label}</span>;
-}
-
-export default function ResultsTab({ deployment, validation, runUrl, onValidate, validating }: Props) {
+export default function ResultsTab({ deployment, validation, runUrl, validating }: Props) {
   return (
     <div>
-      {deployment === "completed" && !validation && (
-        <div className="card">
-          <button
-            className="action-btn primary"
-            style={{ width: "100%" }}
-            onClick={onValidate}
-            disabled={validating}
-          >
-            {validating ? <><span className="spinner" /> Validating...</> : "Validate Results"}
-          </button>
+      {deployment === "completed" && !validation && validating && (
+        <div className="card" style={{ textAlign: "center", padding: 16 }}>
+          <span className="spinner" style={{ marginRight: 8 }} />
+          Validating results...
         </div>
       )}
 
