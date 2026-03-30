@@ -1263,11 +1263,16 @@ function VehiclesStep({
   );
 }
 
-function _toDatetimeLocal(ts: string): string {
-  // Convert "2025-01-15 08:30:00" or ISO to "2025-01-15T08:30" for datetime-local input
+function _toDatetimeLocal(ts: string, roundUp = false): string {
+  // Convert "2025-01-15 08:30:00" or ISO to "YYYY-MM-DDTHH:MM" for datetime-local input.
+  // When roundUp=true, ceil to the next minute so a strict <= filter still includes the data.
   if (!ts) return "";
-  const clean = ts.replace(" ", "T").replace(/Z$/, "");
-  return clean.slice(0, 16); // "YYYY-MM-DDTHH:MM"
+  const d = new Date(ts.replace(" ", "T").replace(/Z$/, "") + "Z");
+  if (isNaN(d.getTime())) return ts.replace(" ", "T").slice(0, 16);
+  if (roundUp && (d.getSeconds() > 0 || d.getMilliseconds() > 0)) {
+    d.setUTCMinutes(d.getUTCMinutes() + 1, 0, 0);
+  }
+  return d.toISOString().slice(0, 16); // "YYYY-MM-DDTHH:MM"
 }
 
 function _lastNDays(n: number): { start: string; stop: string } {
@@ -1323,7 +1328,7 @@ function TimestampEditor({
       const range = await onFetchDataRange();
       if (range) {
         const start = range.min_start ? _toDatetimeLocal(range.min_start) : "";
-        const stop = range.max_stop ? _toDatetimeLocal(range.max_stop) : "";
+        const stop = range.max_stop ? _toDatetimeLocal(range.max_stop, true) : "";
         if (perVehicle) {
           setRows((prev) => prev.map((r) => ({
             ...r,
