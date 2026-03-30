@@ -192,6 +192,7 @@ class SourceDataConfig(BaseModel):
     silver_catalog: str = ""
     silver_schema: str = ""
     ingest_run_id: int | None = None
+    ingest_run_url: str | None = None
     ingest_status: IngestStatus = IngestStatus.NOT_STARTED
 
 

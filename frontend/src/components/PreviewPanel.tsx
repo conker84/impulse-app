@@ -766,8 +766,15 @@ function SourceDataStep({
           {/* Success */}
           {ingestDone && (
             <div className="card" style={{ borderLeft: "3px solid var(--success)" }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: "var(--success)", marginBottom: 4 }}>
-                Silver layer tables created
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "var(--success)" }}>
+                  Silver layer tables created
+                </div>
+                {sourceData.ingest_run_url && (
+                  <a href={sourceData.ingest_run_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12 }}>
+                    View Ingest Job &rarr;
+                  </a>
+                )}
               </div>
               <div className="form-hint">
                 {silverCatalog}.{silverSchema}: channels, channel_tags, channel_metrics, container_tags, container_metrics
@@ -781,8 +788,15 @@ function SourceDataStep({
           {/* Failed */}
           {ingestFailed && (
             <div className="card" style={{ borderLeft: "3px solid var(--error)" }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: "var(--error)" }}>
-                Transform failed
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "var(--error)" }}>
+                  Transform failed
+                </div>
+                {sourceData.ingest_run_url && (
+                  <a href={sourceData.ingest_run_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12 }}>
+                    View Ingest Job &rarr;
+                  </a>
+                )}
               </div>
               <div className="form-hint">
                 Check the Databricks job run for details. You can retry the transform above.

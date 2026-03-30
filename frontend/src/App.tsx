@@ -36,6 +36,7 @@ const INITIAL_STATE: ReportState = {
     silver_catalog: "",
     silver_schema: "",
     ingest_run_id: null,
+    ingest_run_url: null,
     ingest_status: "not_started",
   },
   available_channels: [],

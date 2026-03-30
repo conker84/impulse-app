@@ -10,6 +10,22 @@ interface Props {
 export default function ResultsTab({ deployment, validation, runUrl, validating }: Props) {
   return (
     <div>
+      {runUrl && (
+        <div className="card" style={{ borderLeft: "3px solid var(--primary)", marginBottom: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ fontSize: 13, fontWeight: 600 }}>Last Job Run</div>
+            <a
+              href={runUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ fontSize: 12 }}
+            >
+              View in Databricks &rarr;
+            </a>
+          </div>
+        </div>
+      )}
+
       {deployment === "completed" && !validation && validating && (
         <div className="card" style={{ textAlign: "center", padding: 16 }}>
           <span className="spinner" style={{ marginRight: 8 }} />
@@ -66,7 +82,7 @@ export default function ResultsTab({ deployment, validation, runUrl, validating 
         </>
       )}
 
-      {deployment === "not_started" && !validation && (
+      {deployment === "not_started" && !validation && !runUrl && (
         <div className="empty-state">
           <div className="icon">&#x1F680;</div>
           <div>Report not deployed yet</div>

@@ -134,6 +134,7 @@ export interface SourceDataConfig {
   silver_catalog: string;
   silver_schema: string;
   ingest_run_id: number | null;
+  ingest_run_url: string | null;
   ingest_status: IngestStatus;
 }
 

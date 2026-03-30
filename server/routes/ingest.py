@@ -199,6 +199,7 @@ async def trigger_ingest(session_id: str, request: Request):
         run_id = run.run_id
         sd.ingest_run_id = run_id
         sd.ingest_status = IngestStatus.RUNNING
+        sd.ingest_run_url = None
         logger.info("Triggered ingest run %s for job %s", run_id, job.job_id)
 
         # Fetch run URL immediately
@@ -206,6 +207,7 @@ async def trigger_ingest(session_id: str, request: Request):
         try:
             run_info = w.jobs.get_run(run_id)
             run_url = run_info.run_page_url or ""
+            sd.ingest_run_url = run_url or None
         except Exception:
             pass
     except Exception as e:
