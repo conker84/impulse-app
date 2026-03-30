@@ -768,6 +768,7 @@ export default function App() {
 
     setDeploying(true);
     setJobStatus(null);
+    setReportState((prev) => ({ ...prev, deployment: "not_started", run_id: null, run_url: null, validation: null }));
     try {
       setReportState((prev) => ({ ...prev, deployment: "scaffolding" }));
       setMessages((prev) => [

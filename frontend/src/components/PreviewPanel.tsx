@@ -125,7 +125,8 @@ export default function PreviewPanel({
 }: Props) {
   const isReady = state.wizard_step === "ready";
   const clusterReady = !state.use_all_purpose_cluster || !!state.all_purpose_cluster_id;
-  const canDeploy = isReady && state.deployment === "not_started" && clusterReady;
+  const isTerminal = state.deployment === "completed" || state.deployment === "failed";
+  const canDeploy = isReady && (state.deployment === "not_started" || isTerminal) && clusterReady;
 
   const [editingHistogram, setEditingHistogram] = useState<Histogram1DDefinition | null>(null);
 
@@ -314,7 +315,7 @@ export default function PreviewPanel({
               disabled={!canDeploy}
               onClick={onDeploy}
             >
-              Deploy &amp; Run
+              {isTerminal ? "Re-deploy & Run" : "Deploy & Run"}
             </button>
           </>
         )}
@@ -1781,7 +1782,8 @@ function ReadyPanel({
   onClusterConfigChange: (useAllPurpose: boolean, clusterId: string) => void;
   onViewResults: () => void;
 }) {
-  const hasActivity = deploying || state.deployment === "scaffolding" || state.deployment === "deploying" || state.deployment === "running" || state.deployment === "completed" || state.deployment === "failed";
+  const isActivelyDeploying = deploying || state.deployment === "scaffolding" || state.deployment === "deploying" || state.deployment === "running";
+  const hasActivity = isActivelyDeploying || state.deployment === "completed" || state.deployment === "failed";
 
   return (
     <div>
@@ -1792,11 +1794,11 @@ function ReadyPanel({
         </div>
       </div>
 
-      {hasActivity && (
+      {isActivelyDeploying && (
         <RunTimeline deployment={state.deployment} jobStatus={jobStatus} />
       )}
 
-      {!hasActivity && (
+      {!isActivelyDeploying && (
         <>
           <div className="card">
             <div className="card-title" style={{ fontSize: 18 }}>{state.name}</div>
@@ -1833,7 +1835,7 @@ function ReadyPanel({
         </>
       )}
 
-      {hasActivity && (state.deployment === "running" || state.deployment === "completed" || state.deployment === "failed") && (
+      {(isActivelyDeploying || hasActivity) && (state.deployment === "running" || state.deployment === "completed" || state.deployment === "failed") && (
         <ResultsTab
           deployment={state.deployment}
           validation={state.validation}
