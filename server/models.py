@@ -154,6 +154,8 @@ class DataSourceConfig(BaseModel):
     container_metrics: str = ""
     channel_metrics: str = ""
     channels: list[str] = Field(default_factory=list)
+    container_tags: str = ""
+    channel_tags: str = ""
     aliases: str | None = None
     aliases_copy_table_name: str | None = None
     device_aliases: str | None = None

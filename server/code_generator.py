@@ -241,6 +241,8 @@ def generate_config_json(state: ReportState) -> dict[str, Any]:
         "container_metrics_table": ds.container_metrics,
         "channel_metrics_table": ds.channel_metrics,
         "channels_table": ds.channels[0] if ds.channels else "",
+        "container_tags_table": ds.container_tags,
+        "channel_tags_table": ds.channel_tags,
     }
 
     return {

@@ -445,11 +445,15 @@ def _auto_populate_silver_data_sources(session: _Session) -> None:
     prefix = f"{catalog}.{schema}"
 
     if not ds.channels:
-        ds.channels = [f"{prefix}.bronze_channels"]
+        ds.channels = [f"{prefix}.channels"]
     if not ds.container_metrics:
         ds.container_metrics = f"{prefix}.container_metrics"
     if not ds.channel_metrics:
         ds.channel_metrics = f"{prefix}.channel_metrics"
+    if not ds.container_tags:
+        ds.container_tags = f"{prefix}.container_tags"
+    if not ds.channel_tags:
+        ds.channel_tags = f"{prefix}.channel_tags"
     if not ds.destination_catalog:
         ds.destination_catalog = catalog
     if not ds.destination_schema:
