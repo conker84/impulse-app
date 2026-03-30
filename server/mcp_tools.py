@@ -435,26 +435,40 @@ def call_mcp_tool(mcp_tool_name: str, arguments: dict[str, Any], user_token: str
         return f"Error calling MCP tool '{mcp_tool_name}': {e}"
 
 
-def execute_sql(statement: str, user_token: str | None = None) -> dict[str, Any]:
-    """Execute SQL via the MCP server and return structured results.
-
-    Returns: {"columns": list[str], "rows": list[list[str]], "row_count": int}
-    """
-    import json as _json
-
+def _execute_sql_once(statement: str, user_token: str | None = None):
+    """Execute SQL via MCP and return the raw MCP response object."""
     if IS_DATABRICKS_APP:
         server_url = _get_server_url()
         if user_token:
-            response = _run_in_thread(
+            return _run_in_thread(
                 _call_tool_as_user_sync, server_url, "execute_sql", {"query": statement}, user_token
             )
         else:
             client = _get_sp_client()
-            response = _run_in_thread(client.call_tool, "execute_sql", {"query": statement})
+            return _run_in_thread(client.call_tool, "execute_sql", {"query": statement})
     else:
-        response = _run_in_thread(
+        return _run_in_thread(
             _local_call_tool_sync, "execute_sql", {"sql_query": statement}
         )
+
+
+# States where the warehouse is still spinning up / query is still running
+_SQL_TRANSIENT_STATES = {"PENDING", "RUNNING"}
+_SQL_RETRY_DELAYS = [2, 3, 5, 8, 12, 15, 15, 15, 15]  # ~90s total
+
+
+def execute_sql(statement: str, user_token: str | None = None) -> dict[str, Any]:
+    """Execute SQL via the MCP server and return structured results.
+
+    Returns: {"columns": list[str], "rows": list[list[str]], "row_count": int}
+
+    If the warehouse is cold-starting (PENDING/RUNNING), retries automatically
+    for up to ~90 seconds before giving up.
+    """
+    import json as _json
+    import time as _time
+
+    response = _execute_sql_once(statement, user_token)
 
     raw = ""
     for text in _extract_response_text(response):
@@ -481,8 +495,26 @@ def execute_sql(statement: str, user_token: str | None = None) -> dict[str, Any]
         rows = [[str(r.get(c, "")) for c in columns] for r in row_dicts]
         return {"columns": columns, "rows": rows, "row_count": len(rows)}
 
-    # Managed DBSQL MCP: SQL Statement API format
+    # Managed DBSQL MCP: SQL Statement API format — retry on transient states
     status = payload.get("status", {}).get("state", "")
+    if status in _SQL_TRANSIENT_STATES:
+        logger.info("SQL warehouse warming up (status=%s), retrying...", status)
+        for delay in _SQL_RETRY_DELAYS:
+            _time.sleep(delay)
+            response = _execute_sql_once(statement, user_token)
+            raw = ""
+            for text in _extract_response_text(response):
+                raw = text
+                break
+            try:
+                payload = _json.loads(raw)
+            except (ValueError, TypeError):
+                raise RuntimeError(f"Unexpected MCP response: {raw[:500]}")
+            status = payload.get("status", {}).get("state", "")
+            if status not in _SQL_TRANSIENT_STATES:
+                break
+            logger.info("Still waiting for warehouse (status=%s)...", status)
+
     if status != "SUCCEEDED":
         err = payload.get("status", {}).get("error", {}).get("message", status)
         raise RuntimeError(f"SQL execution failed: {err}")
