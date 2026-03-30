@@ -55,6 +55,9 @@ else
   databricks sync . "$WS_PATH" --profile "$PROFILE" --watch=false
 fi
 
+# frontend/dist/ is gitignored (gitleaks false positive), so databricks sync skips it. Upload separately.
+[ -d "frontend/dist" ] && databricks workspace import-dir frontend/dist "$WS_PATH/frontend/dist" --overwrite --profile "$PROFILE"
+
 if [ "$SYNC_ONLY" = true ]; then
   echo "==> Sync complete (no redeploy). Files updated in workspace."
   echo "    Note: A full deploy is needed for changes to take effect."

@@ -1,14 +1,5 @@
-# Frontend source & build tooling (only frontend/dist/ is needed at runtime)
-# NOTE: Each entry must be specific — wildcard frontend/* patterns cause
-# databricks sync to skip the entire frontend/ tree including frontend/dist/.
-frontend/src/
+# Frontend: only node_modules is excluded (large). Everything else syncs.
 frontend/node_modules/
-frontend/package-lock.json
-frontend/package.json
-frontend/tsconfig.json
-frontend/tsconfig.tsbuildinfo
-frontend/vite.config.ts
-frontend/index.html
 
 # Dev/docs files not needed at runtime
 CLAUDE.md
