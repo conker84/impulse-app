@@ -231,7 +231,7 @@ def generate_config_json(state: ReportState) -> dict[str, Any]:
         }
         if v.stop_ts:
             entry["end_ts"] = {
-                "col_name": "end_dt",
+                "col_name": "stop_dt",
                 "value": v.stop_ts,
             }
         units_under_test.append(entry)
