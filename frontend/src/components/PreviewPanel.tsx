@@ -1705,7 +1705,7 @@ function ClusterConfigSection({
               checked={!useAllPurpose}
               onChange={() => onChange(false, "")}
             />
-            Job Cluster
+            Serverless
           </label>
           <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 13 }}>
             <input

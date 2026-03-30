@@ -118,11 +118,11 @@ def _strip_txt_suffix(report_dir: str) -> None:
 
 
 def _apply_all_purpose_cluster(report_dir: str) -> None:
-    """Modify jobs.yml to use an existing cluster for the report_orchestration task.
+    """Modify jobs.yml to run report_orchestration on an existing all-purpose cluster.
 
-    Replaces ``job_cluster_key: job_cluster`` with
-    ``existing_cluster_id: ${var.existing_cluster_id}`` so that the DAB
-    variable controls which all-purpose cluster is used.
+    The template defaults to serverless (no cluster config on the task).
+    This patches in ``existing_cluster_id: ${var.existing_cluster_id}``
+    so the DAB variable controls which cluster is used.
     """
     jobs_path = os.path.join(report_dir, "resources", "jobs.yml")
     if not os.path.isfile(jobs_path):
@@ -133,25 +133,16 @@ def _apply_all_purpose_cluster(report_dir: str) -> None:
         lines = f.readlines()
 
     new_lines: list[str] = []
-    i = 0
-    while i < len(lines):
-        line = lines[i]
-        stripped = line.strip()
-        if stripped == "- task_key: report_orchestration":
-            new_lines.append(line)
-            i += 1
-            while i < len(lines):
-                tl = lines[i]
-                if tl.strip().startswith("job_cluster_key:"):
-                    indent = tl[: len(tl) - len(tl.lstrip())]
-                    new_lines.append(f"{indent}existing_cluster_id: ${{var.existing_cluster_id}}\n")
-                    i += 1
-                    break
-                new_lines.append(tl)
-                i += 1
-        else:
-            new_lines.append(line)
-            i += 1
+    for i, line in enumerate(lines):
+        new_lines.append(line)
+        if line.strip() == "- task_key: report_orchestration":
+            # Find the indentation of the next line (depends_on) to match it
+            if i + 1 < len(lines):
+                next_line = lines[i + 1]
+                indent = next_line[: len(next_line) - len(next_line.lstrip())]
+            else:
+                indent = "          "
+            new_lines.append(f"{indent}existing_cluster_id: ${{var.existing_cluster_id}}\n")
 
     with open(jobs_path, "w") as f:
         f.writelines(new_lines)
@@ -190,7 +181,7 @@ async def scaffold_report(session_id: str, request: Request):
         raise HTTPException(
             400,
             "All-purpose cluster mode is selected but no Cluster ID is configured. "
-            "Please set a Cluster ID in Settings (gear icon) or switch to Job Cluster mode.",
+            "Please set a Cluster ID in Settings (gear icon) or switch to Serverless mode.",
         )
 
     user_dir = os.path.join(REPORTS_ROOT, (user_email or "local").split("@")[0].replace(".", "_").replace("+", "_"))

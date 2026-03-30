@@ -10,7 +10,7 @@ variables:
   notification_email:
     description: Email for job failure notifications.
   existing_cluster_id:
-    description: All-purpose cluster ID for the report_orchestration task. Leave empty to use a job cluster.
+    description: All-purpose cluster ID for the report_orchestration task. Leave empty for serverless.
     default: ""
 
 targets:
@@ -23,16 +23,6 @@ targets:
     variables:
       manage_group: {{.dev_group}}
       notification_email: nobody@yahoo.com
-    resources:
-      jobs:
-        {{.report_name}}:
-          name: {{.report_name}}
-          job_clusters:
-            - job_cluster_key: job_cluster
-              new_cluster:
-                spark_version: 15.4.x-scala2.12
-                node_type_id: i3.xlarge
-                num_workers: 2
 
   stg:
     mode: production
