@@ -14,40 +14,19 @@ base_path = base_path[:base_path.find('src')]
 
 # COMMAND ----------
 
-#parsing required MDA version from version file
-mda_version_dict = None
-with open(f"{base_path}/mda_framework_version.json", 'r') as fh:
-    mda_version_dict = json.load(fh)
-
-mda_framework_version = mda_version_dict['version']
-pypi_uri = mda_version_dict.get('pypi_uri', '')
-secret_scope = mda_version_dict.get('pypi_token_secret_scope', '')
-secret_key = mda_version_dict.get('pypi_token_secret_key', '')
-
-if secret_scope and secret_key:
-    token = dbutils.secrets.get(scope=secret_scope, key=secret_key)
-else:
-    token = None
+# Install the bundled Impulse framework wheel from the lib/ directory
+import glob as _glob
+_whl_pattern = os.path.join(base_path, "lib", "mda_framework_v2-*.whl")
+_whls = sorted(_glob.glob(_whl_pattern))
+if not _whls:
+    raise FileNotFoundError(f"No framework wheel found matching {_whl_pattern}")
+_whl_path = _whls[-1]
 
 # COMMAND ----------
 
-if token and pypi_uri:
-    # Private PyPI: install with token auth
-    %pip install --extra-index-url https://__token__:$token@$pypi_uri mda-framework-v2==$mda_framework_version --quiet
-    dbutils.library.restartPython()
-else:
-    # Install from UC Volume wheel — copy to local temp first because
-    # %pip install cannot access /Volumes/ FUSE mount on SINGLE_USER clusters
-    # when running as a service principal.
-    _whl_vol = "/Volumes/maximhammer_catalog/impulse/mf4_uploads/mda_framework_v2-0.0.4-py3-none-any.whl"
-    _whl_local = "/tmp/mda_framework_v2-0.0.4-py3-none-any.whl"
-    dbutils.fs.cp(_whl_vol, f"file:{_whl_local}")
-
-# COMMAND ----------
-
-if not (token and pypi_uri):
-    %pip install /tmp/mda_framework_v2-0.0.4-py3-none-any.whl --quiet
-    dbutils.library.restartPython()
+import subprocess
+subprocess.check_call([sys.executable, "-m", "pip", "install", _whl_path, "--quiet"])
+dbutils.library.restartPython()
 
 # COMMAND ----------
 
