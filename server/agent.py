@@ -542,7 +542,8 @@ def _exec_set_report_metadata(state: ReportState, name: str, description: str = 
     return f"Report name set to '{state.name}'."
 
 
-def _exec_set_vehicle(state: ReportState, vehicle_id: str, start_ts: str, col_name: str = "test_object_name", stop_ts: str | None = None) -> str:
+def _exec_set_vehicle(state: ReportState, vehicle_id: str, start_ts: str, col_name: str | None = None, stop_ts: str | None = None) -> str:
+    col_name = col_name or state.vehicle_col_name
     existing = next((v for v in state.vehicles if v.vehicle_id == vehicle_id), None)
     if existing:
         existing.start_ts = start_ts

@@ -525,6 +525,7 @@ async def fetch_vehicle_candidates(session_id: str, request: Request):
         candidates.append(VehicleCandidate(vehicle_id=vid, datapoint_count=cnt))
 
     session.state.vehicle_candidates = candidates
+    session.state.vehicle_col_name = "test_object_name" if mapping_table else "vehicle_key"
     return {"candidates": [c.model_dump() for c in candidates], "report_state": session.state.model_dump()}
 
 
@@ -552,7 +553,7 @@ async def select_vehicles(session_id: str, payload: SelectVehiclesPayload, reque
         if any(v.vehicle_id == sel.vehicle_id for v in session.state.vehicles):
             continue
         session.state.vehicles.append(
-            VehicleConfig(vehicle_id=sel.vehicle_id, start_ts=sel.start_ts)
+            VehicleConfig(vehicle_id=sel.vehicle_id, start_ts=sel.start_ts, col_name=session.state.vehicle_col_name)
         )
         added.append(sel.vehicle_id)
         vehicle_ids.append(sel.vehicle_id)

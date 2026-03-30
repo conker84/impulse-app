@@ -240,6 +240,7 @@ class ReportState(BaseModel):
     signals: list[SignalDefinition] = Field(default_factory=list)
     aggregations: list[AggregationDefinition] = Field(default_factory=list)
     vehicle_candidates: list[VehicleCandidate] = Field(default_factory=list)
+    vehicle_col_name: str = "test_object_name"
     vehicles: list[VehicleConfig] = Field(default_factory=list)
     data_sources: DataSourceConfig = Field(default_factory=DataSourceConfig)
     use_all_purpose_cluster: bool = False
