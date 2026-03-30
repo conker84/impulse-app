@@ -17,6 +17,12 @@ export default function HistogramChart({ name, result }: Props) {
   const isSingleSeries = seriesKeys.length === 1 && seriesKeys[0] === "_all";
   const isMulti = !isSingleSeries;
 
+  const hasData = useMemo(() => {
+    return seriesKeys.some((key) =>
+      result.series[key].some((b) => b.hist_value !== 0),
+    );
+  }, [seriesKeys, result.series]);
+
   const traces = useMemo(() => {
     return seriesKeys.map((key, i) => {
       const bins = result.series[key];
@@ -55,6 +61,19 @@ export default function HistogramChart({ name, result }: Props) {
   };
 
   const modeLabel = mode === "abs" ? "%" : mode === "relative" && isMulti ? "Stack" : "Abs";
+
+  if (!hasData) {
+    return (
+      <div className="chart-card">
+        <div className="chart-card-header">
+          <span className="chart-card-title" title={name}>{title}</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", flex: 1, color: "var(--text-muted)", fontSize: 14 }}>
+          No data available — the report job produced no results for this histogram.
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="chart-card">

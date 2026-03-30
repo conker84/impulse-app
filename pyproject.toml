@@ -1,0 +1,19 @@
+[project]
+name = "impulse-app"
+version = "0.1.0"
+description = "Full-stack Databricks App for creating Impulse data reports via natural language"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn>=0.30.0",
+    "databricks-sdk>=0.81.0",
+    "pydantic>=2.0.0",
+    "openai>=1.0.0",
+    "jinja2>=3.1.0",
+    "databricks-mcp>=0.8.0",
+    "databricks-mcp-server>=0.1.0",
+    "psycopg[binary]>=3.1.0",
+    "cryptography>=42.0.0",
+    "tsdownsample>=0.1.0",
+    "numpy>=1.24.0",
+]

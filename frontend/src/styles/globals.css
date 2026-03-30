@@ -1428,8 +1428,12 @@ body {
 
 .viz-apply-btn {
   margin-top: auto;
-  padding-top: 16px;
+  padding: 16px 0 0;
   width: 100%;
+  flex-shrink: 0;
+  position: sticky;
+  bottom: 0;
+  background: var(--bg-secondary);
 }
 
 .viz-error-banner {

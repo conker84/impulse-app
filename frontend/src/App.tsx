@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import type { ChatMessage, Histogram1DDefinition, Histogram2DDefinition, ReportState, StatisticsDefinition, WizardStep } from "./types";
-import { sendChat, scaffoldReport, deployReport, validateReport, advanceStep, goBack, setMetadata, selectCandidates, fetchVehicleCandidates, selectVehicles, updateVehicleTimestamps, getDeployStatus, cancelRun, getTokenStatus, setClusterConfig, loadReport, saveReport, suggestBins, addHistogram, addHistogram2D, addStatistics, deleteAggregation, updateAggregation, setSourceData, uploadMf4Files, triggerIngest, getIngestStatus, fetchChannelCatalog, fetchDataTimeRange, deleteSignal, updateSignal, addVirtualSignal, deleteVehicle } from "./api";
+import { sendChat, scaffoldReport, deployReport, advanceStep, goBack, setMetadata, selectCandidates, fetchVehicleCandidates, selectVehicles, updateVehicleTimestamps, getDeployStatus, cancelRun, getTokenStatus, setClusterConfig, loadReport, saveReport, suggestBins, addHistogram, addHistogram2D, addStatistics, deleteAggregation, updateAggregation, setSourceData, uploadMf4Files, triggerIngest, getIngestStatus, fetchChannelCatalog, fetchDataTimeRange, deleteSignal, updateSignal, addVirtualSignal, deleteVehicle } from "./api";
 import type { DeployStatusResponse, TokenStatusResponse } from "./api";
 import type { DataSourceConfig } from "./types";
 import ChatPanel from "./components/ChatPanel";
@@ -162,25 +162,10 @@ export default function App() {
           if (status.status === "failed") {
             setMessages((prev) => [...prev, { role: "assistant", content: `Report job failed. ${status.result_state || ""}` }]);
           } else {
-            // Auto-validate on completion
-            setValidating(true);
-            try {
-              const results = await validateReport(sessionId);
-              setReportState((prev) => ({ ...prev, validation: results }));
-              const passed = results.levels.every((l) => l.passed);
-              const withData = results.histogram_summary.filter((h) => h.status === "OK").length;
-              const total = results.histogram_summary.length;
-              setMessages((prev) => [...prev, {
-                role: "assistant",
-                content: passed
-                  ? `Report completed and validated. ${withData}/${total} histograms have data.`
-                  : "Report completed but validation found issues. Check the Results tab for details.",
-              }]);
-            } catch {
-              setMessages((prev) => [...prev, { role: "assistant", content: "Report completed. Validation could not be run automatically." }]);
-            } finally {
-              setValidating(false);
-            }
+            setMessages((prev) => [...prev, {
+              role: "assistant",
+              content: "Report job completed successfully. Click \"View Results\" to see your data.",
+            }]);
           }
         }
       } catch {
