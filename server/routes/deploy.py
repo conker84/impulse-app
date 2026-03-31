@@ -1,59 +1,46 @@
 """Deploy endpoints — /api/scaffold, /api/deploy, /api/deploy/status
 
-Scaffold report using create-report skill, deploy via databricks-asset-bundles skill,
-and monitor job runs via validate-report-execution skill step 3.
+Scaffold report from template, upload files to workspace via SDK,
+create and run a Databricks job via the Jobs API, and monitor runs.
+
+Authentication: All workspace operations use the app service principal
+(in deployed mode) or the local profile (in dev mode). The job is
+created with ``run_as`` set to the logged-in user so it executes with
+the user's Unity Catalog permissions — no PAT storage needed.
 """
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import os
 import re
 import shutil
 import subprocess
-import threading
 import time
 
 from fastapi import APIRouter, HTTPException, Request
 
 from server.agent import _sessions
 from server.code_generator import generate_all_files
-from server.config import DATABRICKS_PROFILE, IS_DATABRICKS_APP, REPORTS_ROOT, TEMPLATE_ROOT, get_workspace_client
+from server.config import (
+    DATABRICKS_PROFILE,
+    IS_DATABRICKS_APP,
+    REPORTS_ROOT,
+    TEMPLATE_ROOT,
+    get_workspace_client,
+)
 from server.models import DeploymentStatus
 
 logger = logging.getLogger(__name__)
 
+router = APIRouter(prefix="/api", tags=["deploy"])
 
-def _cli_env(user_email: str | None, user_token: str | None = None) -> dict[str, str]:
-    """Build env dict for Databricks CLI subprocesses.
 
-    On Databricks App: prefers the forwarded OBO token (X-Forwarded-Access-Token)
-    so the CLI runs as the logged-in user. Falls back to the app service
-    principal credentials if the OBO token is unavailable (e.g. User Authorization
-    not yet configured at the account level).
-    Locally: inherits the environment as-is (profile from ~/.databrickscfg).
-    """
-    env = os.environ.copy()
-    if "HOME" not in env:
-        env["HOME"] = "/tmp"
-    if IS_DATABRICKS_APP:
-        if user_token:
-            logger.info("_cli_env: user_email=%s, using forwarded OBO token", user_email)
-            env["DATABRICKS_TOKEN"] = user_token
-            env.pop("DATABRICKS_CLIENT_ID", None)
-            env.pop("DATABRICKS_CLIENT_SECRET", None)
-        else:
-            # No OBO token — let CLI use the app SP's OAuth credentials
-            # (DATABRICKS_CLIENT_ID / DATABRICKS_CLIENT_SECRET already in env).
-            # The job will run as the SP; the SP needs UC grants on user schemas.
-            logger.warning(
-                "_cli_env: no OBO token for user_email=%s — falling back to app SP. "
-                "To run as the user, enable User Authorization at the account level.",
-                user_email,
-            )
-    return env
-
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 def _get_user_email(request: Request) -> str:
     """Resolve user email from X-Forwarded-Email header."""
@@ -65,14 +52,17 @@ def _get_user_email(request: Request) -> str:
     return email
 
 
-def _get_polling_client():
-    """Return a WorkspaceClient for job status polling and cancellation.
+def _get_session_state(session_id: str):
+    session = _sessions.get(session_id)
+    if not session:
+        raise HTTPException(404, "Session not found")
+    return session.state
 
-    Uses the app service principal (deployed) or local profile (dev).
-    The SP can read status and cancel runs for jobs created by the user
-    via the app since the user is the job owner.
-    """
-    return get_workspace_client()
+
+def _user_report_dir(user_email: str, report_name: str) -> str:
+    """Build per-user report directory: REPORTS_ROOT/<user_folder>/<report_name>."""
+    user_folder = (user_email or "local").split("@")[0].replace(".", "_").replace("+", "_")
+    return os.path.join(REPORTS_ROOT, user_folder, report_name)
 
 
 def _profile_args() -> list[str]:
@@ -81,14 +71,21 @@ def _profile_args() -> list[str]:
         return []
     return ["--profile", DATABRICKS_PROFILE]
 
-def _strip_txt_suffix(report_dir: str) -> None:
-    """Remove the .txt guard suffix that was added before workspace import.
 
-    Template .ipynb and .py files are stored with a .txt suffix so that
-    workspace import-dir treats them as plain files instead of converting
-    them to Databricks notebooks. After scaffold copies them, we strip
-    the .txt to restore the original extension.
-    """
+# ---------------------------------------------------------------------------
+# Scaffold helpers (template expansion)
+# ---------------------------------------------------------------------------
+
+def _scaffold_env() -> dict[str, str]:
+    """Minimal env for ``databricks bundle init`` (local template, no auth needed)."""
+    env = os.environ.copy()
+    if "HOME" not in env:
+        env["HOME"] = "/tmp"
+    return env
+
+
+def _strip_txt_suffix(report_dir: str) -> None:
+    """Remove the .txt guard suffix from template files."""
     for dirpath, _, filenames in os.walk(report_dir):
         for fname in filenames:
             if fname.endswith((".ipynb.txt", ".py.txt")):
@@ -97,15 +94,9 @@ def _strip_txt_suffix(report_dir: str) -> None:
 
 
 def _apply_all_purpose_cluster(report_dir: str) -> None:
-    """Modify jobs.yml to run report_generation on an existing all-purpose cluster.
-
-    The template defaults to serverless (no cluster config on the task).
-    This patches in ``existing_cluster_id: ${var.existing_cluster_id}``
-    so the DAB variable controls which cluster is used.
-    """
+    """Modify jobs.yml to run report_generation on an existing all-purpose cluster."""
     jobs_path = os.path.join(report_dir, "resources", "jobs.yml")
     if not os.path.isfile(jobs_path):
-        logger.warning("jobs.yml not found at %s — skipping cluster swap", jobs_path)
         return
 
     with open(jobs_path) as f:
@@ -115,7 +106,6 @@ def _apply_all_purpose_cluster(report_dir: str) -> None:
     for i, line in enumerate(lines):
         new_lines.append(line)
         if line.strip() == "- task_key: report_generation":
-            # Find the indentation of the next line (depends_on) to match it
             if i + 1 < len(lines):
                 next_line = lines[i + 1]
                 indent = next_line[: len(next_line) - len(next_line.lstrip())]
@@ -125,39 +115,182 @@ def _apply_all_purpose_cluster(report_dir: str) -> None:
 
     with open(jobs_path, "w") as f:
         f.writelines(new_lines)
-    logger.info("Patched jobs.yml to use existing_cluster_id for report_generation")
+    logger.info("Patched jobs.yml for all-purpose cluster")
 
 
-router = APIRouter(prefix="/api", tags=["deploy"])
+# ---------------------------------------------------------------------------
+# Workspace upload
+# ---------------------------------------------------------------------------
 
+def _upload_report_to_workspace(report_dir: str, ws_root: str) -> None:
+    """Upload all report files from local filesystem to workspace.
 
-def _get_session_state(session_id: str):
-    session = _sessions.get(session_id)
-    if not session:
-        raise HTTPException(404, "Session not found")
-    return session.state
-
-
-def _user_report_dir(user_email: str, report_name: str) -> str:
-    """Build per-user report directory: REPORTS_ROOT/<user_folder>/<report_name>.
-
-    Sanitises the email to produce a filesystem-safe folder name.
+    Uses the app service principal (deployed) or local profile (dev).
+    Skips DAB-specific files not needed for job execution.
     """
-    user_folder = (user_email or "local").split("@")[0].replace(".", "_").replace("+", "_")
-    return os.path.join(REPORTS_ROOT, user_folder, report_name)
+    from databricks.sdk.service.workspace import ImportFormat, Language
 
+    w = get_workspace_client()
+    w.workspace.mkdirs(ws_root)
+
+    skip_dirs = {".databricks", "tests", "resources", "__pycache__"}
+    skip_files = {"databricks.yml", "pyproject.toml", ".gitignore",
+                  ".python-version", "README.md", "azure-pipelines.yaml"}
+
+    for dirpath, dirnames, filenames in os.walk(report_dir):
+        dirnames[:] = [d for d in dirnames if d not in skip_dirs]
+
+        for fname in filenames:
+            if fname in skip_files:
+                continue
+
+            local_path = os.path.join(dirpath, fname)
+            rel = os.path.relpath(local_path, report_dir)
+            ws_path = f"{ws_root}/{rel}"
+
+            w.workspace.mkdirs(os.path.dirname(ws_path))
+
+            with open(local_path, "rb") as f:
+                content = f.read()
+
+            encoded = base64.b64encode(content).decode()
+
+            if fname.endswith(".py"):
+                w.workspace.import_(
+                    path=ws_path,
+                    content=encoded,
+                    format=ImportFormat.SOURCE,
+                    language=Language.PYTHON,
+                    overwrite=True,
+                )
+            elif fname.endswith(".ipynb"):
+                w.workspace.import_(
+                    path=ws_path,
+                    content=encoded,
+                    format=ImportFormat.JUPYTER,
+                    overwrite=True,
+                )
+            else:
+                w.workspace.import_(
+                    path=ws_path,
+                    content=encoded,
+                    format=ImportFormat.AUTO,
+                    overwrite=True,
+                )
+
+            logger.debug("Uploaded %s → %s", rel, ws_path)
+
+    logger.info("Uploaded report to workspace: %s", ws_root)
+
+
+# ---------------------------------------------------------------------------
+# Job definition builder
+# ---------------------------------------------------------------------------
+
+def _find_wheel(report_dir: str) -> str | None:
+    """Find the framework wheel filename in the report's lib/ directory."""
+    lib_dir = os.path.join(report_dir, "lib")
+    if not os.path.isdir(lib_dir):
+        return None
+    for f in os.listdir(lib_dir):
+        if f.endswith(".whl"):
+            return f
+    return None
+
+
+def _build_report_job(
+    report_name: str,
+    ws_root: str,
+    report_dir: str,
+    state,
+    user_email: str,
+) -> dict:
+    """Build a job definition matching the DAB template structure."""
+    from databricks.sdk.service.jobs import (
+        Environment,
+        JobEnvironment,
+        JobParameter,
+        JobRunAs,
+        NotebookTask,
+        Source,
+        Task,
+        TaskDependency,
+    )
+
+    config_from_src = "./config/dev_config.json"
+    config_from_subdir = "../config/dev_config.json"
+
+    tasks = [
+        Task(
+            task_key="pre_processing",
+            notebook_task=NotebookTask(
+                notebook_path=f"{ws_root}/src/preprocessing/01_status_pre-processing.ipynb",
+                base_parameters={"config_path": config_from_subdir},
+                source=Source.WORKSPACE,
+            ),
+            environment_key="impulse",
+        ),
+        Task(
+            task_key="report_generation",
+            depends_on=[TaskDependency(task_key="pre_processing")],
+            notebook_task=NotebookTask(
+                notebook_path=f"{ws_root}/src/report.py",
+                base_parameters={"config_path": config_from_src},
+                source=Source.WORKSPACE,
+            ),
+            environment_key="impulse",
+        ),
+        Task(
+            task_key="post_processing",
+            depends_on=[TaskDependency(task_key="report_generation")],
+            notebook_task=NotebookTask(
+                notebook_path=f"{ws_root}/src/postprocessing/01_status_post-processing_success.ipynb",
+                base_parameters={"config_path": config_from_subdir},
+                source=Source.WORKSPACE,
+            ),
+            environment_key="impulse",
+        ),
+    ]
+
+    if state.use_all_purpose_cluster and state.all_purpose_cluster_id:
+        tasks[1].existing_cluster_id = state.all_purpose_cluster_id
+
+    wheel_fname = _find_wheel(report_dir)
+    dependencies: list[str] = []
+    if wheel_fname:
+        dependencies.append(f"{ws_root}/lib/{wheel_fname}")
+
+    environments = [
+        JobEnvironment(
+            environment_key="impulse",
+            spec=Environment(client="5", dependencies=dependencies),
+        ),
+    ]
+
+    job_kwargs: dict = {
+        "name": f"[impulse] {report_name}",
+        "tasks": tasks,
+        "environments": environments,
+        "parameters": [
+            JobParameter(name="reset_report", default="false"),
+            JobParameter(name="status_table_name", default="status"),
+        ],
+        "timeout_seconds": 7200,
+    }
+
+    if user_email:
+        job_kwargs["run_as"] = JobRunAs(user_name=user_email)
+
+    return job_kwargs
+
+
+# ---------------------------------------------------------------------------
+# Endpoints
+# ---------------------------------------------------------------------------
 
 @router.post("/scaffold/{session_id}")
 async def scaffold_report(session_id: str, request: Request):
     """Scaffold a new report from the template, then overwrite with generated code."""
-    # Debug: log forwarded headers to diagnose OBO token issues
-    fwd_token = request.headers.get("X-Forwarded-Access-Token")
-    fwd_email = request.headers.get("X-Forwarded-Email")
-    logger.info(
-        "scaffold: X-Forwarded-Email=%s, has_X-Forwarded-Access-Token=%s, headers=%s",
-        fwd_email, bool(fwd_token),
-        [k for k in request.headers.keys() if "forward" in k.lower() or "auth" in k.lower()],
-    )
     user_email = _get_user_email(request)
     state = _get_session_state(session_id)
 
@@ -171,7 +304,10 @@ async def scaffold_report(session_id: str, request: Request):
             "Please set a Cluster ID in Settings (gear icon) or switch to Serverless mode.",
         )
 
-    user_dir = os.path.join(REPORTS_ROOT, (user_email or "local").split("@")[0].replace(".", "_").replace("+", "_"))
+    user_dir = os.path.join(
+        REPORTS_ROOT,
+        (user_email or "local").split("@")[0].replace(".", "_").replace("+", "_"),
+    )
     os.makedirs(user_dir, exist_ok=True)
 
     report_dir = _user_report_dir(user_email, state.name)
@@ -208,7 +344,7 @@ async def scaffold_report(session_id: str, request: Request):
             capture_output=True,
             text=True,
             check=True,
-            env=_cli_env(user_email, user_token=request.headers.get("X-Forwarded-Access-Token")),
+            env=_scaffold_env(),
         )
     except subprocess.CalledProcessError as e:
         detail = e.stderr or e.stdout or f"exit code {e.returncode}"
@@ -241,67 +377,14 @@ async def scaffold_report(session_id: str, request: Request):
     return {"status": "scaffolded", "report_dir": report_dir, "files": list(generated.keys())}
 
 
-_RUN_URL_RE = re.compile(r"https://[^\s]+#job/\d+/run/\d+")
-_RUN_ID_RE = re.compile(r"/run/(\d+)")
-
-
-def _background_bundle_run(
-    session_id: str,
-    report_dir: str,
-    env: dict,
-    state_name: str,
-    var_args: list[str] | None = None,
-):
-    """Run `databricks bundle run` in a background thread, streaming output to capture run URL early."""
-    state = _get_session_state(session_id)
-
-    try:
-        proc = subprocess.Popen(
-            ["databricks", "bundle", "run", state_name, "-t", "dev", *(var_args or []), *_profile_args()],
-            cwd=report_dir,
-            env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-        )
-
-        output_lines: list[str] = []
-        for line in proc.stdout:
-            output_lines.append(line)
-            logger.debug("bundle run: %s", line.rstrip())
-
-            if not state.run_url:
-                url_match = _RUN_URL_RE.search(line)
-                if url_match:
-                    state.run_url = url_match.group(0)
-                    rid_match = _RUN_ID_RE.search(state.run_url)
-                    if rid_match:
-                        state.run_id = rid_match.group(1)
-                    logger.info("Captured run URL: %s (run_id=%s)", state.run_url, state.run_id)
-
-        proc.wait(timeout=86400)
-
-        if proc.returncode == 0:
-            state.deployment = DeploymentStatus.COMPLETED
-            logger.info("Bundle run completed successfully for %s", state_name)
-        else:
-            logger.warning(
-                "Bundle run CLI exited with code %d for %s — this may be a CLI issue, "
-                "not a job failure. The actual job status is polled via the Databricks API.",
-                proc.returncode, state_name,
-            )
-            logger.debug("Last output: %s", "".join(output_lines[-20:]))
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        logger.error("Bundle run timed out after 24h for %s", state_name)
-    except Exception:
-        state.deployment = DeploymentStatus.FAILED
-        logger.exception("Bundle run exception for %s", state_name)
-
-
 @router.post("/deploy/{session_id}")
 async def deploy_and_run(session_id: str, request: Request):
-    """Deploy the report bundle and trigger a run (non-blocking)."""
+    """Upload report to workspace, create a job, and trigger a run.
+
+    Uses the app service principal for workspace upload and job creation.
+    The job's ``run_as`` is set to the logged-in user so notebook code
+    executes with the user's Unity Catalog permissions.
+    """
     user_email = _get_user_email(request)
     state = _get_session_state(session_id)
     report_dir = _user_report_dir(user_email, state.name)
@@ -310,46 +393,66 @@ async def deploy_and_run(session_id: str, request: Request):
         raise HTTPException(400, "Report not scaffolded yet. Call /api/scaffold first.")
 
     state.deployment = DeploymentStatus.DEPLOYING
-    env = _cli_env(user_email, user_token=request.headers.get("X-Forwarded-Access-Token"))
-
-    notification_email = user_email or "noreply@databricks.com"
-
-    var_args = ["--var", f"notification_email={notification_email}"]
-    if state.use_all_purpose_cluster and state.all_purpose_cluster_id:
-        var_args += ["--var", f"existing_cluster_id={state.all_purpose_cluster_id}"]
 
     try:
-        subprocess.run(
-            [
-                "databricks", "bundle", "deploy", "-t", "dev",
-                *var_args,
-                *_profile_args(),
-            ],
-            cwd=report_dir,
-            capture_output=True,
-            text=True,
-            check=True,
-            env=env,
+        # 1. Upload files to workspace
+        ws_root = f"/Users/{user_email}/impulse-reports/{state.name}"
+        _upload_report_to_workspace(report_dir, ws_root)
+
+        # 2. Create the job
+        w = get_workspace_client()
+        job_kwargs = _build_report_job(
+            report_name=state.name,
+            ws_root=ws_root,
+            report_dir=report_dir,
+            state=state,
+            user_email=user_email,
         )
-    except subprocess.CalledProcessError as e:
+
+        try:
+            job = w.jobs.create(**job_kwargs)
+        except Exception as e:
+            if "run_as" in str(e).lower() or "permission" in str(e).lower():
+                logger.warning(
+                    "Could not set run_as=%s — job will run as app SP. Error: %s",
+                    user_email, e,
+                )
+                job_kwargs.pop("run_as", None)
+                job = w.jobs.create(**job_kwargs)
+            else:
+                raise
+
+        logger.info("Created job %s (%s) for report '%s'", job.job_id, job_kwargs["name"], state.name)
+
+        # 3. Trigger the run
+        run = w.jobs.run_now(job.job_id)
+        run_id = run.run_id
+
+        # 4. Fetch run URL
+        run_info = w.jobs.get_run(run_id)
+        run_url = run_info.run_page_url or ""
+
+        # 5. Update state
+        state.deployment = DeploymentStatus.RUNNING
+        state.deploy_started_at = time.time()
+        state.user_email = user_email
+        state.run_id = str(run_id)
+        state.run_url = run_url
+        state.job_id = str(job.job_id)
+
+        logger.info("Triggered run %s for job %s — %s", run_id, job.job_id, run_url)
+
+    except HTTPException:
+        raise
+    except Exception as e:
         state.deployment = DeploymentStatus.FAILED
-        combined = f"STDERR:\n{e.stderr}\n\nSTDOUT:\n{e.stdout}"
-        raise HTTPException(500, f"Deploy failed: {combined[-3000:]}")
-
-    state.deployment = DeploymentStatus.RUNNING
-    state.deploy_started_at = time.time()
-    state.user_email = user_email
-
-    thread = threading.Thread(
-        target=_background_bundle_run,
-        args=(session_id, report_dir, env, state.name, var_args),
-        daemon=True,
-    )
-    thread.start()
+        logger.exception("Deploy failed for report '%s'", state.name)
+        raise HTTPException(500, f"Deploy failed: {e}")
 
     return {
         "status": "running",
         "message": "Report job has been submitted. You can track the progress below.",
+        "run_url": run_url,
     }
 
 
@@ -365,7 +468,7 @@ async def cancel_run(session_id: str):
         raise HTTPException(400, "No run to cancel.")
 
     try:
-        w = _get_polling_client()
+        w = get_workspace_client()
         w.jobs.cancel_run(int(state.run_id))
         state.deployment = DeploymentStatus.FAILED
         logger.info("Cancelled run %s for session %s", state.run_id, session_id)
@@ -403,7 +506,7 @@ async def deploy_status(session_id: str):
         return {**base, "tasks": [], "message": "Job is starting..."}
 
     try:
-        w = _get_polling_client()
+        w = get_workspace_client()
         run = w.jobs.get_run(int(state.run_id))
     except Exception:
         logger.exception("Failed to fetch run status")
