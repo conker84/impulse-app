@@ -105,6 +105,8 @@ def build_system_prompt(
     wizard_step: str = "report_name",
     signals: list[dict] | None = None,
     available_channels: list[dict] | None = None,
+    vehicle_candidates: list[dict] | None = None,
+    vehicles: list[dict] | None = None,
 ) -> str:
     """Compose a compact system prompt with skill index and wizard-step context."""
     index = load_skill_index()
@@ -151,6 +153,29 @@ def build_system_prompt(
             lines.append(f"| {name} | {unit} | {count} | {mn_s} | {mx_s} | {avg_s} |")
         channel_catalog_context = "\n".join(lines) + "\n\n"
 
+    vehicle_context = ""
+    if vehicle_candidates or vehicles:
+        lines = ["## Vehicle Context\n"]
+        if vehicle_candidates:
+            lines.append("### Available Vehicle Candidates\n")
+            lines.append("These vehicles were discovered from the data. Use `set_vehicle` to add them directly.\n")
+            for vc in vehicle_candidates:
+                vid = vc.get("vehicle_id", "")
+                cnt = vc.get("datapoint_count", 0)
+                lines.append(f"- `{vid}` ({cnt} datapoints)")
+            lines.append("")
+        if vehicles:
+            lines.append("### Currently Configured Vehicles\n")
+            for v in vehicles:
+                vid = v.get("vehicle_id", "")
+                col = v.get("col_name", "")
+                start = v.get("start_ts", "")
+                stop = v.get("stop_ts", "")
+                stop_s = f", stop: {stop}" if stop else ""
+                lines.append(f"- `{vid}` (col_name: `{col}`, start: {start}{stop_s})")
+            lines.append("")
+        vehicle_context = "\n".join(lines) + "\n"
+
     return (
         "You are an Impulse report builder assistant embedded in a Databricks App. "
         "You help users create Impulse reports through a guided step-by-step process.\n\n"
@@ -169,6 +194,7 @@ def build_system_prompt(
         f"{step_instructions}\n\n"
         f"{signal_context}"
         f"{channel_catalog_context}"
+        f"{vehicle_context}"
         "**Important:** If the user asks to do something that belongs to a future step, politely explain "
         "they need to complete the current step first and click 'Next Step' in the UI.\n\n"
         "You have access to Impulse skills that contain detailed procedures, code patterns, "
