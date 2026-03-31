@@ -155,6 +155,9 @@ export default function SettingsModal({ open, onClose }: Props) {
             </div>
           )}
 
+          {error && <div className="settings-error">{error}</div>}
+          {success && <div className="settings-success">{success}</div>}
+
           <hr style={{ border: "none", borderTop: "1px solid var(--border)", margin: "20px 0" }} />
 
           {status?.local_mode ? (
@@ -189,9 +192,6 @@ export default function SettingsModal({ open, onClose }: Props) {
                   className="settings-input"
                 />
               </div>
-
-              {error && <div className="settings-error">{error}</div>}
-              {success && <div className="settings-success">{success}</div>}
 
               <div className="settings-actions">
                 <button
