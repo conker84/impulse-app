@@ -18,15 +18,26 @@ router = APIRouter(prefix="/api/uc", tags=["uc-browse"])
 
 
 def _get_client(request: Request):
-    """Get a WorkspaceClient using the user's token (deployed) or profile (local)."""
+    """Get a WorkspaceClient using the user's token (deployed) or profile (local).
+
+    When an OBO token is present, we must explicitly set auth_type and clear
+    client_id/secret to avoid conflicting with the SP env vars.
+    """
     if IS_DATABRICKS_APP:
         from databricks.sdk import WorkspaceClient
+        from databricks.sdk.config import Config
 
         token = request.headers.get("X-Forwarded-Access-Token")
         if token:
-            host = os.environ.get("DATABRICKS_HOST", "")
-            return WorkspaceClient(host=host, token=token)
-        return WorkspaceClient()
+            cfg = Config(
+                host=os.environ.get("DATABRICKS_HOST", ""),
+                token=token,
+                client_id=None,
+                client_secret=None,
+                auth_type="pat",
+            )
+            return WorkspaceClient(config=cfg)
+        return get_workspace_client()
     return get_workspace_client()
 
 

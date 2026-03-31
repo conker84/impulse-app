@@ -136,10 +136,17 @@ async def upload_mf4_files(
 
     if IS_DATABRICKS_APP:
         from databricks.sdk import WorkspaceClient
+        from databricks.sdk.config import Config
         user_token = request.headers.get("X-Forwarded-Access-Token")
         if user_token:
-            host = os.environ.get("DATABRICKS_HOST", "")
-            w = WorkspaceClient(host=host, token=user_token)
+            cfg = Config(
+                host=os.environ.get("DATABRICKS_HOST", ""),
+                token=user_token,
+                client_id=None,
+                client_secret=None,
+                auth_type="pat",
+            )
+            w = WorkspaceClient(config=cfg)
         else:
             w = WorkspaceClient()
     else:

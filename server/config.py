@@ -67,9 +67,11 @@ def get_workspace_client():
 
 def get_user_client(token: str):
     from databricks.sdk import WorkspaceClient
+    from databricks.sdk.config import Config
 
-    cfg = get_workspace_client().config
-    return WorkspaceClient(host=cfg.host, token=token)
+    host = get_workspace_client().config.host
+    cfg = Config(host=host, token=token, client_id=None, client_secret=None, auth_type="pat")
+    return WorkspaceClient(config=cfg)
 
 
 def get_sql_connection_params() -> dict:

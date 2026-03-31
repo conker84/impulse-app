@@ -38,12 +38,19 @@ def _get_ingest_notebook_root() -> str:
 def _get_client(request: Request):
     if IS_DATABRICKS_APP:
         from databricks.sdk import WorkspaceClient
+        from databricks.sdk.config import Config
 
         token = request.headers.get("X-Forwarded-Access-Token")
         if token:
-            host = os.environ.get("DATABRICKS_HOST", "")
-            return WorkspaceClient(host=host, token=token)
-        return WorkspaceClient()
+            cfg = Config(
+                host=os.environ.get("DATABRICKS_HOST", ""),
+                token=token,
+                client_id=None,
+                client_secret=None,
+                auth_type="pat",
+            )
+            return WorkspaceClient(config=cfg)
+        return get_workspace_client()
     return get_workspace_client()
 
 
