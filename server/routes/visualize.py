@@ -304,7 +304,7 @@ async def get_histogram2d_data(body: Histogram2DDataRequest, request: Request):
     for hist_name in body.histogram_names:
         try:
             dim_res = execute_sql(
-                f"SELECT description, x_bins_unit, y_bins_unit "
+                f"SELECT description, x_bins_unit, y_bins_unit, x_expression, y_expression "
                 f"FROM {dim_tbl} WHERE name = '{hist_name}'",
                 user_token=token,
             )
@@ -313,7 +313,7 @@ async def get_histogram2d_data(body: Histogram2DDataRequest, request: Request):
             if "TABLE_OR_VIEW_NOT_FOUND" in msg or "does not exist" in msg.lower():
                 raise HTTPException(404, "2D histogram results not found.")
             raise
-        dim_row = dim_res["rows"][0] if dim_res.get("rows") else [None, None, None]
+        dim_row = dim_res["rows"][0] if dim_res.get("rows") else [None, None, None, None, None]
 
         sql = (
             f"SELECT f.x_bin_id, f.y_bin_id, "
@@ -362,12 +362,17 @@ async def get_histogram2d_data(body: Histogram2DDataRequest, request: Request):
         for x_id, y_id, val in cells:
             z[y_idx_map[y_id]][x_idx_map[x_id]] = val
 
+        x_expr = dim_row[3] or ""
+        y_expr = dim_row[4] or ""
+        x_axis = f"{x_expr} [{dim_row[1]}]" if x_expr and dim_row[1] else (x_expr or dim_row[1] or "")
+        y_axis = f"{y_expr} [{dim_row[2]}]" if y_expr and dim_row[2] else (y_expr or dim_row[2] or "")
+
         histograms[hist_name] = {
             "x_labels": x_labels,
             "y_labels": y_labels,
             "z": z,
-            "x_bins_unit": dim_row[1] or "",
-            "y_bins_unit": dim_row[2] or "",
+            "x_bins_unit": x_axis,
+            "y_bins_unit": y_axis,
             "values_unit": "seconds",
             "description": dim_row[0] or "",
         }
