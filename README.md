@@ -453,22 +453,47 @@ Impulse uses three authentication layers. The goal is fully passwordless operati
 
 User Authorization enables the `X-Forwarded-Access-Token` header. Without it, the header is absent and all operations fall back to the app service principal.
 
-**How it works:** Each Databricks App automatically gets a custom OAuth app integration with default scopes including `all-apis`. The `X-Forwarded-Access-Token` is an On-Behalf-Of (OBO) OAuth token that carries these scopes, giving the app full API access as the logged-in user.
+**How it works:** Each Databricks App gets a custom OAuth app integration. When a user accesses the app, the Databricks proxy mints an OBO (On-Behalf-Of) token scoped to the app's configured scopes and injects it as the `X-Forwarded-Access-Token` header.
 
-**Setup:**
-1. A workspace admin must enable **"User token passthrough"** in Admin Settings (one-time)
-2. The deploy script automatically sets workspace-level scopes (`sql`, `files.files`) via `databricks apps update`
-3. Optionally, an account admin can pre-authorize user consent to skip the consent prompt:
+**Setup (3 steps, each one-time):**
+
+1. **Workspace admin** enables the preview: go to workspace Admin Settings → Previews → enable **"Databricks Apps – On-Behalf-Of User Authorization"**
+
+2. **Set API scopes on the app via the workspace UI** (not CLI — the API silently drops scope updates):
+   - Navigate to the app in the Databricks workspace UI → Edit → User Authorization
+   - Add scopes: `sql`, `files.files` (at minimum)
+   - These scopes control what the OBO token can access
+
+3. **(Optional but recommended) Account admin grants `all-apis` scope** for full Deploy & Run support:
    ```bash
+   # Auth to account console
+   databricks auth login --host https://accounts.cloud.databricks.com \
+     --account-id <account-id> --profile <account-profile>
+
+   # Find the app's custom integration ID (same as oauth2_app_integration_id from apps get)
+   databricks account custom-app-integration get '<integration-id>' --profile <account-profile>
+
+   # Set all-apis scope (overwrites — include all existing scopes)
    databricks account custom-app-integration update '<integration-id>' \
-     --json '{"user_authorized_scopes": [""]}'
+     --json '{"scopes": ["openid", "profile", "email", "all-apis", "offline_access"]}' \
+     --profile <account-profile>
+
+   # Optional: pre-authorize consent so users skip the consent prompt
+   databricks account custom-app-integration update '<integration-id>' \
+     --json '{"user_authorized_scopes": [""]}' --profile <account-profile>
    ```
 
-**What the token covers:**
-- SQL queries on warehouses (respects UC row/column security)
-- Unity Catalog browsing (catalogs, schemas, tables)
-- `databricks bundle deploy` and `databricks bundle run` (Jobs API, Workspace API)
-- All other Databricks REST APIs (via `all-apis` scope)
+**What the token covers depends on the scope level:**
+
+| Scope level | What it enables | Who can set it |
+|-------------|----------------|---------------|
+| Workspace UI scopes (`sql`, `files.files`) | SQL queries, file access | Workspace admin |
+| Account-level `all-apis` | All Databricks APIs including Jobs, Workspace, Clusters | Account admin |
+
+> **Important:** Without `all-apis` at the account level, the OBO token cannot run
+> `databricks bundle deploy` (needs Jobs + Workspace API). In that case, Deploy & Run
+> falls back to the app service principal automatically — the SP needs UC grants on
+> the schemas the report writes to.
 
 ### Lakebase Access (Passwordless)
 
@@ -486,9 +511,18 @@ The app connects to Lakebase PostgreSQL using **OAuth tokens, not passwords**:
 
 Token expiration (1 hour) is enforced only at connection time. Open connections remain active past expiry, with a 24-hour idle timeout and 3-day max lifetime.
 
-### Deploy & Run (Passwordless)
+### Deploy & Run
 
-Deploy & Run uses the user's OBO token (`X-Forwarded-Access-Token`) passed to the Databricks CLI as `DATABRICKS_TOKEN`. The CLI executes `databricks bundle deploy` and `databricks bundle run` as the logged-in user, creating and running jobs with the user's own permissions. No PATs or stored credentials are needed.
+Deploy & Run passes the user's OBO token (`X-Forwarded-Access-Token`) to the Databricks CLI as `DATABRICKS_TOKEN`. The CLI executes `databricks bundle deploy` and `databricks bundle run` as the logged-in user.
+
+**Two modes depending on scope configuration:**
+
+| Mode | When | Identity | UC permissions |
+|------|------|----------|---------------|
+| **OBO (preferred)** | OBO token present with `all-apis` scope | Logged-in user | User's own permissions — no extra grants needed |
+| **SP fallback** | OBO token absent or insufficient scopes | App service principal | SP needs `USE CATALOG` / `ALL PRIVILEGES` on target schemas |
+
+The app detects which mode to use automatically. When the OBO token is missing, it logs a warning and lets the CLI use the SP's OAuth credentials (`DATABRICKS_CLIENT_ID`/`DATABRICKS_CLIENT_SECRET` already in the environment).
 
 ### Service Principal Permissions
 
