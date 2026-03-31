@@ -507,8 +507,14 @@ User Authorization enables the `X-Forwarded-Access-Token` header. Without it, th
 > - **`all-apis` scope requires account admin.** The workspace-level scopes don't
 >   include `jobs`, `workspace`, `compute`, or `unity-catalog`. To get full API access
 >   via OBO, an account admin must update the app's custom integration at the account
->   level (see below). Impulse doesn't require this — Deploy & Run uses the app SP
->   with `run_as` instead.
+>   level (see below). Impulse uses the app SP for bundle deploy instead.
+>
+> - **OBO token must NOT be used for `databricks bundle deploy`.** Even when the OBO
+>   token is present, its workspace-level scopes (`sql`, `files.files`) cause
+>   `bundle deploy` to fail with "does not have required scopes". Deploy always uses
+>   the app SP's M2M credentials. This means the SP needs UC grants on the schemas
+>   the report writes to — this is the one remaining manual permission step for
+>   customer deployments.
 
 **Optional: Account-level `all-apis` scope** (not required for Impulse, but enables full OBO):
 ```bash
@@ -529,8 +535,8 @@ Impulse is designed to work with just the `sql` scope, without needing account-a
 |-----------|-------------|---------------------------|
 | SQL queries | OBO token → SQL warehouse | `sql` scope covers this |
 | UC browsing | OBO token → `SHOW CATALOGS` SQL | `sql` scope covers SQL; no UC REST API needed |
-| Deploy & Run | App SP uploads files + creates job via SDK | SP uses its own M2M auth, not OBO |
-| Job execution | Job has `run_as` set to user email | User's full UC permissions apply at runtime |
+| Deploy & Run | App SP → `databricks bundle deploy/run` CLI | SP uses its own M2M auth; OBO token's scopes don't cover Jobs/Workspace APIs |
+| Job execution | Runs as the SP (or user if `all-apis` OBO available) | SP needs UC grants on target schemas; with `all-apis` OBO the job runs as user |
 | LLM calls | App SP → Foundation Model API | SP uses its own M2M auth |
 | Lakebase | App SP → OAuth token → PostgreSQL | SP uses `generate_database_credential()` |
 
