@@ -206,8 +206,8 @@ def _build_report_job(
     user_email: str,
 ) -> dict:
     """Build a job definition matching the DAB template structure."""
+    from databricks.sdk.service.compute import Environment
     from databricks.sdk.service.jobs import (
-        Environment,
         JobEnvironment,
         JobParameter,
         JobRunAs,
