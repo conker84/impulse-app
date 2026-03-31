@@ -395,16 +395,15 @@ async def deploy_and_run(session_id: str, request: Request):
     state.deployment = DeploymentStatus.DEPLOYING
 
     try:
-        # 1. Upload files to workspace
-        # Upload to the SP's own workspace directory — the SP always has
-        # write access to /Users/{its-own-client-id}/ without extra grants.
+        w = get_workspace_client()
+
+        # 1. Upload files to the SP's own workspace directory
         sp_client_id = w.config.client_id or w.current_user.me().user_name
         user_folder = (user_email or "unknown").split("@")[0].replace(".", "_")
         ws_root = f"/Users/{sp_client_id}/impulse-reports/{user_folder}/{state.name}"
         _upload_report_to_workspace(report_dir, ws_root)
 
         # 2. Create the job
-        w = get_workspace_client()
         job_kwargs = _build_report_job(
             report_name=state.name,
             ws_root=ws_root,
