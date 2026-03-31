@@ -396,7 +396,10 @@ async def deploy_and_run(session_id: str, request: Request):
 
     try:
         # 1. Upload files to workspace
-        ws_root = f"/Users/{user_email}/impulse-reports/{state.name}"
+        # Use /Shared/ so the app SP has write access without needing
+        # per-user directory permissions.
+        user_folder = (user_email or "unknown").split("@")[0].replace(".", "_")
+        ws_root = f"/Shared/impulse-reports/{user_folder}/{state.name}"
         _upload_report_to_workspace(report_dir, ws_root)
 
         # 2. Create the job
