@@ -146,6 +146,14 @@ def _user_report_dir(user_email: str, report_name: str) -> str:
 @router.post("/scaffold/{session_id}")
 async def scaffold_report(session_id: str, request: Request):
     """Scaffold a new report from the template, then overwrite with generated code."""
+    # Debug: log forwarded headers to diagnose OBO token issues
+    fwd_token = request.headers.get("X-Forwarded-Access-Token")
+    fwd_email = request.headers.get("X-Forwarded-Email")
+    logger.info(
+        "scaffold: X-Forwarded-Email=%s, has_X-Forwarded-Access-Token=%s, headers=%s",
+        fwd_email, bool(fwd_token),
+        [k for k in request.headers.keys() if "forward" in k.lower() or "auth" in k.lower()],
+    )
     user_email = _get_user_email(request)
     state = _get_session_state(session_id)
 
