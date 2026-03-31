@@ -28,6 +28,14 @@ export default function Heatmap2DChart({ name, result }: Props) {
 
   const title = result.description || name;
 
+  // Build axis labels: "signal_name [unit]" or just "unit" or just "signal_name"
+  const xTitle = result.x_signal_label && result.x_bins_unit
+    ? `${result.x_signal_label} [${result.x_bins_unit}]`
+    : result.x_signal_label || result.x_bins_unit || undefined;
+  const yTitle = result.y_signal_label && result.y_bins_unit
+    ? `${result.y_signal_label} [${result.y_bins_unit}]`
+    : result.y_signal_label || result.y_bins_unit || undefined;
+
   return (
     <div className="chart-card">
       <div className="chart-card-header">
@@ -38,8 +46,8 @@ export default function Heatmap2DChart({ name, result }: Props) {
         data={[trace]}
         layout={mergeLayout({
           margin: { t: 8, r: 16, b: 64, l: 64 },
-          xaxis: { title: result.x_bins_unit || undefined, tickangle: -45 },
-          yaxis: { title: result.y_bins_unit || undefined },
+          xaxis: { title: xTitle, tickangle: -45 },
+          yaxis: { title: yTitle },
         })}
         config={BASE_CONFIG}
         useResizeHandler

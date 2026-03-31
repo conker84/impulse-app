@@ -241,6 +241,8 @@ export interface Heatmap2DResult {
   z: number[][];           // z[y_idx][x_idx]
   x_bins_unit: string;
   y_bins_unit: string;
+  x_signal_label: string;
+  y_signal_label: string;
   values_unit: string;
   description: string;
 }
