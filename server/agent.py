@@ -306,14 +306,14 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "set_vehicle",
-            "description": "Add or update a vehicle configuration. From configure-report skill vehicles section.",
+            "description": "Add or update a vehicle configuration. Use to add vehicles directly when the user asks. Check vehicle candidates or data sources for the correct col_name.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "vehicle_id": {"type": "string"},
-                    "col_name": {"type": "string", "description": "Column name, default test_object_name"},
-                    "start_ts": {"type": "string", "description": "Start timestamp YYYY-MM-DD HH:MM:SS"},
-                    "stop_ts": {"type": "string", "description": "Optional stop timestamp"},
+                    "vehicle_id": {"type": "string", "description": "Vehicle identifier from the candidates list"},
+                    "col_name": {"type": "string", "description": "Column name in session metrics table (e.g. vehicle_key, test_object_name). Check configured data sources — do NOT assume a default."},
+                    "start_ts": {"type": "string", "description": "Start timestamp YYYY-MM-DD HH:MM:SS (use '1970-01-01 00:00:00' for all data)"},
+                    "stop_ts": {"type": "string", "description": "Optional stop timestamp YYYY-MM-DD HH:MM:SS"},
                 },
                 "required": ["vehicle_id", "start_ts"],
             },

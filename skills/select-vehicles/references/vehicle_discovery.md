@@ -6,28 +6,36 @@ Vehicle candidates are discovered from the `container_tags` or `container_metric
 
 ### Key Columns
 
-| Column | Description |
+Column names vary by data source. Common patterns:
+
+| Purpose | Possible column names |
 |---|---|
-| `test_object_name` | Vehicle identifier (e.g. "167-5230") |
-| `test_object_id` | Alternative vehicle ID format |
-| `measurement_first_datapoint_timestamp` | Session start time |
-| `measurement_last_datapoint_timestamp` | Session end time |
-| `measurement_duration_second` | Session duration in seconds |
-| `global_session_id` | Unique session identifier |
+| Vehicle identifier | `vehicle_key`, `test_object_name`, `test_object_id` |
+| Session start time | `measurement_first_datapoint_timestamp` |
+| Session end time | `measurement_last_datapoint_timestamp` |
+| Session duration | `measurement_duration_second` |
+| Session identifier | `global_session_id` |
+
+**IMPORTANT:** Always check the actual table schema before querying. Use `DESCRIBE TABLE` or check the configured data sources in the report state to find the correct column names.
 
 ## Discovery Queries
+
+Before running these queries, verify column names with:
+```sql
+DESCRIBE TABLE {container_metrics_table}
+```
 
 ### List all vehicles with data volume
 
 ```sql
+-- Replace {vehicle_col} with the actual vehicle ID column name
 SELECT
-    test_object_name AS vehicle_id,
+    {vehicle_col} AS vehicle_id,
     COUNT(*) AS session_count,
     MIN(measurement_first_datapoint_timestamp) AS first_data,
-    MAX(measurement_last_datapoint_timestamp) AS last_data,
-    SUM(measurement_duration_second) / 3600.0 AS total_hours
-FROM {catalog}.{schema}.container_metrics
-GROUP BY test_object_name
+    MAX(measurement_last_datapoint_timestamp) AS last_data
+FROM {container_metrics_table}
+GROUP BY {vehicle_col}
 ORDER BY session_count DESC
 ```
 
@@ -35,15 +43,13 @@ ORDER BY session_count DESC
 
 ```sql
 SELECT
-    test_object_name AS vehicle_id,
+    {vehicle_col} AS vehicle_id,
     COUNT(*) AS session_count,
     MIN(measurement_first_datapoint_timestamp) AS first_data,
-    MAX(measurement_last_datapoint_timestamp) AS last_data,
-    SUM(measurement_duration_second) / 3600.0 AS total_hours,
-    AVG(measurement_duration_second) / 60.0 AS avg_session_minutes
-FROM {catalog}.{schema}.container_metrics
-WHERE test_object_name = '{vehicle_id}'
-GROUP BY test_object_name
+    MAX(measurement_last_datapoint_timestamp) AS last_data
+FROM {container_metrics_table}
+WHERE {vehicle_col} = '{vehicle_id}'
+GROUP BY {vehicle_col}
 ```
 
 ### List available channels for a vehicle
@@ -55,10 +61,10 @@ SELECT DISTINCT
     cm.sample_count,
     cm.min_value,
     cm.max_value
-FROM {catalog}.{schema}.channel_metrics cm
-JOIN {catalog}.{schema}.container_metrics ct
+FROM {channel_metrics_table} cm
+JOIN {container_metrics_table} ct
     ON cm.global_session_id = ct.global_session_id
-WHERE ct.test_object_name = '{vehicle_id}'
+WHERE ct.{vehicle_col} = '{vehicle_id}'
 ORDER BY cm.channel_name
 ```
 

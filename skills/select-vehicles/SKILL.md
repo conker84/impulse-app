@@ -14,18 +14,20 @@ Help the user select test vehicles and configure data sources for an Impulse fra
 
 ## How Vehicle Selection Works
 
-The Impulse app discovers available vehicles automatically from the silver layer data and presents them as checkboxes in the right panel. The user selects vehicles and clicks "Add Selected" — the UI handles the rest.
+The Impulse app discovers available vehicles automatically from the silver layer data and presents them as checkboxes in the right panel. Users can select via the UI, but **you should act directly when asked**.
 
-**Your role is typically minimal.** The UI handles:
-- Discovering available vehicles from the silver layer `container_tags` table
-- Presenting vehicle candidates as checkboxes
-- Auto-configuring data sources when vehicles are added
+**When the user asks to add a vehicle** (e.g. "add the Seat model", "use vehicle X"):
+- Call `set_vehicle` directly with the matching vehicle_id
+- Do NOT tell the user to click checkboxes — act on their behalf
 
-**You intervene only when the user needs to:**
-- Manually add a vehicle not in the candidate list
-- Set start/stop timestamps for a specific vehicle
-- Override the default data source configuration
-- Query what vehicles or data are available
+**When the user asks about analysis timeframes:**
+- You can suggest and set timestamps directly via `set_vehicle` with `start_ts`/`stop_ts`
+- Query the container_metrics table to find the actual data range for the vehicle
+
+**Important — column names vary by data source:**
+- The `col_name` parameter may be `vehicle_key`, `test_object_name`, or another column
+- Check the configured data sources or existing vehicles in the report state to determine the correct column name
+- Do NOT assume `test_object_name` as the default
 
 ## Tools
 
