@@ -18,8 +18,9 @@ from server.config import SKILLS_ROOT
 SKILL_NAMES = [
     "create-report",
     "configure-report",
+    "select-vehicles",
     "define-channels",
-    "create-histogram-1d",
+    "define-aggregations",
     "validate-report-execution",
 ]
 
@@ -207,6 +208,25 @@ _STEP_INSTRUCTIONS: dict[str, str] = {
     ),
     "channels": (
         "Help the user define **physical and virtual signals**.\n\n"
+        "### Proactive signal recommendations\n\n"
+        "When the user describes a problem or analysis goal rather than specific signals "
+        "(e.g. 'I want to analyze engine behavior at high speeds', 'Thermomanagement untersuchen'), "
+        "you should:\n"
+        "1. **Identify the domain** — Map the description to one or more automotive domains "
+        "(engine, thermal, chassis, NVH, emissions, etc.).\n"
+        "2. **Search broadly** — Scan the Available Channels table for ALL signals matching "
+        "that domain, not just the most obvious one. Include related signals that provide context "
+        "(e.g. for 'engine vibration' include RPM and torque alongside accelerometer signals).\n"
+        "3. **Suggest a complete analysis plan** — After presenting channel candidates, briefly "
+        "explain what aggregations you would recommend (e.g. 'For engine behavior analysis, I'd "
+        "suggest duration histograms for engine speed and torque, plus a 2D heatmap of "
+        "speed vs. torque').\n"
+        "4. **Handle German input** — Many engineers describe problems in German. Channel names "
+        "in OEM test data often use German abbreviations (e.g. `nmot` = Motordrehzahl = engine speed, "
+        "`tKueMi` = Kuehlmitteltemperatur = coolant temp). Use the automotive domain reference to bridge "
+        "both languages.\n\n"
+        "Call `load_skill('define-channels')` to access the full automotive signal domain reference "
+        "with channel name patterns, German abbreviations, and suggested aggregations per domain.\n\n"
         "### Adding physical signals — MANDATORY PROCEDURE\n\n"
         "The available channels from the ingested data are listed in the **Available Channels** "
         "table in your context. Use this list to match user requests to actual channel names.\n\n"
@@ -240,10 +260,17 @@ _STEP_INSTRUCTIONS: dict[str, str] = {
         "Once all signals are defined, tell the user to click 'Next Step' to proceed to aggregations."
     ),
     "aggregations": (
-        "Help the user define **histogram aggregations** on the signals from the previous step. "
-        "Use `add_histogram` to create duration, distance, duration_count, or event_count histograms. "
-        "Suggest appropriate bin ranges based on the signal's physical meaning. Once all histograms "
-        "are defined, tell the user to click 'Next Step' to proceed to the final review."
+        "Help the user define **aggregations** on the signals from the previous step.\n\n"
+        "Three aggregation types are available:\n"
+        "- **1D Histogram** (`add_histogram`) — Duration, distance, count distributions. Best for "
+        "understanding how much time/distance a signal spends in each range.\n"
+        "- **2D Histogram** (`add_histogram_2d`) — Heatmap showing correlation between two signals. "
+        "Best for operating point maps (e.g. engine speed vs. torque).\n"
+        "- **Statistics** (`add_statistics`) — Summary statistics (min, max, mean, median, std, count) "
+        "across one or more signals. Best for quick overviews.\n\n"
+        "Suggest appropriate aggregation types and bin ranges based on the signal's physical meaning. "
+        "Call `load_skill('define-aggregations')` for detailed guidance on each type.\n\n"
+        "Once all aggregations are defined, tell the user to click 'Next Step' to proceed to the final review."
     ),
     "vehicles": (
         "The **Vehicles** step lets users select vehicles and auto-configures data sources.\n\n"
@@ -258,7 +285,7 @@ _STEP_INSTRUCTIONS: dict[str, str] = {
         "- If the user wants to set a start timestamp for a vehicle, use `set_vehicle` to update it.\n"
         "- Once vehicles are selected, tell the user to click 'Next Step' to proceed to channel selection. "
         "The available channels will be automatically filtered to only those present in the selected vehicles' data.\n\n"
-        "For more detail on configuration options, call `load_skill('configure-report')`."
+        "For more detail on configuration options, call `load_skill('select-vehicles')`."
     ),
     "ready": (
         "All steps are complete. The user can now review the configuration, preview the generated "

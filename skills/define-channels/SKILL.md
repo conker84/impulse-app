@@ -1,6 +1,6 @@
 ---
 name: define-channels
-description: Define physical and virtual channels for an Impulse framework report. Use when the user wants to add physical signals via alias lookup or build virtual/derived signals.
+description: Define physical and virtual channels for an Impulse framework report. Includes automotive domain knowledge (EN/DE) for mapping problem descriptions to signal families. Use when the user wants to add signals or describes an analysis goal.
 compatibility: Part of the Impulse app. Loaded on-demand during the Channels wizard step.
 metadata:
   author: BDC-usecases
