@@ -107,6 +107,7 @@ def build_system_prompt(
     available_channels: list[dict] | None = None,
     vehicle_candidates: list[dict] | None = None,
     vehicles: list[dict] | None = None,
+    data_sources: dict | None = None,
 ) -> str:
     """Compose a compact system prompt with skill index and wizard-step context."""
     index = load_skill_index()
@@ -154,8 +155,12 @@ def build_system_prompt(
         channel_catalog_context = "\n".join(lines) + "\n\n"
 
     vehicle_context = ""
-    if vehicle_candidates or vehicles:
+    if vehicle_candidates or vehicles or data_sources:
         lines = ["## Vehicle Context\n"]
+        if data_sources:
+            cm = data_sources.get("container_metrics", "")
+            if cm:
+                lines.append(f"**Container metrics table:** `{cm}` (use this for timeframe queries)\n")
         if vehicle_candidates:
             lines.append("### Available Vehicle Candidates\n")
             lines.append("These vehicles were discovered from the data. Use `set_vehicle` to add them directly.\n")
@@ -305,22 +310,33 @@ _STEP_INSTRUCTIONS: dict[str, str] = {
     "vehicles": (
         "The **Vehicles** step lets users select vehicles and configure analysis timeframes.\n\n"
         "**How it works:** The right panel shows available vehicle candidates as checkboxes. "
-        "Users can select via the UI, but **you can also add vehicles directly** using `set_vehicle`.\n\n"
-        "**Your role in this step:**\n"
-        "- When the user asks to add a vehicle (e.g. 'add the Seat model', 'use vehicle X'), "
-        "**call `set_vehicle` directly** with the matching vehicle_id from the candidates list. "
-        "Do NOT tell the user to click checkboxes — act on their behalf.\n"
-        "- When the user asks about analysis timeframes, you can **suggest and set timestamps directly** "
-        "using `set_vehicle` with `start_ts` and/or `stop_ts` parameters.\n"
-        "- The `col_name` parameter depends on the data source. Check the vehicle candidates or "
-        "the configured data sources to use the correct column name (it may be `vehicle_key`, "
-        "`test_object_name`, or another column — do NOT assume `test_object_name`).\n"
-        "- When querying data availability for timeframe suggestions, use the column names from "
-        "the configured container_metrics table. If a SQL query fails, **never show raw SQL errors** — "
-        "tell the user you could not retrieve the data and suggest they set the timeframe manually "
-        "or check the data source configuration.\n"
-        "- Once vehicles are selected, tell the user to click 'Next Step' to proceed to channel selection.\n\n"
-        "For more detail on configuration options, call `load_skill('select-vehicles')`."
+        "Users can select via the UI, but **you can and should act directly** using `set_vehicle`.\n\n"
+        "## Adding vehicles\n"
+        "When the user asks to add a vehicle (e.g. 'add the Seat model'), "
+        "**call `set_vehicle` directly** with the matching vehicle_id from the Vehicle Context section. "
+        "Do NOT tell the user to click checkboxes.\n\n"
+        "## Setting the analysis timeframe\n"
+        "When the user asks to set or infer a timeframe:\n"
+        "1. Look at the **Currently Configured Vehicles** in your context — if a vehicle is already "
+        "added, you know its `col_name` and can update it with `set_vehicle`.\n"
+        "2. To find the actual data range, query the container_metrics table:\n"
+        "   ```\n"
+        "   SELECT MIN(start_dt) AS first_data, MAX(stop_dt) AS last_data\n"
+        "   FROM {container_metrics_table}\n"
+        "   WHERE {vehicle_col} = '{vehicle_id}'\n"
+        "   ```\n"
+        "   Use the container_metrics table from the configured data sources and the col_name from "
+        "the configured vehicle. If the query fails, try with column names from DESCRIBE TABLE.\n"
+        "3. Then call `set_vehicle` with the appropriate `start_ts` and optionally `stop_ts` to "
+        "update the vehicle's timeframe **directly** — do NOT just tell the user what to type.\n"
+        "4. The UI shortcuts L1D/L7D/L30D/L90D correspond to last 1/7/30/90 days from today. "
+        "'From Data' means use the full data range. You can compute these yourself and call `set_vehicle`.\n\n"
+        "## Important notes\n"
+        "- The `col_name` must match the vehicle ID column in the data. Check the Currently Configured "
+        "Vehicles section — if a vehicle is already added, **reuse its `col_name`** when updating it.\n"
+        "- If a SQL query fails, do NOT show raw errors. Explain briefly and suggest alternatives.\n"
+        "- Once vehicles and timeframes are set, tell the user to click 'Next Step'.\n\n"
+        "For more detail, call `load_skill('select-vehicles')`."
     ),
     "ready": (
         "All steps are complete. The user can now review the configuration, preview the generated "

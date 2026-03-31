@@ -763,6 +763,7 @@ def run_agent(
         available_channels=[ch.model_dump() for ch in session.state.available_channels] if session.state.available_channels else None,
         vehicle_candidates=[vc.model_dump() for vc in session.state.vehicle_candidates] if session.state.vehicle_candidates else None,
         vehicles=[v.model_dump() for v in session.state.vehicles] if session.state.vehicles else None,
+        data_sources=session.state.data_sources.model_dump() if session.state.data_sources else None,
     )
 
     all_tools, mcp_name_map = _get_all_tools(user_token=user_token)
