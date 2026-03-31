@@ -414,19 +414,113 @@ The app depends on the Impulse framework (`mda_query_engine` / `mda_reporting`) 
 | `SECRET_SCOPE` | `impulse` | Databricks secret scope |
 | `SECRET_KEY_NAME` | `fernet-key` | Secret key for Fernet |
 
-## Authentication Model
+## Authentication & Permissions
 
-**When running as a Databricks App:**
+Impulse uses three authentication layers. The goal is fully passwordless operation — no PATs, no stored passwords — using Databricks' built-in OAuth and identity forwarding.
 
-- Chat, SQL queries, and general SDK calls use the end user's OAuth token (`X-Forwarded-Access-Token` header).
-- Deploy, run, cancel, and status-polling operations use a Personal Access Token (PAT) stored encrypted in Lakebase. This is a **temporary workaround** because Databricks Apps do not yet support the OAuth scopes required for job deployment.
-- Users must configure their PAT via the Settings modal (gear icon) before deploying a report.
+### Identity Model
 
-**When running locally:**
+| Identity | How it works | Used for |
+|----------|-------------|----------|
+| **App Service Principal** | Auto-provisioned when the app is created. Authenticates via OAuth M2M (client credentials injected as `DATABRICKS_CLIENT_ID`/`DATABRICKS_CLIENT_SECRET` env vars). | Lakebase read/write, LLM calls (FMAPI), MCP tool discovery, secrets retrieval |
+| **Logged-in User (forwarded token)** | When User Authorization is enabled, the Databricks proxy injects `X-Forwarded-Access-Token` (OAuth token) and `X-Forwarded-Email` headers on every request. | SQL queries, Unity Catalog browsing, MCP tool execution |
+| **Logged-in User (stored PAT)** | Users enter a PAT in the Settings modal. The PAT is Fernet-encrypted and stored in Lakebase. | Deploy & Run only — **temporary workaround** (see below) |
 
-- All operations use the Databricks CLI profile from `~/.databrickscfg`.
-- No PAT storage is needed.
-- The Settings icon is hidden in the UI.
+### How Each Component Authenticates
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Databricks Apps Proxy                                          │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │  Injects on every request:                              │    │
+│  │  • X-Forwarded-Email: user@company.com                  │    │
+│  │  • X-Forwarded-Access-Token: <OAuth token>  (if scopes) │    │
+│  └─────────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  FastAPI Backend                                                │
+│                                                                 │
+│  SQL queries ──────────► User's OAuth token (from header)       │
+│  UC browsing ──────────► User's OAuth token (from header)       │
+│  LLM agent calls ─────► App SP (built-in M2M OAuth)            │
+│  Lakebase (reports) ──► App SP (generate_database_credential)   │
+│  Secrets (Fernet key) ► App SP (secrets API)                    │
+│  Deploy & Run ────────► User's PAT (from Lakebase) ← workaround│
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### User Authorization (OAuth Scopes)
+
+User Authorization enables the `X-Forwarded-Access-Token` header. Without it, the header is absent and all operations fall back to the app service principal.
+
+**Setup (automated by deploy script):**
+1. A workspace admin must enable **"User token passthrough"** in Admin Settings (one-time)
+2. The deploy script automatically sets scopes via `databricks apps update`
+
+**Available scopes (as of March 2026):**
+
+| Scope | Purpose in Impulse |
+|-------|-------------------|
+| `sql` | Run SQL queries on warehouses as the logged-in user (respects UC row/column security) |
+| `files.files` | Access workspace files and directories as the logged-in user |
+| `dashboards.genie` | *(not used)* Genie space access |
+
+**Not yet available:** Jobs API, Workspace import API, Clusters API scopes. This is why Deploy & Run still requires a stored PAT — the forwarded token cannot create jobs or upload notebooks.
+
+### Lakebase Access (Passwordless)
+
+The app connects to Lakebase PostgreSQL using **OAuth tokens, not passwords**:
+
+1. App SP calls `w.postgres.generate_database_credential(endpoint=...)` via the Databricks SDK
+2. This returns a short-lived JWT (1 hour), used as the Postgres password
+3. The JWT's `sub` claim (SP client ID) is the Postgres username
+4. The `databricks_auth` extension validates the JWT server-side
+
+**Requirements:**
+- The `databricks_auth` extension must be installed in the database
+- A Postgres role must be created via `databricks_create_role('<sp-client-id>', 'SERVICE_PRINCIPAL')` — plain `CREATE ROLE` does NOT support OAuth
+- The SP must have `GRANT ALL ON SCHEMA public` for table creation
+
+Token expiration (1 hour) is enforced only at connection time. Open connections remain active past expiry, with a 24-hour idle timeout and 3-day max lifetime.
+
+### Deploy & Run (PAT Workaround)
+
+This is the **one remaining area requiring a stored credential**. The deploy flow shells out to `databricks bundle deploy` and `databricks bundle run` via CLI subprocess. These commands need Jobs API + Workspace API access, but no OAuth scopes exist for those APIs yet.
+
+**Current flow:**
+1. User enters PAT in Settings modal (gear icon)
+2. PAT is encrypted with Fernet (key stored in Databricks Secrets scope `impulse`)
+3. Encrypted PAT is stored in Lakebase `user_settings` table
+4. On deploy, the PAT is decrypted and injected as `DATABRICKS_TOKEN` env var for the CLI subprocess
+
+**Planned fix:** Replace CLI subprocess with SDK calls using the app SP:
+- Upload notebooks via `workspace_client.workspace.import_()`
+- Create jobs via `workspace_client.jobs.create()` with `run_as` set to the user's email
+- Trigger runs via `workspace_client.jobs.run_now()`
+
+This would eliminate PATs entirely — the app SP creates the job, but it executes with the user's UC permissions via `run_as`.
+
+### Service Principal Permissions
+
+The app's SP (shown as `service_principal_client_id` in `databricks apps get`) needs:
+
+| Resource | Permission | How to grant |
+|----------|-----------|--------------|
+| SQL Warehouse | CAN USE | Warehouse permissions in workspace admin UI |
+| Foundation Model API endpoint | CAN QUERY | Endpoint permissions in workspace admin UI |
+| Lakebase database | OAuth role + ALL PRIVILEGES | `databricks_create_role()` + `GRANT` (see Step 3) |
+| Secret scope `impulse` | READ | `databricks secrets put-acl impulse <sp-id> READ` |
+| UC tables (channel aliases, vehicle mapping) | SELECT | `GRANT SELECT ON TABLE ... TO <sp-name>` |
+
+### Local Development Auth
+
+When running locally (`IS_DATABRICKS_APP=False`):
+- All operations use the Databricks CLI profile from `~/.databrickscfg`
+- No Lakebase, no PAT storage, no settings UI
+- Sessions are in-memory only
+- Set via `DATABRICKS_PROFILE` env var (defaults to profile in CLAUDE.md)
 
 ## Troubleshooting
 
