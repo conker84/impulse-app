@@ -25,33 +25,20 @@ from server.models import DeploymentStatus
 logger = logging.getLogger(__name__)
 
 
-def _cli_env(user_email: str | None, user_token: str | None = None) -> dict[str, str]:
+def _cli_env(user_email: str | None) -> dict[str, str]:
     """Build env dict for Databricks CLI subprocesses.
 
-    On Databricks App: prefers the forwarded OBO token (X-Forwarded-Access-Token)
-    so the CLI runs as the logged-in user. Falls back to the app service
-    principal credentials if the OBO token is unavailable (e.g. User Authorization
-    not yet configured at the account level).
+    On Databricks App: always uses the app SP's OAuth credentials
+    (DATABRICKS_CLIENT_ID / DATABRICKS_CLIENT_SECRET already in env).
+    The OBO token's workspace-level scopes (sql, files.files) don't cover
+    the Jobs/Workspace APIs that ``databricks bundle deploy`` needs.
     Locally: inherits the environment as-is (profile from ~/.databrickscfg).
     """
     env = os.environ.copy()
     if "HOME" not in env:
         env["HOME"] = "/tmp"
     if IS_DATABRICKS_APP:
-        if user_token:
-            logger.info("_cli_env: user_email=%s, using forwarded OBO token", user_email)
-            env["DATABRICKS_TOKEN"] = user_token
-            env.pop("DATABRICKS_CLIENT_ID", None)
-            env.pop("DATABRICKS_CLIENT_SECRET", None)
-        else:
-            # No OBO token — let CLI use the app SP's OAuth credentials
-            # (DATABRICKS_CLIENT_ID / DATABRICKS_CLIENT_SECRET already in env).
-            # The job will run as the SP; the SP needs UC grants on user schemas.
-            logger.warning(
-                "_cli_env: no OBO token for user_email=%s — falling back to app SP. "
-                "To run as the user, enable User Authorization at the account level.",
-                user_email,
-            )
+        logger.info("_cli_env: user_email=%s, using app SP credentials", user_email)
     return env
 
 
@@ -208,7 +195,7 @@ async def scaffold_report(session_id: str, request: Request):
             capture_output=True,
             text=True,
             check=True,
-            env=_cli_env(user_email, user_token=request.headers.get("X-Forwarded-Access-Token")),
+            env=_cli_env(user_email),
         )
     except subprocess.CalledProcessError as e:
         detail = e.stderr or e.stdout or f"exit code {e.returncode}"
@@ -310,7 +297,7 @@ async def deploy_and_run(session_id: str, request: Request):
         raise HTTPException(400, "Report not scaffolded yet. Call /api/scaffold first.")
 
     state.deployment = DeploymentStatus.DEPLOYING
-    env = _cli_env(user_email, user_token=request.headers.get("X-Forwarded-Access-Token"))
+    env = _cli_env(user_email)
 
     notification_email = user_email or "noreply@databricks.com"
 
