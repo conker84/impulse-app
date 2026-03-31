@@ -253,6 +253,7 @@ class ReportState(BaseModel):
     user_email: str = ""
     run_id: str | None = None
     run_url: str | None = None
+    job_id: str | None = None
     validation: ValidationResults | None = None
 
 

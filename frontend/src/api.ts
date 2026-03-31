@@ -286,16 +286,6 @@ export async function getTokenStatus(): Promise<TokenStatusResponse> {
   return request("/settings/token-status");
 }
 
-export async function saveToken(pat: string): Promise<{ status: string; user_email?: string }> {
-  return request("/settings/token", {
-    method: "POST",
-    body: JSON.stringify({ pat }),
-  });
-}
-
-export async function deleteToken(): Promise<{ status: string }> {
-  return request("/settings/token", { method: "DELETE" });
-}
 
 export async function saveModelSetting(
   servingEndpoint: string

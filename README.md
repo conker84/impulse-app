@@ -422,9 +422,8 @@ Impulse uses three authentication layers. The goal is fully passwordless operati
 
 | Identity | How it works | Used for |
 |----------|-------------|----------|
-| **App Service Principal** | Auto-provisioned when the app is created. Authenticates via OAuth M2M (client credentials injected as `DATABRICKS_CLIENT_ID`/`DATABRICKS_CLIENT_SECRET` env vars). | Lakebase read/write, LLM calls (FMAPI), MCP tool discovery, secrets retrieval |
-| **Logged-in User (forwarded token)** | When User Authorization is enabled, the Databricks proxy injects `X-Forwarded-Access-Token` (OAuth token) and `X-Forwarded-Email` headers on every request. | SQL queries, Unity Catalog browsing, MCP tool execution |
-| **Logged-in User (stored PAT)** | Users enter a PAT in the Settings modal. The PAT is Fernet-encrypted and stored in Lakebase. | Deploy & Run only — **temporary workaround** (see below) |
+| **App Service Principal** | Auto-provisioned when the app is created. Authenticates via OAuth M2M (client credentials injected as `DATABRICKS_CLIENT_ID`/`DATABRICKS_CLIENT_SECRET` env vars). | Lakebase read/write, LLM calls (FMAPI), MCP tool discovery |
+| **Logged-in User (OBO token)** | The Databricks proxy injects `X-Forwarded-Access-Token` (OAuth On-Behalf-Of token) and `X-Forwarded-Email` headers on every request. The token carries `all-apis` scope from the app's custom OAuth integration. | SQL queries, UC browsing, Deploy & Run (bundle deploy/run), job creation |
 
 ### How Each Component Authenticates
 
@@ -442,32 +441,34 @@ Impulse uses three authentication layers. The goal is fully passwordless operati
 ┌─────────────────────────────────────────────────────────────────┐
 │  FastAPI Backend                                                │
 │                                                                 │
-│  SQL queries ──────────► User's OAuth token (from header)       │
-│  UC browsing ──────────► User's OAuth token (from header)       │
+│  SQL queries ──────────► User's OBO token (from header)         │
+│  UC browsing ──────────► User's OBO token (from header)         │
+│  Deploy & Run ────────► User's OBO token (all-apis scope)       │
 │  LLM agent calls ─────► App SP (built-in M2M OAuth)            │
 │  Lakebase (reports) ──► App SP (generate_database_credential)   │
-│  Secrets (Fernet key) ► App SP (secrets API)                    │
-│  Deploy & Run ────────► User's PAT (from Lakebase) ← workaround│
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### User Authorization (OAuth Scopes)
+### User Authorization (OBO Token)
 
 User Authorization enables the `X-Forwarded-Access-Token` header. Without it, the header is absent and all operations fall back to the app service principal.
 
-**Setup (automated by deploy script):**
+**How it works:** Each Databricks App automatically gets a custom OAuth app integration with default scopes including `all-apis`. The `X-Forwarded-Access-Token` is an On-Behalf-Of (OBO) OAuth token that carries these scopes, giving the app full API access as the logged-in user.
+
+**Setup:**
 1. A workspace admin must enable **"User token passthrough"** in Admin Settings (one-time)
-2. The deploy script automatically sets scopes via `databricks apps update`
+2. The deploy script automatically sets workspace-level scopes (`sql`, `files.files`) via `databricks apps update`
+3. Optionally, an account admin can pre-authorize user consent to skip the consent prompt:
+   ```bash
+   databricks account custom-app-integration update '<integration-id>' \
+     --json '{"user_authorized_scopes": [""]}'
+   ```
 
-**Available scopes (as of March 2026):**
-
-| Scope | Purpose in Impulse |
-|-------|-------------------|
-| `sql` | Run SQL queries on warehouses as the logged-in user (respects UC row/column security) |
-| `files.files` | Access workspace files and directories as the logged-in user |
-| `dashboards.genie` | *(not used)* Genie space access |
-
-**Not yet available:** Jobs API, Workspace import API, Clusters API scopes. This is why Deploy & Run still requires a stored PAT — the forwarded token cannot create jobs or upload notebooks.
+**What the token covers:**
+- SQL queries on warehouses (respects UC row/column security)
+- Unity Catalog browsing (catalogs, schemas, tables)
+- `databricks bundle deploy` and `databricks bundle run` (Jobs API, Workspace API)
+- All other Databricks REST APIs (via `all-apis` scope)
 
 ### Lakebase Access (Passwordless)
 
@@ -485,22 +486,9 @@ The app connects to Lakebase PostgreSQL using **OAuth tokens, not passwords**:
 
 Token expiration (1 hour) is enforced only at connection time. Open connections remain active past expiry, with a 24-hour idle timeout and 3-day max lifetime.
 
-### Deploy & Run (PAT Workaround)
+### Deploy & Run (Passwordless)
 
-This is the **one remaining area requiring a stored credential**. The deploy flow shells out to `databricks bundle deploy` and `databricks bundle run` via CLI subprocess. These commands need Jobs API + Workspace API access, but no OAuth scopes exist for those APIs yet.
-
-**Current flow:**
-1. User enters PAT in Settings modal (gear icon)
-2. PAT is encrypted with Fernet (key stored in Databricks Secrets scope `impulse`)
-3. Encrypted PAT is stored in Lakebase `user_settings` table
-4. On deploy, the PAT is decrypted and injected as `DATABRICKS_TOKEN` env var for the CLI subprocess
-
-**Planned fix:** Replace CLI subprocess with SDK calls using the app SP:
-- Upload notebooks via `workspace_client.workspace.import_()`
-- Create jobs via `workspace_client.jobs.create()` with `run_as` set to the user's email
-- Trigger runs via `workspace_client.jobs.run_now()`
-
-This would eliminate PATs entirely — the app SP creates the job, but it executes with the user's UC permissions via `run_as`.
+Deploy & Run uses the user's OBO token (`X-Forwarded-Access-Token`) passed to the Databricks CLI as `DATABRICKS_TOKEN`. The CLI executes `databricks bundle deploy` and `databricks bundle run` as the logged-in user, creating and running jobs with the user's own permissions. No PATs or stored credentials are needed.
 
 ### Service Principal Permissions
 
@@ -511,7 +499,6 @@ The app's SP (shown as `service_principal_client_id` in `databricks apps get`) n
 | SQL Warehouse | CAN USE | Warehouse permissions in workspace admin UI |
 | Foundation Model API endpoint | CAN QUERY | Endpoint permissions in workspace admin UI |
 | Lakebase database | OAuth role + ALL PRIVILEGES | `databricks_create_role()` + `GRANT` (see Step 3) |
-| Secret scope `impulse` | READ | `databricks secrets put-acl impulse <sp-id> READ` |
 | UC tables (channel aliases, vehicle mapping) | SELECT | `GRANT SELECT ON TABLE ... TO <sp-name>` |
 
 ### Local Development Auth
@@ -527,9 +514,6 @@ When running locally (`IS_DATABRICKS_APP=False`):
 **"Backend modules failed to load"**
 Check the app logs. Common causes: missing Python dependency, Lakebase connection failure, or incorrect environment variables.
 
-**"No Personal Access Token configured"**
-Click the gear icon in the bottom-left corner and save your Databricks PAT (starts with `dapi`).
-
 **"Source code path must be a valid workspace path"**
 The `--source-code-path` for `databricks apps deploy` must be a Databricks workspace path (starting with `/Workspace/`), not a local filesystem path.
 
@@ -541,9 +525,6 @@ The app polls the Databricks Jobs API every 30 seconds. If the CLI process exits
 
 **`password authentication failed for user '<sp-client-id>'`**
 The Postgres role for the service principal must be created using `databricks_create_role()` from the `databricks_auth` extension — not with plain `CREATE ROLE`. Plain roles only support password authentication and will reject OAuth tokens. See Step 3 for the correct procedure.
-
-**`ValueError: Fernet key must be 32 url-safe base64-encoded bytes`**
-The Databricks SDK's `secrets.get_secret()` returns values base64-encoded. The app decodes this automatically. Ensure the stored secret is the raw Fernet key string (e.g., `abcDEF123...=`), not a double-encoded value.
 
 **`unknown command "postgres" for "databricks"` (inside the app container)**
 The Databricks CLI bundled in the app container may not include the `postgres` command group. The app uses the Python SDK (`w.postgres.generate_database_credential()`) instead of the CLI for Lakebase credential generation. Ensure `databricks-sdk>=0.81.0` is in `requirements.txt`.

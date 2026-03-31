@@ -757,15 +757,6 @@ export default function App() {
   const handleDeploy = useCallback(async () => {
     if (!sessionId) return;
 
-    if (tokenStatus && !tokenStatus.local_mode && !tokenStatus.has_token) {
-      setSettingsOpen(true);
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: "Please configure your Personal Access Token in Settings before deploying." },
-      ]);
-      return;
-    }
-
     setDeploying(true);
     setJobStatus(null);
     setReportState((prev) => ({ ...prev, deployment: "not_started", run_id: null, run_url: null, validation: null }));

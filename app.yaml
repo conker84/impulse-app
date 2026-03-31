@@ -12,9 +12,7 @@ env:
     value: "impulse"
   - name: LAKEBASE_PROJECT
     value: "impulse"
-  - name: SECRET_SCOPE
-    value: "impulse"
-  - name: SECRET_KEY_NAME
-    value: "fernet-key"
+  # SECRET_SCOPE and SECRET_KEY_NAME removed — PAT storage eliminated.
+  # Deploy/run now uses app SP with run_as for user identity.
   - name: INGEST_NODE_TYPE
     value: "i3.xlarge"

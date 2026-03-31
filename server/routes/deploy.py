@@ -28,32 +28,24 @@ logger = logging.getLogger(__name__)
 def _cli_env(user_email: str | None, user_token: str | None = None) -> dict[str, str]:
     """Build env dict for Databricks CLI subprocesses.
 
-    On Databricks App: uses the forwarded user token (from the logged-in user's
-    session) for authentication. Falls back to a stored PAT if available.
+    On Databricks App: uses the forwarded OBO token (X-Forwarded-Access-Token)
+    from the logged-in user's session. The token carries ``all-apis`` scope
+    via the app's custom OAuth integration, covering Jobs, Workspace, and all
+    other Databricks APIs.
     Locally: inherits the environment as-is (profile from ~/.databrickscfg).
     """
     env = os.environ.copy()
     if "HOME" not in env:
         env["HOME"] = "/tmp"
     if IS_DATABRICKS_APP:
-        token = user_token
-        logger.info("_cli_env: user_email=%s, has_forwarded_token=%s", user_email, bool(token))
-        if not token and user_email:
-            try:
-                from server.token_store import get_pat
-                token = get_pat(user_email)
-                logger.info("_cli_env: got stored PAT=%s", bool(token))
-            except Exception:
-                logger.warning("Failed to look up stored PAT (Lakebase may be unavailable)")
-        if not token:
+        if not user_token:
             raise HTTPException(
                 401,
-                "Deploy requires a user token. Either:\n"
-                "1. Ask your workspace admin to enable User Authorization on this app "
-                "(adds X-Forwarded-Access-Token header), or\n"
-                "2. Open Settings (gear icon) and save your Personal Access Token.",
+                "Deploy requires User Authorization to be enabled on this app. "
+                "Ask a workspace admin to enable 'User token passthrough' in Admin Settings.",
             )
-        env["DATABRICKS_TOKEN"] = token
+        logger.info("_cli_env: user_email=%s, using forwarded OBO token", user_email)
+        env["DATABRICKS_TOKEN"] = user_token
         env.pop("DATABRICKS_CLIENT_ID", None)
         env.pop("DATABRICKS_CLIENT_SECRET", None)
     return env
@@ -69,31 +61,14 @@ def _get_user_email(request: Request) -> str:
     return email
 
 
-def _get_user_workspace_client(user_email: str):
-    """Return a WorkspaceClient authenticated with the user's stored PAT.
+def _get_polling_client():
+    """Return a WorkspaceClient for job status polling and cancellation.
 
-    Used for job status polling and cancellation. Falls back to the
-    service principal client in local mode.
+    Uses the app service principal (deployed) or local profile (dev).
+    The SP can read status and cancel runs for jobs created by the user
+    via the app since the user is the job owner.
     """
-    if not IS_DATABRICKS_APP:
-        return get_workspace_client()
-
-    from server.token_store import get_pat
-    pat = get_pat(user_email)
-    if not pat:
-        return get_workspace_client()
-
-    from databricks.sdk import WorkspaceClient
-    from databricks.sdk.config import Config
-    cfg = get_workspace_client().config
-    pat_config = Config(
-        host=cfg.host,
-        token=pat,
-        client_id=None,
-        client_secret=None,
-        auth_type="pat",
-    )
-    return WorkspaceClient(config=pat_config)
+    return get_workspace_client()
 
 
 def _profile_args() -> list[str]:
@@ -368,7 +343,7 @@ async def deploy_and_run(session_id: str, request: Request):
 
 @router.post("/deploy/cancel/{session_id}")
 async def cancel_run(session_id: str):
-    """Cancel a running job using the user's stored PAT."""
+    """Cancel a running job."""
     session = _sessions.get(session_id)
     if not session:
         raise HTTPException(404, "Session not found")
@@ -378,7 +353,7 @@ async def cancel_run(session_id: str):
         raise HTTPException(400, "No run to cancel.")
 
     try:
-        w = _get_user_workspace_client(getattr(state, "user_email", ""))
+        w = _get_polling_client()
         w.jobs.cancel_run(int(state.run_id))
         state.deployment = DeploymentStatus.FAILED
         logger.info("Cancelled run %s for session %s", state.run_id, session_id)
@@ -416,7 +391,7 @@ async def deploy_status(session_id: str):
         return {**base, "tasks": [], "message": "Job is starting..."}
 
     try:
-        w = _get_user_workspace_client(getattr(state, "user_email", ""))
+        w = _get_polling_client()
         run = w.jobs.get_run(int(state.run_id))
     except Exception:
         logger.exception("Failed to fetch run status")
