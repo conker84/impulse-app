@@ -396,10 +396,11 @@ async def deploy_and_run(session_id: str, request: Request):
 
     try:
         # 1. Upload files to workspace
-        # Use /Shared/ so the app SP has write access without needing
-        # per-user directory permissions.
+        # Upload to the SP's own workspace directory — the SP always has
+        # write access to /Users/{its-own-client-id}/ without extra grants.
+        sp_client_id = w.config.client_id or w.current_user.me().user_name
         user_folder = (user_email or "unknown").split("@")[0].replace(".", "_")
-        ws_root = f"/Shared/impulse-reports/{user_folder}/{state.name}"
+        ws_root = f"/Users/{sp_client_id}/impulse-reports/{user_folder}/{state.name}"
         _upload_report_to_workspace(report_dir, ws_root)
 
         # 2. Create the job
