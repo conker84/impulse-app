@@ -868,7 +868,7 @@ class AddHistogramPayload(BaseModel):
 
 
 @router.post("/suggest-bins/{session_id}")
-async def suggest_bins(session_id: str, payload: SuggestBinsPayload):
+async def suggest_bins(session_id: str, payload: SuggestBinsPayload, request: Request):
     """Use a focused LLM call to suggest bin edges for a histogram."""
     session = _sessions.get(session_id)
     if not session:
@@ -902,12 +902,17 @@ async def suggest_bins(session_id: str, payload: SuggestBinsPayload):
     import json
 
     from server.agent import _get_openai_client
-    from server.config import SERVING_ENDPOINT
+    from server.config import IS_DATABRICKS_APP, resolve_serving_endpoint
+    from server.token_store import get_serving_endpoint as _get_ep
+
+    email = request.headers.get("X-Forwarded-Email", "") if IS_DATABRICKS_APP else ""
+    user_pref = _get_ep(email) if email else ""
+    endpoint = resolve_serving_endpoint(user_pref)
 
     try:
         client = _get_openai_client()
         response = client.chat.completions.create(
-            model=SERVING_ENDPOINT,
+            model=endpoint,
             messages=[{"role": "user", "content": prompt}],
             max_tokens=1024,
         )

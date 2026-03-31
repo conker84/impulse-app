@@ -3,7 +3,7 @@ env:
   - name: DATABRICKS_WAREHOUSE_ID
     value: "e0458b451165d343"
   - name: SERVING_ENDPOINT
-    value: "databricks-claude-haiku-4-5"
+    value: "databricks-claude-sonnet-4-6"
   - name: LAKEBASE_HOST
     value: "ep-bold-truth-d7c3zwwa.database.eu-central-1.cloud.databricks.com"
   - name: LAKEBASE_PORT

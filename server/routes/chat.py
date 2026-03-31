@@ -11,7 +11,9 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 from server.agent import run_agent
+from server.config import IS_DATABRICKS_APP, resolve_serving_endpoint
 from server.models import ChatMessage, ChatRequest, ChatResponse
+from server.token_store import get_serving_endpoint
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["chat"])
@@ -20,9 +22,12 @@ router = APIRouter(prefix="/api", tags=["chat"])
 @router.post("/chat")
 async def chat(req: ChatRequest, request: Request):
     user_token = request.headers.get("x-forwarded-access-token")
+    email = request.headers.get("X-Forwarded-Email", "") if IS_DATABRICKS_APP else ""
+    user_pref = get_serving_endpoint(email) if email else ""
+    endpoint = resolve_serving_endpoint(user_pref)
     try:
         assistant_text, report_state, session_id = run_agent(
-            req.message, req.session_id, user_token=user_token
+            req.message, req.session_id, user_token=user_token, serving_endpoint=endpoint
         )
         return ChatResponse(
             message=ChatMessage(role="assistant", content=assistant_text),

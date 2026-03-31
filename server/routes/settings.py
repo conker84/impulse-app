@@ -13,7 +13,11 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from server.config import IS_DATABRICKS_APP
-from server.token_store import delete_pat, get_cluster_id, has_pat, store_cluster_id, store_pat
+from server.config import AVAILABLE_MODELS, SERVING_ENDPOINT
+from server.token_store import (
+    delete_pat, get_cluster_id, get_serving_endpoint, has_pat,
+    store_cluster_id, store_pat, store_serving_endpoint,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +42,13 @@ class TokenRequest(BaseModel):
 async def token_status(request: Request):
     """Check whether the user has a stored PAT and cluster config."""
     if not IS_DATABRICKS_APP:
-        return {"local_mode": True, "has_token": True, "cluster_id": ""}
+        return {
+            "local_mode": True,
+            "has_token": True,
+            "cluster_id": "",
+            "serving_endpoint": SERVING_ENDPOINT,
+            "available_models": AVAILABLE_MODELS,
+        }
 
     email = _resolve_user_email(request)
     return {
@@ -46,6 +56,8 @@ async def token_status(request: Request):
         "has_token": has_pat(email),
         "user_email": email,
         "cluster_id": get_cluster_id(email),
+        "serving_endpoint": get_serving_endpoint(email) or SERVING_ENDPOINT,
+        "available_models": AVAILABLE_MODELS,
     }
 
 
@@ -76,6 +88,25 @@ async def save_cluster(request: Request, body: ClusterRequest):
     email = _resolve_user_email(request)
     store_cluster_id(email, body.cluster_id.strip())
     return {"status": "saved", "cluster_id": body.cluster_id.strip(), "user_email": email}
+
+
+class ModelRequest(BaseModel):
+    serving_endpoint: str
+
+
+@router.post("/model")
+async def save_model(request: Request, body: ModelRequest):
+    """Store the preferred serving endpoint for the calling user."""
+    valid_ids = {m["id"] for m in AVAILABLE_MODELS}
+    if body.serving_endpoint and body.serving_endpoint not in valid_ids:
+        raise HTTPException(400, f"Invalid model. Choose from: {', '.join(sorted(valid_ids))}")
+
+    if not IS_DATABRICKS_APP:
+        return {"status": "skipped", "message": "Local mode — model preference not persisted."}
+
+    email = _resolve_user_email(request)
+    store_serving_endpoint(email, body.serving_endpoint)
+    return {"status": "saved", "serving_endpoint": body.serving_endpoint, "user_email": email}
 
 
 @router.delete("/token")

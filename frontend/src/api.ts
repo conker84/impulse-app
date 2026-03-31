@@ -268,11 +268,18 @@ export async function fetchDataTimeRange(
   return request(`/data-time-range/${sessionId}`);
 }
 
+export interface AvailableModel {
+  id: string;
+  label: string;
+}
+
 export interface TokenStatusResponse {
   local_mode: boolean;
   has_token: boolean;
   user_email?: string;
   cluster_id?: string;
+  serving_endpoint?: string;
+  available_models?: AvailableModel[];
 }
 
 export async function getTokenStatus(): Promise<TokenStatusResponse> {
@@ -288,6 +295,15 @@ export async function saveToken(pat: string): Promise<{ status: string; user_ema
 
 export async function deleteToken(): Promise<{ status: string }> {
   return request("/settings/token", { method: "DELETE" });
+}
+
+export async function saveModelSetting(
+  servingEndpoint: string
+): Promise<{ status: string; serving_endpoint: string }> {
+  return request("/settings/model", {
+    method: "POST",
+    body: JSON.stringify({ serving_endpoint: servingEndpoint }),
+  });
 }
 
 export async function saveClusterSetting(

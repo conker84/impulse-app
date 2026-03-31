@@ -752,6 +752,7 @@ def run_agent(
     user_message: str,
     session_id: str | None = None,
     user_token: str | None = None,
+    serving_endpoint: str | None = None,
 ) -> tuple[str, ReportState, str]:
     """Run the agent for one user turn. Returns (assistant_text, report_state, session_id)."""
     session = _get_session(session_id)
@@ -779,7 +780,7 @@ def run_agent(
 
     for _ in range(_MAX_TOOL_ROUNDS):
         response = client.chat.completions.create(
-            model=SERVING_ENDPOINT,
+            model=serving_endpoint or SERVING_ENDPOINT,
             messages=messages_for_api,
             tools=all_tools,
             max_tokens=4096,

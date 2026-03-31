@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS user_settings (
     user_email TEXT PRIMARY KEY,
     encrypted_pat TEXT NOT NULL DEFAULT '',
     cluster_id TEXT NOT NULL DEFAULT '',
+    serving_endpoint TEXT NOT NULL DEFAULT '',
     updated_at TIMESTAMP DEFAULT NOW()
 );
 
@@ -38,6 +39,8 @@ CREATE TABLE IF NOT EXISTS saved_reports (
 );
 
 CREATE INDEX IF NOT EXISTS idx_saved_reports_user ON saved_reports(user_email);
+
+ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS serving_endpoint TEXT NOT NULL DEFAULT '';
 """
 
 

@@ -12,7 +12,25 @@ IS_DATABRICKS_APP = bool(
 )
 DATABRICKS_PROFILE = os.environ.get("DATABRICKS_PROFILE", "fe-vm-maximhammer")
 WAREHOUSE_ID = os.environ.get("DATABRICKS_WAREHOUSE_ID", "e0458b451165d343")
-SERVING_ENDPOINT = os.environ.get("SERVING_ENDPOINT", "databricks-claude-haiku-4-5")
+SERVING_ENDPOINT = os.environ.get("SERVING_ENDPOINT", "databricks-claude-sonnet-4-6")
+
+AVAILABLE_MODELS = [
+    {"id": "databricks-claude-haiku-4-5", "label": "Claude Haiku 4.5 (fast)"},
+    {"id": "databricks-claude-sonnet-4-6", "label": "Claude Sonnet 4.6 (balanced)"},
+    {"id": "databricks-claude-opus-4-6", "label": "Claude Opus 4.6 (best reasoning)"},
+    {"id": "databricks-gemini-2-5-flash", "label": "Gemini 2.5 Flash"},
+    {"id": "databricks-gemini-2-5-pro", "label": "Gemini 2.5 Pro"},
+    {"id": "databricks-gpt-5-4-mini", "label": "GPT 5.4 Mini"},
+    {"id": "databricks-gpt-5-4", "label": "GPT 5.4"},
+    {"id": "databricks-meta-llama-3-3-70b-instruct", "label": "Llama 3.3 70B"},
+]
+
+
+def resolve_serving_endpoint(user_preference: str | None = None) -> str:
+    """Resolve model: user preference -> env var -> hardcoded default."""
+    if user_preference:
+        return user_preference
+    return SERVING_ENDPOINT
 _app_dir = os.path.join(os.path.dirname(__file__), "..")
 SKILLS_ROOT = os.environ.get(
     "SKILLS_ROOT",
