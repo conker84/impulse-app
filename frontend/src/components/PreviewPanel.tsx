@@ -1315,13 +1315,24 @@ function TimestampEditor({
   }) => void;
   onFetchDataRange: () => Promise<{ min_start: string | null; max_stop: string | null } | null>;
 }) {
-  const [globalStart, setGlobalStart] = useState(() => vehicles[0]?.start_ts || "");
-  const [globalStop, setGlobalStop] = useState(() => vehicles[0]?.stop_ts || "");
+  const [globalStart, setGlobalStart] = useState(() => _toDatetimeLocal(vehicles[0]?.start_ts || ""));
+  const [globalStop, setGlobalStop] = useState(() => _toDatetimeLocal(vehicles[0]?.stop_ts || ""));
   const [perVehicle, setPerVehicle] = useState(false);
   const [rows, setRows] = useState(() =>
-    vehicles.map((v) => ({ vehicle_id: v.vehicle_id, start_ts: v.start_ts, stop_ts: v.stop_ts || "" }))
+    vehicles.map((v) => ({ vehicle_id: v.vehicle_id, start_ts: _toDatetimeLocal(v.start_ts), stop_ts: _toDatetimeLocal(v.stop_ts || "") }))
   );
   const [loadingRange, setLoadingRange] = useState(false);
+
+  // Re-sync when vehicles change (e.g. report reopened, vehicle added/removed, agent updates)
+  useEffect(() => {
+    setGlobalStart(_toDatetimeLocal(vehicles[0]?.start_ts || ""));
+    setGlobalStop(_toDatetimeLocal(vehicles[0]?.stop_ts || ""));
+    setRows(vehicles.map((v) => ({
+      vehicle_id: v.vehicle_id,
+      start_ts: _toDatetimeLocal(v.start_ts),
+      stop_ts: _toDatetimeLocal(v.stop_ts || ""),
+    })));
+  }, [vehicles]);
 
   const updateRow = (idx: number, field: "start_ts" | "stop_ts", value: string) => {
     setRows((prev) => prev.map((r, i) => (i === idx ? { ...r, [field]: value } : r)));
