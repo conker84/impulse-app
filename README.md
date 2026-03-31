@@ -516,8 +516,18 @@ User Authorization enables the `X-Forwarded-Access-Token` header. Without it, th
 >   the report writes to — this is the one remaining manual permission step for
 >   customer deployments.
 
-**Optional: Account-level `all-apis` scope** (not required for Impulse, but enables full OBO):
+### Path to Truly Zero Manual Permissions
+
+Currently, `databricks bundle deploy/run` uses the app SP because the OBO token's
+workspace-level scopes don't cover Jobs/Workspace APIs. This means the SP needs
+UC grants on the destination schemas — **the one remaining manual permission step**.
+
+**To eliminate this**, an account admin sets `all-apis` on the app's OAuth integration.
+This gives the OBO token full API access, so `bundle deploy` can run as the user
+(using their existing UC permissions). No SP grants needed on data schemas.
+
 ```bash
+# Account admin runs this once per app:
 databricks auth login --host https://accounts.cloud.databricks.com \
   --account-id <account-id> --profile <account-profile>
 
@@ -527,18 +537,19 @@ databricks account custom-app-integration update '<integration-id>' \
   --profile <account-profile>
 ```
 
-### How Impulse Works Without `all-apis`
+After this, update `_cli_env()` in `server/routes/deploy.py` to prefer the OBO token
+again (pass `X-Forwarded-Access-Token` as `DATABRICKS_TOKEN`).
 
-Impulse is designed to work with just the `sql` scope, without needing account-admin intervention:
+### How Impulse Works Today (without `all-apis`)
 
-| Operation | How it works | Why no extra scopes needed |
-|-----------|-------------|---------------------------|
-| SQL queries | OBO token → SQL warehouse | `sql` scope covers this |
-| UC browsing | OBO token → `SHOW CATALOGS` SQL | `sql` scope covers SQL; no UC REST API needed |
-| Deploy & Run | App SP → `databricks bundle deploy/run` CLI | SP uses M2M auth; OBO scopes don't cover Jobs/Workspace APIs |
-| Job execution | Runs as the SP | **SP needs UC grants on destination schemas** (CREATE TABLE, etc.) |
-| LLM calls | App SP → Foundation Model API | SP uses its own M2M auth |
-| Lakebase | App SP → OAuth token → PostgreSQL | SP uses `generate_database_credential()` |
+| Operation | How it works | Permissions |
+|-----------|-------------|-------------|
+| SQL queries | OBO token → SQL warehouse | User's own UC permissions (no grants needed) |
+| UC browsing | OBO token → `SHOW CATALOGS` SQL | User's own UC permissions (no grants needed) |
+| Deploy & Run | App SP → `databricks bundle deploy/run` | SP uses M2M auth |
+| Job execution | Runs as the SP | **SP needs UC grants on destination schemas** |
+| LLM calls | App SP → Foundation Model API | SP needs CAN QUERY on endpoint |
+| Lakebase | App SP → OAuth token → PostgreSQL | SP needs Lakebase role |
 
 ### WorkspaceClient and OBO Token Gotcha
 
