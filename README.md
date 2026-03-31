@@ -389,6 +389,18 @@ npm run dev
 
 This starts the Vite dev server on `http://localhost:5173` with hot reload. API calls are proxied to the backend on port 8001 (configure in `vite.config.ts` if needed).
 
+## Impulse Framework
+
+The app depends on the Impulse framework (`mda_query_engine` / `mda_reporting`) which is developed in a separate repository. A pre-built wheel is bundled at `.template/template/lib/` and automatically included in every scaffolded report project. Databricks installs it on the cluster when the report job runs — notebooks simply `import mda_reporting`.
+
+**Updating the framework version:**
+
+1. In the framework repository, build a new wheel: `uv build --wheel`
+2. Delete the old `.whl` from `.template/template/lib/`
+3. Copy the new `.whl` into `.template/template/lib/`
+4. Update the wheel filename in `.template/template/resources/jobs.yml.tmpl` (the `dependencies:` line under the `impulse` environment)
+5. Commit and redeploy the app
+
 ## Environment Variables
 
 | Variable | Default | Description |

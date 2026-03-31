@@ -47,12 +47,6 @@
       "default": "",
       "description": "What is the name (i.e. app ID) of the Service Principal in the PRD environment?",
       "order": 8
-    },
-    "mda_framework_version": {
-      "type": "string",
-      "default": "0.1.35",
-      "description": "Which version should be used for the Impulse framework?",
-      "order": 9
     }
   },
   "success_message": "\nYour bundle '{{.report_name}}' has been created."

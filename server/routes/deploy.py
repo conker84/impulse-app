@@ -203,7 +203,6 @@ async def scaffold_report(session_id: str, request: Request):
         "prd_host": os.environ.get("DAB_PRD_HOST", ws_host),
         "prd_group": os.environ.get("DAB_PRD_GROUP", "users"),
         "prd_sp_name": os.environ.get("DAB_PRD_SP_NAME", ""),
-        "mda_framework_version": os.environ.get("IMPULSE_FRAMEWORK_VERSION", "0.1.35"),
     }
 
     config_path = os.path.join(user_dir, f"config_{state.name}.json")
