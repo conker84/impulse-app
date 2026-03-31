@@ -535,8 +535,8 @@ Impulse is designed to work with just the `sql` scope, without needing account-a
 |-----------|-------------|---------------------------|
 | SQL queries | OBO token → SQL warehouse | `sql` scope covers this |
 | UC browsing | OBO token → `SHOW CATALOGS` SQL | `sql` scope covers SQL; no UC REST API needed |
-| Deploy & Run | App SP → `databricks bundle deploy/run` CLI | SP uses its own M2M auth; OBO token's scopes don't cover Jobs/Workspace APIs |
-| Job execution | Runs as the SP (or user if `all-apis` OBO available) | SP needs UC grants on target schemas; with `all-apis` OBO the job runs as user |
+| Deploy & Run | App SP → `databricks bundle deploy/run` CLI | SP uses M2M auth; OBO scopes don't cover Jobs/Workspace APIs |
+| Job execution | Runs as the SP | **SP needs UC grants on destination schemas** (CREATE TABLE, etc.) |
 | LLM calls | App SP → Foundation Model API | SP uses its own M2M auth |
 | Lakebase | App SP → OAuth token → PostgreSQL | SP uses `generate_database_credential()` |
 
@@ -588,9 +588,13 @@ The app's SP (shown as `service_principal_client_id` in `databricks apps get`) n
 | SQL Warehouse | CAN USE | Warehouse permissions in workspace admin UI |
 | Foundation Model API endpoint | CAN QUERY | Endpoint permissions in workspace admin UI |
 | Lakebase database | OAuth role + ALL PRIVILEGES | `databricks_create_role()` + `GRANT` (see Step 3) |
+| Destination UC schemas | USE CATALOG, USE SCHEMA, CREATE TABLE, SELECT | `GRANT ... TO <sp-application-id>` via SQL |
 
-> **Note:** The SP does NOT need UC grants on data tables. Jobs use `run_as` to execute
-> with the user's permissions, and UC browsing uses SQL via the OBO token.
+> **Note:** Deploy & Run uses the SP via `databricks bundle deploy/run`, so the job
+> runs as the SP. The SP needs UC grants on the destination schemas where reports
+> write output tables. UC browsing uses SQL via the OBO token (user's own permissions).
+> This is the one remaining manual permission step — it would be eliminated if
+> Databricks adds `jobs` or `all-apis` to the workspace-level OBO scopes.
 
 ### Local Development Auth
 
