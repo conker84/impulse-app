@@ -79,7 +79,8 @@ function canAdvance(state: ReportState): boolean {
     return false;
   }
   if (step === "report_name") return !!state.name;
-  if (step === "vehicles") return state.vehicles.length > 0;
+  if (step === "vehicles")
+    return state.vehicles.length > 0 && state.vehicles.every((v) => !!v.start_ts);
   if (step === "channels") return state.signals.length > 0;
   if (step === "aggregations") return state.aggregations.length > 0;
   return false;
