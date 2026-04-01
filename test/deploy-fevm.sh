@@ -2,16 +2,35 @@
 # Sync local code to FEVM workspace and deploy the Impulse app.
 #
 # Usage:
-#   .claude/deploy-fevm.sh                        # full: build + sync + deploy (default instance "impulse")
-#   .claude/deploy-fevm.sh --instance feat-a       # deploy as separate app "impulse-feat-a"
-#   .claude/deploy-fevm.sh --sync-only             # just sync files (no redeploy, no build)
-#   .claude/deploy-fevm.sh --skip-build            # sync + deploy, skip frontend build
-#   .claude/deploy-fevm.sh --instance feat-a --skip-build
+#   test/deploy-fevm.sh                        # full: build + sync + deploy
+#   test/deploy-fevm.sh --instance feat-a       # deploy as separate app "impulse-feat-a"
+#   test/deploy-fevm.sh --sync-only             # just sync files (no redeploy, no build)
+#   test/deploy-fevm.sh --skip-build            # sync + deploy, skip frontend build
+#
+# Set DATABRICKS_PROFILE to target a specific workspace profile.
+# Falls back to [DEFAULT] profile in ~/.databrickscfg.
 set -euo pipefail
 
-PROFILE="fe-vm-maximhammer"
+PROFILE="${DATABRICKS_PROFILE:-}"
+if [ -z "$PROFILE" ]; then
+  # Fall back to [DEFAULT] profile in ~/.databrickscfg
+  PROFILE=$(awk -F'[][]' '/^\[/{p=$2} /^host/{if(p=="DEFAULT"){print p; exit}}' ~/.databrickscfg 2>/dev/null || true)
+  if [ -z "$PROFILE" ]; then
+    echo "ERROR: Set DATABRICKS_PROFILE or configure a [DEFAULT] profile in ~/.databrickscfg" >&2
+    exit 1
+  fi
+fi
+
+# Resolve current user email from the CLI profile
+USER_EMAIL=$(databricks current-user me --profile "$PROFILE" -o json 2>/dev/null \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['userName'])")
+if [ -z "$USER_EMAIL" ]; then
+  echo "ERROR: Could not resolve user email from profile '$PROFILE'" >&2
+  exit 1
+fi
+
 BASE_APP_NAME="impulse"
-BASE_WS_PATH="/Workspace/Users/maxim.hammer@databricks.com/impulse-app"
+BASE_WS_PATH="/Workspace/Users/${USER_EMAIL}/impulse-app"
 
 SYNC_ONLY=false
 SKIP_BUILD=false
@@ -35,7 +54,8 @@ else
   WS_PATH="$BASE_WS_PATH"
 fi
 
-echo "==> Instance: $APP_NAME"
+echo "==> Profile: $PROFILE (user: $USER_EMAIL)"
+echo "    App: $APP_NAME"
 echo "    Workspace path: $WS_PATH"
 
 if [ "$SKIP_BUILD" = false ]; then
