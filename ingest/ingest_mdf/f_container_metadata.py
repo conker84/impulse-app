@@ -165,40 +165,38 @@ else:
 
 # DBTITLE 1,Compute container-level metrics
 # Distribute open files across partitions, read MDF headers to extract metrics, and build a metrics DataFrame.
+# Uses applyInPandas (serverless-compatible) instead of sparkContext RDD APIs.
+import pandas as pd
+
 file2cid = {fn: cid for fn, cid in zip(open_files, open_container_ids)}
 
-def extract(it):
-  for _, filename in it:
+def extract_metrics(pdf: pd.DataFrame) -> pd.DataFrame:
+  rows = []
+  for filename in pdf["filename"]:
     mdf = MDF(filename)
     now_dt = datetime.datetime.now()
-    r = {
-      'container_id': file2cid[filename],
-      'vehicle_key': mdf_comments[file2cid[filename]][2],
+    cid = file2cid[filename]
+    rows.append({
+      'container_id': cid,
+      'vehicle_key': mdf_comments[cid][2],
       'num_channels': len(mdf.channels_db),
       'start_dt': mdf.header.start_time,
       'stop_dt': now_dt,
       'start_ts': int(mdf.header.start_time.timestamp() * 1000),
       'stop_ts': int(now_dt.timestamp() * 1000),
       'duration_ms': 0
-    }
+    })
     mdf.close()
-    yield r
+  return pd.DataFrame(rows)
 
-# Deterministic partitioner to co-locate file work per partition.
-open_files_map = {f: i for i,f in enumerate(open_files)}
+# Build a DataFrame with one row per file and a partition key for even distribution
+files_with_idx = [(fn, i) for i, fn in enumerate(open_files)]
+files_df = spark.createDataFrame(files_with_idx, "filename string, partition_idx int").repartition(len(open_files))
 
-def partitioner(key, *args, **kwargs):
-  return open_files_map[key]
-
-# load open files
-num_partitions = len(open_files)
-metrics_rdd = spark.sparkContext.parallelize(open_files)
-# distribute to partitions
-metrics_rdd = metrics_rdd.map(lambda x: (x, x))
-metrics_rdd = metrics_rdd.partitionBy(num_partitions, partitionFunc=partitioner)
-metrics_rdd = metrics_rdd.mapPartitions(extract, preservesPartitioning=True)
-
-metricsdf = metrics_rdd.toDF(schema=metrics_schema)
+metricsdf = (files_df
+  .groupBy("partition_idx")
+  .applyInPandas(extract_metrics, schema=metrics_schema)
+)
 
 
 # COMMAND ----------
