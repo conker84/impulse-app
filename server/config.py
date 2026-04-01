@@ -66,12 +66,27 @@ def get_workspace_client():
 
 
 def get_user_client(token: str):
+    """Create a WorkspaceClient authenticated with a user token (PAT).
+
+    Temporarily masks the SP env vars (DATABRICKS_CLIENT_ID/SECRET) so
+    the SDK doesn't pick them up and conflict with PAT auth.
+    """
     from databricks.sdk import WorkspaceClient
     from databricks.sdk.config import Config
 
     host = get_workspace_client().config.host
-    cfg = Config(host=host, token=token, client_id="", client_secret="", auth_type="pat")
-    return WorkspaceClient(config=cfg)
+
+    # The SDK reads DATABRICKS_CLIENT_ID/SECRET from env even when we
+    # explicitly pass client_id/client_secret to Config. Mask them.
+    saved = {}
+    for key in ("DATABRICKS_CLIENT_ID", "DATABRICKS_CLIENT_SECRET"):
+        if key in os.environ:
+            saved[key] = os.environ.pop(key)
+    try:
+        cfg = Config(host=host, token=token)
+        return WorkspaceClient(config=cfg)
+    finally:
+        os.environ.update(saved)
 
 
 def get_sql_connection_params() -> dict:

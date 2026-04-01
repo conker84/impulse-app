@@ -19,7 +19,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from server.agent import _sessions
 from server.code_generator import generate_all_files
-from server.config import DATABRICKS_PROFILE, IS_DATABRICKS_APP, REPORTS_ROOT, TEMPLATE_ROOT, get_workspace_client
+from server.config import DATABRICKS_PROFILE, IS_DATABRICKS_APP, REPORTS_ROOT, TEMPLATE_ROOT, get_user_client, get_workspace_client
 from server.models import DeploymentStatus
 
 logger = logging.getLogger(__name__)
@@ -83,17 +83,7 @@ def _get_user_workspace_client(user_email: str):
     if not pat:
         return get_workspace_client()
 
-    from databricks.sdk import WorkspaceClient
-    from databricks.sdk.config import Config
-    cfg = get_workspace_client().config
-    pat_config = Config(
-        host=cfg.host,
-        token=pat,
-        client_id="",
-        client_secret="",
-        auth_type="pat",
-    )
-    return WorkspaceClient(config=pat_config)
+    return get_user_client(pat)
 
 
 def _profile_args() -> list[str]:

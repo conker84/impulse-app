@@ -12,7 +12,7 @@ import os
 from fastapi import APIRouter, HTTPException, Request
 
 from server.agent import _sessions
-from server.config import IS_DATABRICKS_APP, get_workspace_client
+from server.config import IS_DATABRICKS_APP, get_user_client, get_workspace_client
 from server.models import IngestStatus
 
 logger = logging.getLogger(__name__)
@@ -44,9 +44,6 @@ def _get_client(request: Request):
     if not IS_DATABRICKS_APP:
         return get_workspace_client()
 
-    from databricks.sdk import WorkspaceClient
-    from databricks.sdk.config import Config
-
     token = request.headers.get("X-Forwarded-Access-Token")
     if not token:
         email = request.headers.get("X-Forwarded-Email", "")
@@ -61,15 +58,7 @@ def _get_client(request: Request):
             "and save your Personal Access Token.",
         )
 
-    host = get_workspace_client().config.host
-    cfg = Config(
-        host=host,
-        token=token,
-        client_id="",
-        client_secret="",
-        auth_type="pat",
-    )
-    return WorkspaceClient(config=cfg)
+    return get_user_client(token)
 
 
 
