@@ -1601,7 +1601,7 @@ function formatElapsed(seconds: number): string {
 }
 
 // Known execution order for job tasks (dependency chain from jobs.yml)
-const TASK_ORDER = ["pre_processing", "report_generation", "post_processing"];
+const TASK_ORDER = ["report_generation"];
 
 function RunTimeline({
   deployment,

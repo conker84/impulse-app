@@ -1,4 +1,3 @@
-# Utility functions for the Impulse report
 from datetime import datetime
 from pyspark.sql import Column
 from pyspark.sql import SparkSession
@@ -15,7 +14,6 @@ def get_full_table_uri(catalog: str, schema: str, table_prefix: str, table_name:
 
 
 def list_report_tables(catalog: str, schema: str, table_prefix: str) -> list[str]:
-    """List all tables belonging to this report (matching the table_prefix)."""
     spark = SparkSession.getActiveSession()
     prefix = f"{table_prefix}_"
     tables = spark.catalog.listTables(f"{catalog}.{schema}")
@@ -23,7 +21,6 @@ def list_report_tables(catalog: str, schema: str, table_prefix: str) -> list[str
 
 
 def get_table_version(catalog: str, schema: str, table_prefix: str, table_name: str) -> int:
-    """Get the current Delta version of a report table."""
     spark = SparkSession.getActiveSession()
     full_path = get_full_table_uri(catalog, schema, table_prefix, table_name)
     try:
@@ -34,14 +31,12 @@ def get_table_version(catalog: str, schema: str, table_prefix: str, table_name: 
 
 
 def restore_table_version(catalog: str, schema: str, table_prefix: str, table_name: str, version: int):
-    """Restore a report table to a specific Delta version."""
     spark = SparkSession.getActiveSession()
     full_path = get_full_table_uri(catalog, schema, table_prefix, table_name)
     spark.sql(f"RESTORE TABLE {full_path} TO VERSION AS OF {version}")
 
 
 def drop_all_report_tables(catalog: str, schema: str, table_prefix: str):
-    """Drop all tables belonging to this report."""
     spark = SparkSession.getActiveSession()
     tables = list_report_tables(catalog, schema, table_prefix)
     for table_name in tables:
@@ -50,10 +45,7 @@ def drop_all_report_tables(catalog: str, schema: str, table_prefix: str):
         print(f"Dropped table: {full_path}")
 
 
-# Functions to be used in the status table
-
 def create_table_if_not_exists(full_table_name: str, schema: StructType):
-    """Creates a Delta table with the given schema if it doesn't already exist."""
     spark = SparkSession.getActiveSession()
     if not spark.catalog.tableExists(full_table_name):
         spark.createDataFrame([], schema) \
@@ -61,12 +53,9 @@ def create_table_if_not_exists(full_table_name: str, schema: StructType):
             .format("delta") \
             .saveAsTable(full_table_name)
         print(f"Created new table: {full_table_name}")
-    else:
-        print(f"{full_table_name} already exists")
 
 
 def capture_table_versions(catalog: str, schema: str, table_prefix: str, exclude_tables=[]):
-    """Get all current versions of report tables, excluding selected tables."""
     report_tables = list_report_tables(catalog, schema, table_prefix)
     versions = {}
     for table in report_tables:
@@ -77,7 +66,6 @@ def capture_table_versions(catalog: str, schema: str, table_prefix: str, exclude
 
 
 def get_latest_problematic_run(catalog: str, schema: str, table_prefix: str, status_table_name: str):
-    """Returns the latest problematic run (in_progress or failed w/o successful rollback)."""
     spark = SparkSession.getActiveSession()
     full_table_path = get_full_table_uri(catalog, schema, table_prefix, status_table_name)
     query = f"""
@@ -95,7 +83,7 @@ def get_latest_problematic_run(catalog: str, schema: str, table_prefix: str, sta
 def add_new_run_entry(catalog: str, schema: str, table_prefix: str, status_table_name: str, delta_versions: dict):
     spark = SparkSession.getActiveSession()
     full_table_path = get_full_table_uri(catalog, schema, table_prefix, status_table_name)
-    run_id = uuid.uuid4().int % (10 ** 8)  # 8 digit id
+    run_id = uuid.uuid4().int % (10 ** 8)
     start_date = datetime.now()
 
     new_entry = spark.createDataFrame(
@@ -103,7 +91,7 @@ def add_new_run_entry(catalog: str, schema: str, table_prefix: str, status_table
             (
                 run_id,
                 start_date,
-                None,  # stop_date
+                None,
                 "in_progress",
                 "not_executed",
                 delta_versions
@@ -112,7 +100,7 @@ def add_new_run_entry(catalog: str, schema: str, table_prefix: str, status_table
         STATUS_TABLE_SCHEMA
     )
     new_entry.write.format("delta").mode("append").saveAsTable(full_table_path)
-    print(f"New run initialized with ID:: {run_id}")
+    print(f"New run initialized with ID: {run_id}")
 
     return run_id
 
@@ -129,10 +117,6 @@ def update_delta_versions(catalog: str, schema: str, table_prefix: str, status_t
 
 
 def wipe_new_tables_from_last_run(catalog: str, schema: str, table_prefix: str, last_run_versions: dict, status_table_name: str):
-    """
-    Detects any tables that were not part of the last failed run (i.e. newly created tables),
-    and wipes them out by replacing them with an empty version of themselves.
-    """
     spark = SparkSession.getActiveSession()
     current_tables = set(list_report_tables(catalog, schema, table_prefix))
     previous_tables = set(last_run_versions.keys())
@@ -148,7 +132,6 @@ def wipe_new_tables_from_last_run(catalog: str, schema: str, table_prefix: str, 
                 CREATE OR REPLACE TABLE {full_table_name} AS
                 (SELECT * FROM {full_table_name} WHERE FALSE)
             """)
-            print(f"Table {full_table_name} has been wiped out clean.")
         except Exception as e:
             print(f"Failed to wipe out table {table}: {e}")
 
@@ -186,7 +169,6 @@ def attempt_rollback_from_run(catalog: str, schema: str, table_prefix: str, run,
 
 
 def update_run_success(catalog: str, schema: str, table_prefix: str, status_table_name: str, current_run_id: int):
-    """Update processing status of a successful run."""
     spark = SparkSession.getActiveSession()
     full_table_path = get_full_table_uri(catalog, schema, table_prefix, status_table_name)
 
@@ -247,7 +229,6 @@ def update_run_failure(catalog: str, schema: str, table_prefix: str, status_tabl
 
 
 def update_global_report_table(target_table, source_table, attr_list):
-    """Merge the source table into the target table based on the given attribute list."""
     merge_cond = "target.name = source.name"
     attr_cond = " OR ".join([f"target.{field} <> source.{field}" for field in attr_list])
     (target_table.alias("target")
@@ -258,7 +239,6 @@ def update_global_report_table(target_table, source_table, attr_list):
 
 
 def timestamp_to_epoch_nano(timestamp):
-    """Convert timestamp string to epoch time in nanoseconds."""
     dt = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
     epoch = datetime.utcfromtimestamp(0)
     epoch_nano = int((dt - epoch).total_seconds() * 1e9)
@@ -266,5 +246,4 @@ def timestamp_to_epoch_nano(timestamp):
 
 
 def nanoseconds_to_timestamp(nanoseconds_col: Column) -> Column:
-    """Convert epoch nanoseconds to timestamp using spark functions."""
     return F.to_timestamp(F.from_unixtime(nanoseconds_col / 1e9))

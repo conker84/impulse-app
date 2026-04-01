@@ -3,28 +3,12 @@ resources:
     {{.report_name}}:
       name: {{.report_name}}
       tasks:
-        - task_key: pre_processing
-          environment_key: impulse
-          notebook_task:
-            notebook_path: ../src/preprocessing/01_status_pre-processing.ipynb
-            base_parameters:
-              config_path: "../config/${bundle.target}_config.json"
         - task_key: report_generation
-          depends_on:
-            - task_key: pre_processing
           environment_key: impulse
           notebook_task:
             notebook_path: ../src/report.py
             base_parameters:
               config_path: "./config/${bundle.target}_config.json"
-        - task_key: post_processing
-          depends_on:
-            - task_key: report_generation
-          environment_key: impulse
-          notebook_task:
-            notebook_path: ../src/postprocessing/01_status_post-processing_success.ipynb
-            base_parameters:
-              config_path: "../config/${bundle.target}_config.json"
       environments:
         - environment_key: impulse
           spec:
