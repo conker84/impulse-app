@@ -70,7 +70,7 @@ def get_user_client(token: str):
     from databricks.sdk.config import Config
 
     host = get_workspace_client().config.host
-    cfg = Config(host=host, token=token, client_id=None, client_secret=None, auth_type="pat")
+    cfg = Config(host=host, token=token, client_id="", client_secret="", auth_type="pat")
     return WorkspaceClient(config=cfg)
 
 

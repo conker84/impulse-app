@@ -89,8 +89,8 @@ def _get_user_workspace_client(user_email: str):
     pat_config = Config(
         host=cfg.host,
         token=pat,
-        client_id=None,
-        client_secret=None,
+        client_id="",
+        client_secret="",
         auth_type="pat",
     )
     return WorkspaceClient(config=pat_config)

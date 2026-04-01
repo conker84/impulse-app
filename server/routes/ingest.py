@@ -61,11 +61,12 @@ def _get_client(request: Request):
             "and save your Personal Access Token.",
         )
 
+    host = get_workspace_client().config.host
     cfg = Config(
-        host=os.environ.get("DATABRICKS_HOST", ""),
+        host=host,
         token=token,
-        client_id=None,
-        client_secret=None,
+        client_id="",
+        client_secret="",
         auth_type="pat",
     )
     return WorkspaceClient(config=cfg)
