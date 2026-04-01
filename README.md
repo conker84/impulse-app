@@ -416,14 +416,14 @@ The app depends on the Impulse framework (`mda_query_engine` / `mda_reporting`) 
 
 ## Authentication & Permissions
 
-Impulse is fully passwordless — no PATs, no stored passwords. It uses Databricks' built-in OAuth and the On-Behalf-Of (OBO) token for user operations.
+Impulse uses a **PAT-based authentication model**. Users provide a Databricks Personal Access Token (PAT) via the Settings UI. The PAT is encrypted with Fernet (key from Databricks Secrets) and stored in Lakebase. All user-facing operations (SQL queries, job creation, deploy) use the stored PAT. The app service principal handles only internal operations (Lakebase, LLM calls).
 
 ### Identity Model
 
 | Identity | How it works | Used for |
 |----------|-------------|----------|
-| **App Service Principal** | Auto-provisioned when the app is created. Authenticates via OAuth M2M (`DATABRICKS_CLIENT_ID`/`SECRET` env vars). | Lakebase read/write, LLM calls (FMAPI), MCP tool discovery, workspace file upload, job creation |
-| **Logged-in User (OBO token)** | Databricks proxy injects `X-Forwarded-Access-Token` and `X-Forwarded-Email` headers. Token is scoped to the app's configured scopes. | SQL queries, UC browsing (via SQL), MCP tool execution |
+| **App Service Principal** | Auto-provisioned when the app is created. Authenticates via OAuth M2M (`DATABRICKS_CLIENT_ID`/`SECRET` env vars). | Lakebase read/write, LLM calls (FMAPI), Fernet key retrieval from Secrets |
+| **User's PAT** | User enters PAT in Settings UI. Encrypted and stored in Lakebase. Retrieved per-request using `X-Forwarded-Email` to identify the user. | SQL queries, UC browsing, job creation/deploy/run, ingest pipeline, MCP tool execution |
 
 ### How Each Component Authenticates
 
@@ -433,7 +433,7 @@ Impulse is fully passwordless — no PATs, no stored passwords. It uses Databric
 │  ┌─────────────────────────────────────────────────────────┐    │
 │  │  Injects on every request:                              │    │
 │  │  • X-Forwarded-Email: user@company.com                  │    │
-│  │  • X-Forwarded-Access-Token: <OAuth token>  (if scopes) │    │
+│  │  • X-Forwarded-Access-Token: <OBO token>  (if scopes)   │    │
 │  └─────────────────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────────┘
                               │
@@ -441,134 +441,60 @@ Impulse is fully passwordless — no PATs, no stored passwords. It uses Databric
 ┌─────────────────────────────────────────────────────────────────┐
 │  FastAPI Backend                                                │
 │                                                                 │
-│  SQL queries ──────────► User's OBO token (sql scope)           │
-│  UC browse (catalogs) ─► User's OBO token (sql → SHOW CATALOGS)│
-│  Deploy & Run ────────► App SP (SDK upload + jobs.create)       │
-│  Job execution ───────► User (via run_as on the job)            │
+│  Token priority: stored PAT > OBO token > error                 │
+│                                                                 │
+│  SQL queries ──────────► User's PAT (via MCP)                   │
+│  UC browse (catalogs) ─► User's PAT (sql → SHOW CATALOGS)      │
+│  Deploy & Run ────────► User's PAT (databricks bundle CLI)      │
+│  Ingest pipeline ─────► User's PAT (jobs.create + jobs.run_now) │
+│  Job status/cancel ───► User's PAT (jobs.get_run/cancel_run)   │
 │  LLM agent calls ─────► App SP (built-in M2M OAuth)            │
 │  Lakebase (reports) ──► App SP (generate_database_credential)   │
+│  Fernet key ──────────► App SP (secrets.get_secret)             │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### User Authorization (OBO Token)
+### Why PAT Instead of OBO Token
 
-User Authorization enables the `X-Forwarded-Access-Token` header. Without it, the header is absent and SQL queries fall back to the app service principal.
+OBO (On-Behalf-Of) tokens issued by Databricks Apps have limited workspace-level
+scopes. Critically, they **lack the `jobs` scope**, so they cannot create or run
+jobs. PATs have full API access and work reliably for all operations.
 
-**How it works:** Each Databricks App gets a custom OAuth integration. When a user accesses the app, the proxy mints a scoped OBO token and injects it as the `X-Forwarded-Access-Token` header. The user sees a one-time consent prompt.
+> **Do NOT set `user_api_scopes` on the app.** Setting OBO scopes causes the app
+> runtime to inject `DATABRICKS_CLIENT_ID`/`SECRET` env vars in a way that conflicts
+> with PAT-based `WorkspaceClient` creation (SDK error: "more than one authorization
+> method configured: oauth and pat"). If scopes were previously set, clear them:
+> ```bash
+> databricks apps update <app-name> --json '{"user_api_scopes":[]}' --profile <your-profile>
+> ```
 
-**Setup:**
+### WorkspaceClient and SP Env Var Gotcha
 
-1. **Workspace admin** enables the preview: Admin Settings → Previews → **"Databricks Apps – On-Behalf-Of User Authorization"**
+The Databricks App runtime **always** injects `DATABRICKS_CLIENT_ID` and
+`DATABRICKS_CLIENT_SECRET` env vars for the app's service principal. The
+Databricks Python SDK reads these automatically. When creating a PAT-authed
+`WorkspaceClient(host=host, token=pat)`, the SDK sees both OAuth (from env)
+and PAT (from kwargs) and raises:
+*"more than one authorization method configured: oauth and pat"*
 
-2. **Set scopes during app creation** (critical — scopes set after creation may not persist):
-   ```bash
-   databricks apps create --json '{
-     "name": "impulse",
-     "user_api_scopes": ["sql", "files.files", "dashboards.genie"]
-   }' --profile <your-profile>
-   ```
-   If the app already exists, set scopes via the workspace UI: Apps → impulse → Edit → User Authorization → Add scope.
-
-3. **Clear browser cookies** for the app domain after changing scopes, then re-open in incognito to trigger the consent flow.
-
-**Available scopes (workspace level, as of March 2026):**
-
-| Scope | Works for | Status |
-|-------|----------|--------|
-| `sql` | SQL warehouse queries, `SHOW CATALOGS/SCHEMAS/VOLUMES` | Works ✅ |
-| `files.files` | Workspace file access | Works ✅ |
-| `dashboards.genie` | Genie space access | Works ✅ |
-| `catalog.catalogs:read` | UC REST API (`catalogs.list()`) | **Broken** — API requires `unity-catalog` scope which isn't available |
-| `catalog.schemas:read` | UC REST API (`schemas.list()`) | **Broken** — same reason |
-| `catalog.tables:read` | UC REST API (`tables.list()`) | **Broken** — same reason |
-| `serving.serving-endpoints` | Model serving endpoint access | Untested |
-
-> **Known issues with OBO scopes (as of March 2026):**
->
-> - **Scopes set via API/CLI are silently ignored** on existing apps. They only persist
->   when set during `apps create` or via the workspace UI before the first deploy.
->   The API returns 200 but the scopes don't stick. This is a known bug reported
->   internally.
->
-> - **`catalog.*` scopes don't work for the UC REST API.** The SDK's `catalogs.list()`,
->   `schemas.list()`, `volumes.list()` methods require a `unity-catalog` scope that is
->   not available at the workspace level. **Workaround:** use `SHOW CATALOGS` SQL via
->   the `sql` scope instead (this is what Impulse does).
->
-> - **Adding too many scopes can break the OAuth consent flow** with a generic
->   "Something went wrong" error. Some scope combinations (especially `catalog.*` +
->   `serving.*`) cause the consent screen to crash. Stick to `sql` + `files.files` +
->   `dashboards.genie` for reliability.
->
-> - **Scopes added after initial consent require cookie clearing.** Users who
->   consented with the old scope set won't get re-prompted. They must clear cookies
->   for the app domain or use incognito.
->
-> - **`all-apis` scope requires account admin.** The workspace-level scopes don't
->   include `jobs`, `workspace`, `compute`, or `unity-catalog`. To get full API access
->   via OBO, an account admin must update the app's custom integration at the account
->   level (see below). Impulse uses the app SP for bundle deploy instead.
->
-> - **OBO token must NOT be used for `databricks bundle deploy`.** Even when the OBO
->   token is present, its workspace-level scopes (`sql`, `files.files`) cause
->   `bundle deploy` to fail with "does not have required scopes". Deploy always uses
->   the app SP's M2M credentials. This means the SP needs UC grants on the schemas
->   the report writes to — this is the one remaining manual permission step for
->   customer deployments.
-
-### Path to Truly Zero Manual Permissions
-
-Currently, `databricks bundle deploy/run` uses the app SP because the OBO token's
-workspace-level scopes don't cover Jobs/Workspace APIs. This means the SP needs
-UC grants on the destination schemas — **the one remaining manual permission step**.
-
-**To eliminate this**, an account admin sets `all-apis` on the app's OAuth integration.
-This gives the OBO token full API access, so `bundle deploy` can run as the user
-(using their existing UC permissions). No SP grants needed on data schemas.
-
-```bash
-# Account admin runs this once per app:
-databricks auth login --host https://accounts.cloud.databricks.com \
-  --account-id <account-id> --profile <account-profile>
-
-# Find integration ID: same as oauth2_app_integration_id from `databricks apps get`
-databricks account custom-app-integration update '<integration-id>' \
-  --json '{"scopes": ["openid", "profile", "email", "all-apis", "offline_access"]}' \
-  --profile <account-profile>
-```
-
-After this, update `_cli_env()` in `server/routes/deploy.py` to prefer the OBO token
-again (pass `X-Forwarded-Access-Token` as `DATABRICKS_TOKEN`).
-
-### How Impulse Works Today (without `all-apis`)
-
-| Operation | How it works | Permissions |
-|-----------|-------------|-------------|
-| SQL queries | OBO token → SQL warehouse | User's own UC permissions (no grants needed) |
-| UC browsing | OBO token → `SHOW CATALOGS` SQL | User's own UC permissions (no grants needed) |
-| Deploy & Run | App SP → `databricks bundle deploy/run` | SP uses M2M auth |
-| Job execution | Runs as the SP | **SP needs UC grants on destination schemas** |
-| LLM calls | App SP → Foundation Model API | SP needs CAN QUERY on endpoint |
-| Lakebase | App SP → OAuth token → PostgreSQL | SP needs Lakebase role |
-
-### WorkspaceClient and OBO Token Gotcha
-
-When creating a `WorkspaceClient` with the OBO token inside a Databricks App, the SP's env vars (`DATABRICKS_CLIENT_ID`/`SECRET`) conflict with the token, causing: *"more than one authorization method configured: oauth and pat"*. You must explicitly clear them:
+**Fix:** Temporarily mask the SP env vars during client construction:
 
 ```python
-from databricks.sdk import WorkspaceClient
-from databricks.sdk.config import Config
-
-token = request.headers.get("X-Forwarded-Access-Token")
-cfg = Config(
-    host=os.environ.get("DATABRICKS_HOST", ""),
-    token=token,
-    client_id=None,      # clear SP credentials
-    client_secret=None,   # clear SP credentials
-    auth_type="pat",
-)
-w = WorkspaceClient(config=cfg)
+def get_user_client(token: str):
+    from databricks.sdk import WorkspaceClient
+    host = get_workspace_client().config.host
+    saved = {}
+    for key in ("DATABRICKS_CLIENT_ID", "DATABRICKS_CLIENT_SECRET"):
+        if key in os.environ:
+            saved[key] = os.environ.pop(key)
+    try:
+        return WorkspaceClient(host=host, token=token)
+    finally:
+        os.environ.update(saved)
 ```
+
+> **Note:** `Config(client_id=None)` and `Config(client_id="")` do NOT work —
+> the SDK ignores these and still reads the env vars.
 
 ### Lakebase Access (Passwordless)
 
@@ -588,7 +514,10 @@ Token expiration (1 hour) is enforced only at connection time. Open connections 
 
 ### Deploy & Run
 
-The app SP uploads report files to workspace and creates the job via the SDK. The job's `run_as` is set to the logged-in user's email so notebooks execute with the user's UC permissions. No OBO token or stored credentials needed for this flow.
+Deploy uses the user's stored PAT via `databricks bundle deploy/run`. The PAT is
+set as `DATABRICKS_TOKEN` in the CLI subprocess environment, and the SP env vars
+(`DATABRICKS_CLIENT_ID`/`SECRET`) are removed from the subprocess env to avoid
+conflicts. This means the job runs under the user's identity with their UC permissions.
 
 ### Service Principal Permissions
 
@@ -599,13 +528,20 @@ The app's SP (shown as `service_principal_client_id` in `databricks apps get`) n
 | SQL Warehouse | CAN USE | Warehouse permissions in workspace admin UI |
 | Foundation Model API endpoint | CAN QUERY | Endpoint permissions in workspace admin UI |
 | Lakebase database | OAuth role + ALL PRIVILEGES | `databricks_create_role()` + `GRANT` (see Step 3) |
-| Destination UC schemas | USE CATALOG, USE SCHEMA, CREATE TABLE, SELECT | `GRANT ... TO <sp-application-id>` via SQL |
+| **Secrets scope `impulse`** | **READ** | `databricks secrets put-acl impulse <sp-client-id> READ --profile <your-profile>` |
 
-> **Note:** Deploy & Run uses the SP via `databricks bundle deploy/run`, so the job
-> runs as the SP. The SP needs UC grants on the destination schemas where reports
-> write output tables. UC browsing uses SQL via the OBO token (user's own permissions).
-> This is the one remaining manual permission step — it would be eliminated if
-> Databricks adds `jobs` or `all-apis` to the workspace-level OBO scopes.
+> **Common errors:**
+>
+> - `PermissionDenied: User <sp-id> does not have READ permission on scope impulse`
+>   — the SP can't read the Fernet key to decrypt PATs. Grant READ:
+>   `databricks secrets put-acl impulse <sp-client-id> READ --profile <your-profile>`
+>
+> - `ValueError: more than one authorization method configured: oauth and pat`
+>   — SP env vars conflicting with PAT auth. See "WorkspaceClient and SP Env Var Gotcha" above.
+>
+> - `Provided OAuth token does not have required scopes: jobs`
+>   — the OBO token is being used instead of the stored PAT. Check token priority
+>   in the route (PAT must come first). Or the user hasn't saved a PAT in Settings.
 
 ### Local Development Auth
 
