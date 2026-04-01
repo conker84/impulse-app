@@ -25,20 +25,37 @@ from server.models import DeploymentStatus
 logger = logging.getLogger(__name__)
 
 
-def _cli_env(user_email: str | None) -> dict[str, str]:
+def _cli_env(user_email: str | None, user_token: str | None = None) -> dict[str, str]:
     """Build env dict for Databricks CLI subprocesses.
 
-    On Databricks App: always uses the app SP's OAuth credentials
-    (DATABRICKS_CLIENT_ID / DATABRICKS_CLIENT_SECRET already in env).
-    The OBO token's workspace-level scopes (sql, files.files) don't cover
-    the Jobs/Workspace APIs that ``databricks bundle deploy`` needs.
+    On Databricks App: uses the forwarded user token (from the logged-in user's
+    session) for authentication. Falls back to a stored PAT if available.
     Locally: inherits the environment as-is (profile from ~/.databrickscfg).
     """
     env = os.environ.copy()
     if "HOME" not in env:
         env["HOME"] = "/tmp"
     if IS_DATABRICKS_APP:
-        logger.info("_cli_env: user_email=%s, using app SP credentials", user_email)
+        token = user_token
+        logger.info("_cli_env: user_email=%s, has_forwarded_token=%s", user_email, bool(token))
+        if not token and user_email:
+            try:
+                from server.token_store import get_pat
+                token = get_pat(user_email)
+                logger.info("_cli_env: got stored PAT=%s", bool(token))
+            except Exception:
+                logger.warning("Failed to look up stored PAT (Lakebase may be unavailable)")
+        if not token:
+            raise HTTPException(
+                401,
+                "Deploy requires a user token. Either:\n"
+                "1. Ask your workspace admin to enable User Authorization on this app "
+                "(adds X-Forwarded-Access-Token header), or\n"
+                "2. Open Settings (gear icon) and save your Personal Access Token.",
+            )
+        env["DATABRICKS_TOKEN"] = token
+        env.pop("DATABRICKS_CLIENT_ID", None)
+        env.pop("DATABRICKS_CLIENT_SECRET", None)
     return env
 
 
@@ -52,14 +69,31 @@ def _get_user_email(request: Request) -> str:
     return email
 
 
-def _get_polling_client():
-    """Return a WorkspaceClient for job status polling and cancellation.
+def _get_user_workspace_client(user_email: str):
+    """Return a WorkspaceClient authenticated with the user's stored PAT.
 
-    Uses the app service principal (deployed) or local profile (dev).
-    The SP can read status and cancel runs for jobs created by the user
-    via the app since the user is the job owner.
+    Used for job status polling and cancellation. Falls back to the
+    service principal client in local mode or when no PAT is stored.
     """
-    return get_workspace_client()
+    if not IS_DATABRICKS_APP:
+        return get_workspace_client()
+
+    from server.token_store import get_pat
+    pat = get_pat(user_email)
+    if not pat:
+        return get_workspace_client()
+
+    from databricks.sdk import WorkspaceClient
+    from databricks.sdk.config import Config
+    cfg = get_workspace_client().config
+    pat_config = Config(
+        host=cfg.host,
+        token=pat,
+        client_id=None,
+        client_secret=None,
+        auth_type="pat",
+    )
+    return WorkspaceClient(config=pat_config)
 
 
 def _profile_args() -> list[str]:
@@ -137,7 +171,6 @@ def _user_report_dir(user_email: str, report_name: str) -> str:
 @router.post("/scaffold/{session_id}")
 async def scaffold_report(session_id: str, request: Request):
     """Scaffold a new report from the template, then overwrite with generated code."""
-    # Debug: log forwarded headers to diagnose OBO token issues
     fwd_token = request.headers.get("X-Forwarded-Access-Token")
     fwd_email = request.headers.get("X-Forwarded-Email")
     logger.info(
@@ -195,7 +228,7 @@ async def scaffold_report(session_id: str, request: Request):
             capture_output=True,
             text=True,
             check=True,
-            env=_cli_env(user_email),
+            env=_cli_env(user_email, user_token=fwd_token),
         )
     except subprocess.CalledProcessError as e:
         detail = e.stderr or e.stdout or f"exit code {e.returncode}"
@@ -290,6 +323,7 @@ def _background_bundle_run(
 async def deploy_and_run(session_id: str, request: Request):
     """Deploy the report bundle and trigger a run (non-blocking)."""
     user_email = _get_user_email(request)
+    user_token = request.headers.get("X-Forwarded-Access-Token")
     state = _get_session_state(session_id)
     report_dir = _user_report_dir(user_email, state.name)
 
@@ -297,7 +331,7 @@ async def deploy_and_run(session_id: str, request: Request):
         raise HTTPException(400, "Report not scaffolded yet. Call /api/scaffold first.")
 
     state.deployment = DeploymentStatus.DEPLOYING
-    env = _cli_env(user_email)
+    env = _cli_env(user_email, user_token=user_token)
 
     notification_email = user_email or "noreply@databricks.com"
 
@@ -352,7 +386,7 @@ async def cancel_run(session_id: str):
         raise HTTPException(400, "No run to cancel.")
 
     try:
-        w = _get_polling_client()
+        w = _get_user_workspace_client(getattr(state, "user_email", ""))
         w.jobs.cancel_run(int(state.run_id))
         state.deployment = DeploymentStatus.FAILED
         logger.info("Cancelled run %s for session %s", state.run_id, session_id)
@@ -390,7 +424,7 @@ async def deploy_status(session_id: str):
         return {**base, "tasks": [], "message": "Job is starting..."}
 
     try:
-        w = _get_polling_client()
+        w = _get_user_workspace_client(getattr(state, "user_email", ""))
         run = w.jobs.get_run(int(state.run_id))
     except Exception:
         logger.exception("Failed to fetch run status")
