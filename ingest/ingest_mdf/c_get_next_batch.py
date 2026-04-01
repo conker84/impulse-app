@@ -126,6 +126,11 @@ elif current_unprocessed_count > 0:
 
 print(f"run_id: {next_run_id}")
 
+# Short-circuit when there is nothing to process
+if next_run_id == "noop":
+  dbutils.jobs.taskValues.set(key = "next_run_id", value = next_run_id)
+  dbutils.notebook.exit("Nothing to process.")
+
 # COMMAND ----------
 
 # DBTITLE 1,Update status
