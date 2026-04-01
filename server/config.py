@@ -66,11 +66,23 @@ def get_workspace_client():
 
 
 def get_user_client(token: str):
-    """Create a WorkspaceClient authenticated with a user token (PAT)."""
+    """Create a WorkspaceClient authenticated with a user token (PAT).
+
+    The app runtime always injects DATABRICKS_CLIENT_ID/SECRET for the
+    SP. The SDK reads those and sees both oauth + pat, so we must
+    temporarily hide them.
+    """
     from databricks.sdk import WorkspaceClient
 
     host = get_workspace_client().config.host
-    return WorkspaceClient(host=host, token=token)
+    saved = {}
+    for key in ("DATABRICKS_CLIENT_ID", "DATABRICKS_CLIENT_SECRET"):
+        if key in os.environ:
+            saved[key] = os.environ.pop(key)
+    try:
+        return WorkspaceClient(host=host, token=token)
+    finally:
+        os.environ.update(saved)
 
 
 def get_sql_connection_params() -> dict:
