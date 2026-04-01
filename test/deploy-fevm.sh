@@ -22,8 +22,8 @@ if [ -z "$PROFILE" ]; then
 fi
 
 # Resolve current user email from the CLI profile
-USER_EMAIL=$(databricks current-user me --profile "$PROFILE" -o json 2>/dev/null \
-  | python3 -c "import sys,json; print(json.load(sys.stdin)['userName'])")
+USER_JSON=$(databricks current-user me --profile "$PROFILE" -o json 2>/dev/null) || true
+USER_EMAIL=$(echo "$USER_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['userName'])" 2>/dev/null) || true
 if [ -z "$USER_EMAIL" ]; then
   echo "ERROR: Could not resolve user email from profile '$PROFILE'" >&2
   exit 1
