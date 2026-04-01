@@ -30,7 +30,7 @@ export interface SignalDefinition {
 export interface Histogram1DDefinition {
   agg_kind: "histogram_1d";
   name: string;
-  histogram_type: "duration" | "distance" | "duration_count" | "event_count";
+  histogram_type: "duration" | "distance";
   signal_ref: string;
   bins: number[];
   bins_unit: string | null;

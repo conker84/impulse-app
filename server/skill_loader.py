@@ -216,7 +216,7 @@ def build_system_prompt(
         "- After identifying matching channels, ALWAYS call `suggest_signal_candidates` — "
         "even for a single match. The user must confirm via the checkbox UI.\n"
         "- For derived signals (arithmetic, comparisons, filtering), use `add_virtual_signal`.\n"
-        "- For histograms, determine the correct type (duration/distance/duration_count/event_count) "
+        "- For histograms, determine the correct type (duration/distance) "
         "based on the define-aggregations skill, then use `add_histogram`.\n"
         "- Always suggest reasonable bin ranges based on the signal's physical meaning.\n"
         "- Use `preview_code` to show the user what will be generated before deploying.\n"

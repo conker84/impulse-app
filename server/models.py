@@ -66,8 +66,6 @@ class SignalDefinition(BaseModel):
 class HistogramType(str, Enum):
     DURATION = "duration"
     DISTANCE = "distance"
-    DURATION_COUNT = "duration_count"
-    EVENT_COUNT = "event_count"
 
 
 class Histogram1DDefinition(BaseModel):

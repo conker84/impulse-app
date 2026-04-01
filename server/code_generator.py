@@ -14,8 +14,6 @@ from server.models import Histogram1DDefinition, Histogram2DDefinition, Histogra
 _HISTOGRAM_AGG_TYPE_MAP = {
     HistogramType.DURATION: "duration",
     HistogramType.DISTANCE: "distance",
-    HistogramType.DURATION_COUNT: "duration_count",
-    HistogramType.EVENT_COUNT: "event_count",
 }
 
 _SEP = "\n\n# COMMAND ----------\n\n"
@@ -118,8 +116,6 @@ def generate_report_notebook(state: ReportState) -> str:
     for hist in (a for a in state.aggregations if isinstance(a, Histogram1DDefinition)):
         agg_type = _HISTOGRAM_AGG_TYPE_MAP[hist.histogram_type]
         params = [f'    name="{hist.name}"', f'    base_expr=signals["{hist.signal_ref}"]', f"    bins={hist.bins}"]
-        if hist.histogram_type == HistogramType.EVENT_COUNT and hist.event_signal_ref:
-            params.append(f'    event=BasicEvent(name="{hist.name}_event", expr=signals["{hist.event_signal_ref}"])')
         if hist.description:
             params.append(f'    desc="{hist.description}"')
         params.append(f'    agg_type="{agg_type}"')

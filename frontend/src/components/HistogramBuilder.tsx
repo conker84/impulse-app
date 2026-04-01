@@ -34,16 +34,6 @@ const HISTOGRAM_TYPES: {
     label: "Distance",
     description: "Distance traveled in each value range",
   },
-  {
-    key: "duration_count",
-    label: "Duration Count",
-    description: "Number of events by their duration",
-  },
-  {
-    key: "event_count",
-    label: "Event Count",
-    description: "Number of events at each signal value",
-  },
 ];
 
 function makeUniqueName(
@@ -74,7 +64,6 @@ export default function HistogramBuilder({
   const [binsUnit, setBinsUnit] = useState("");
   const [maxDurationEnabled, setMaxDurationEnabled] = useState(false);
   const [maxDurationSec, setMaxDurationSec] = useState("");
-  const [eventSignalRef, setEventSignalRef] = useState("");
   const [weightSignalRef, setWeightSignalRef] = useState("");
   const [suggesting, setSuggesting] = useState(false);
   const [error, setError] = useState("");
@@ -96,7 +85,6 @@ export default function HistogramBuilder({
         setMaxDurationEnabled(false);
         setMaxDurationSec("");
       }
-      setEventSignalRef(editingHistogram.event_signal_ref || "");
       setWeightSignalRef(editingHistogram.weight_signal_ref || "");
     }
   }, [editingHistogram]);
@@ -109,7 +97,6 @@ export default function HistogramBuilder({
     setBinsUnit("");
     setMaxDurationEnabled(false);
     setMaxDurationSec("");
-    setEventSignalRef("");
     setWeightSignalRef("");
     setError("");
   };
@@ -189,18 +176,12 @@ export default function HistogramBuilder({
         selectedType === "duration" && maxDurationEnabled
           ? parseFloat(maxDurationSec) * 1e9 || null
           : null,
-      event_signal_ref:
-        selectedType === "event_count" && eventSignalRef
-          ? eventSignalRef
-          : null,
+      event_signal_ref: null,
       weight_signal_ref:
         selectedType === "distance" && weightSignalRef
           ? weightSignalRef
           : null,
-      weight_const:
-        selectedType === "duration_count" || selectedType === "event_count"
-          ? 1.0
-          : null,
+      weight_const: null,
     };
 
     onAdd(histogram);
@@ -286,26 +267,6 @@ export default function HistogramBuilder({
             )}
           </button>
 
-          {selectedType === "event_count" && (
-            <div className="form-group">
-              <label className="form-label">
-                Event Signal <span style={{ color: "var(--error)" }}>*</span>
-              </label>
-              <select
-                className="form-input"
-                value={eventSignalRef}
-                onChange={(e) => setEventSignalRef(e.target.value)}
-              >
-                <option value="">Select event trigger signal...</option>
-                {signals.map((s) => (
-                  <option key={s.var_name} value={s.var_name}>
-                    {s.var_name}
-                    {s.description ? ` — ${s.description}` : ""}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
 
           {selectedType === "distance" && (
             <div className="form-group">

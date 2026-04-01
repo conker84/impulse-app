@@ -157,7 +157,7 @@ TOOLS = [
                     },
                     "histogram_type": {
                         "type": "string",
-                        "enum": ["duration", "distance", "duration_count", "event_count"],
+                        "enum": ["duration", "distance"],
                     },
                     "signal_ref": {
                         "type": "string",
@@ -175,7 +175,7 @@ TOOLS = [
                     },
                     "event_signal_ref": {
                         "type": "string",
-                        "description": "Event trigger signal ref (event_count type only)",
+                        "description": "Event trigger signal ref",
                     },
                     "weight_const": {"type": "number"},
                     "description": {"type": "string"},
