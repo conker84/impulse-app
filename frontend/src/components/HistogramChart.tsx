@@ -94,7 +94,8 @@ export default function HistogramChart({ name, result }: Props) {
       <Plot
         data={traces}
         layout={mergeLayout({
-          xaxis: { title: result.bins_unit || undefined, tickangle: -45 },
+          margin: { t: 8, r: 16, b: 80, l: 64 },
+          xaxis: { title: result.bins_unit ? `Value [${result.bins_unit}]` : "Value", tickangle: -45 },
           yaxis: { title: yLabel },
           barmode: barmode as any,
           showlegend: isMulti,
