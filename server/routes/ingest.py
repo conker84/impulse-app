@@ -36,22 +36,39 @@ def _get_ingest_notebook_root() -> str:
 
 
 def _get_client(request: Request):
-    if IS_DATABRICKS_APP:
-        from databricks.sdk import WorkspaceClient
-        from databricks.sdk.config import Config
+    """Return a WorkspaceClient for job operations.
 
-        token = request.headers.get("X-Forwarded-Access-Token")
-        if token:
-            cfg = Config(
-                host=os.environ.get("DATABRICKS_HOST", ""),
-                token=token,
-                client_id=None,
-                client_secret=None,
-                auth_type="pat",
-            )
-            return WorkspaceClient(config=cfg)
+    Priority: OBO token > stored PAT > error.
+    The app SP lacks the 'jobs' OAuth scope, so we must use a user token.
+    """
+    if not IS_DATABRICKS_APP:
         return get_workspace_client()
-    return get_workspace_client()
+
+    from databricks.sdk import WorkspaceClient
+    from databricks.sdk.config import Config
+
+    token = request.headers.get("X-Forwarded-Access-Token")
+    if not token:
+        email = request.headers.get("X-Forwarded-Email", "")
+        if email:
+            from server.token_store import get_pat
+            token = get_pat(email)
+
+    if not token:
+        raise HTTPException(
+            401,
+            "Ingest requires a user token. Please open Settings (gear icon) "
+            "and save your Personal Access Token.",
+        )
+
+    cfg = Config(
+        host=os.environ.get("DATABRICKS_HOST", ""),
+        token=token,
+        client_id=None,
+        client_secret=None,
+        auth_type="pat",
+    )
+    return WorkspaceClient(config=cfg)
 
 
 
