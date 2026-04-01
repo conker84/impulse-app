@@ -64,21 +64,6 @@ if [ "$SYNC_ONLY" = true ]; then
   exit 0
 fi
 
-# Set all available User Authorization scopes for the OBO token.
-# IMPORTANT: Scopes only persist if set during `apps create` or via the UI before first deploy.
-# This update is a best-effort attempt — if it fails silently, scopes must be set via the UI
-# or by recreating the app with --json '{"user_api_scopes": [...]}'.
-echo "==> Configuring User Authorization scopes..."
-ALL_SCOPES='{"user_api_scopes":["sql","files.files","dashboards.genie","catalog.catalogs:read","catalog.schemas:read","catalog.tables:read","catalog.catalogs","catalog.schemas","catalog.tables","serving.serving-endpoints","serving.serving-endpoints:read"]}'
-if databricks apps update "$APP_NAME" \
-    --json "$ALL_SCOPES" \
-    --profile "$PROFILE" --output json > /dev/null 2>&1; then
-  echo "    Scopes set: sql, files, catalog, serving, genie"
-else
-  echo "    WARNING: Could not set user_api_scopes. Ensure 'Databricks Apps - OBO User Authorization'"
-  echo "    preview is enabled in Admin Settings for this workspace."
-fi
-
 echo "==> Deploying app '$APP_NAME'..."
 databricks apps deploy "$APP_NAME" --source-code-path "$WS_PATH" --profile "$PROFILE" --no-wait
 
