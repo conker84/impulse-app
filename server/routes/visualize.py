@@ -17,6 +17,10 @@ from server.mcp_tools import execute_sql
 
 logger = logging.getLogger(__name__)
 
+
+def _clean(val: str | None) -> str:
+    return "" if not val or val == "NULL" else val
+
 router = APIRouter(prefix="/api/visualize", tags=["visualize"])
 
 _IDENTIFIER_RE = re.compile(r"^[a-zA-Z0-9_]+$")
@@ -65,11 +69,11 @@ async def list_histograms(
     for row in result.get("rows", []):
         histograms.append({
             "visual_id": int(row[0]) if row[0] else 0,
-            "name": row[1] or "",
-            "type": row[2] or "",
-            "description": row[3] or "",
-            "bins_unit": row[4] or "",
-            "values_unit": row[5] or "",
+            "name": _clean(row[1]),
+            "type": _clean(row[2]),
+            "description": _clean(row[3]),
+            "bins_unit": _clean(row[4]),
+            "values_unit": _clean(row[5]),
         })
     return {"histograms": histograms}
 
@@ -144,7 +148,7 @@ async def get_histogram_data(body: HistogramDataRequest, request: Request):
         histograms[hist_name] = {
             "type": meta["type"],
             "bins_unit": meta["bins_unit"],
-            "values_unit": "seconds" if is_duration else meta["values_unit"],
+            "values_unit": "seconds" if is_duration else (meta["values_unit"] or "distance"),
             "description": meta["description"],
             "series": {"_all": bins},
         }
@@ -164,10 +168,10 @@ def _fetch_dimension_metadata(
     meta: dict[str, dict[str, str]] = {}
     for row in result.get("rows", []):
         meta[row[0]] = {
-            "type": row[1] or "",
-            "description": row[2] or "",
-            "bins_unit": row[3] or "",
-            "values_unit": row[4] or "",
+            "type": _clean(row[1]),
+            "description": _clean(row[2]),
+            "bins_unit": _clean(row[3]),
+            "values_unit": _clean(row[4]),
         }
     return meta
 
@@ -200,12 +204,12 @@ async def list_aggregations(
         for row in result.get("rows", []):
             aggregations.append({
                 "visual_id": int(row[0]) if row[0] else 0,
-                "name": row[1] or "",
+                "name": _clean(row[1]),
                 "agg_type": "histogram_1d",
-                "type": row[2] or "",
-                "description": row[3] or "",
-                "bins_unit": row[4] or "",
-                "values_unit": row[5] or "",
+                "type": _clean(row[2]),
+                "description": _clean(row[3]),
+                "bins_unit": _clean(row[4]),
+                "values_unit": _clean(row[5]),
                 "x_bins_unit": "",
                 "y_bins_unit": "",
             })
@@ -226,14 +230,14 @@ async def list_aggregations(
         for row in result.get("rows", []):
             aggregations.append({
                 "visual_id": int(row[0]) if row[0] else 0,
-                "name": row[1] or "",
+                "name": _clean(row[1]),
                 "agg_type": "histogram_2d",
                 "type": "duration",
-                "description": row[2] or "",
+                "description": _clean(row[2]),
                 "bins_unit": "",
                 "values_unit": "",
-                "x_bins_unit": row[3] or "",
-                "y_bins_unit": row[4] or "",
+                "x_bins_unit": _clean(row[3]),
+                "y_bins_unit": _clean(row[4]),
             })
     except Exception as e:
         msg = str(e)
@@ -252,10 +256,10 @@ async def list_aggregations(
         for row in result.get("rows", []):
             aggregations.append({
                 "visual_id": int(row[0]) if row[0] else 0,
-                "name": row[1] or "",
+                "name": _clean(row[1]),
                 "agg_type": "statistics",
                 "type": "",
-                "description": row[2] or "",
+                "description": _clean(row[2]),
                 "bins_unit": "",
                 "values_unit": "",
                 "x_bins_unit": "",
