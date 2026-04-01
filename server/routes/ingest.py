@@ -38,18 +38,20 @@ def _get_ingest_notebook_root() -> str:
 def _get_client(request: Request):
     """Return a WorkspaceClient for job operations.
 
-    Priority: OBO token > stored PAT > error.
-    The app SP lacks the 'jobs' OAuth scope, so we must use a user token.
+    Priority: stored PAT > OBO token > error.
+    OBO tokens lack the 'jobs' scope, so PAT must come first.
     """
     if not IS_DATABRICKS_APP:
         return get_workspace_client()
 
-    token = request.headers.get("X-Forwarded-Access-Token")
+    email = request.headers.get("X-Forwarded-Email", "")
+    token = None
+    if email:
+        from server.token_store import get_pat
+        token = get_pat(email)
+
     if not token:
-        email = request.headers.get("X-Forwarded-Email", "")
-        if email:
-            from server.token_store import get_pat
-            token = get_pat(email)
+        token = request.headers.get("X-Forwarded-Access-Token")
 
     if not token:
         raise HTTPException(

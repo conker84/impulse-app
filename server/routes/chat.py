@@ -21,12 +21,12 @@ router = APIRouter(prefix="/api", tags=["chat"])
 
 @router.post("/chat")
 async def chat(req: ChatRequest, request: Request):
-    user_token = request.headers.get("x-forwarded-access-token")
     email = request.headers.get("X-Forwarded-Email", "") if IS_DATABRICKS_APP else ""
 
-    # Fall back to stored PAT when OBO token is not available
-    if not user_token and email:
-        user_token = get_pat(email)
+    # PAT first — OBO tokens lack required scopes for jobs/workspace APIs
+    user_token = get_pat(email) if email else None
+    if not user_token:
+        user_token = request.headers.get("x-forwarded-access-token")
 
     user_pref = get_serving_endpoint(email) if email else ""
     endpoint = resolve_serving_endpoint(user_pref)

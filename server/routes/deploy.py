@@ -36,15 +36,18 @@ def _cli_env(user_email: str | None, user_token: str | None = None) -> dict[str,
     if "HOME" not in env:
         env["HOME"] = "/tmp"
     if IS_DATABRICKS_APP:
-        token = user_token
-        logger.info("_cli_env: user_email=%s, has_forwarded_token=%s", user_email, bool(token))
-        if not token and user_email:
+        # PAT first — OBO tokens lack jobs/workspace scopes
+        token = None
+        if user_email:
             try:
                 from server.token_store import get_pat
                 token = get_pat(user_email)
-                logger.info("_cli_env: got stored PAT=%s", bool(token))
+                logger.info("_cli_env: user_email=%s, got stored PAT=%s", user_email, bool(token))
             except Exception:
                 logger.warning("Failed to look up stored PAT (Lakebase may be unavailable)")
+        if not token:
+            token = user_token
+            logger.info("_cli_env: user_email=%s, falling back to forwarded token=%s", user_email, bool(token))
         if not token:
             raise HTTPException(
                 401,
