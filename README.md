@@ -62,13 +62,16 @@ An LLM agent (configurable per-user from Foundation Model API endpoints) assists
 
 ## Deploy to Databricks
 
-### Step 1: Create the app (first time only)
+### Step 1: Create and deploy the app
 
 ```bash
-databricks apps create impulse --profile <your-profile>
+# First time: the deploy script auto-creates the app with OBO scopes
+# Subsequent times: it just syncs and redeploys
+git add -A && git commit -m "deploy"
+DATABRICKS_PROFILE=<your-profile> test/deploy-fevm.sh
 ```
 
-This provisions compute and a service principal for the app. Note the `service_principal_client_id` from the output — you'll need it for permissions.
+On first run, the script creates the app and provisions a service principal. Note the `service_principal_client_id` from the output — you'll need it for Steps 2-4 below.
 
 ### Step 2: Create Lakebase infrastructure (first time only)
 
@@ -169,29 +172,17 @@ Verify the environment variables match your workspace:
 
 > SQL Warehouse and Unity Catalog permissions are **not needed** for the service principal — those operations use the user's OBO token.
 
-### Step 6: Build and deploy
+### Step 6: Redeploy
+
+After completing Steps 2-5, redeploy so the app picks up the Lakebase and secrets configuration:
 
 ```bash
-# Install dependencies
-uv venv --python 3.12 && source .venv/bin/activate
-uv pip install -r requirements.txt
-cd frontend && npm install && npm run build && cd ..
-
-# Deploy (uses databricks sync + apps deploy)
-# Commit all changes first — databricks sync only syncs git-tracked files!
-git add -A && git commit -m "deploy"
-test/deploy-fevm.sh
+DATABRICKS_PROFILE=<your-profile> test/deploy-fevm.sh --skip-build
 ```
 
-The deploy script:
-1. Builds the frontend (TypeScript + Vite)
-2. Syncs source code to the workspace via `databricks sync`
-3. Uploads the built frontend separately (it's `.gitignore`d)
-4. Deploys the app via `databricks apps deploy`
+The app URL will be shown in the output, e.g.: `https://impulse-<hash>.databricksapps.com`
 
 Use `--skip-build` for backend-only changes, `--sync-only` for just syncing files.
-
-The app URL will be shown in the output, e.g.: `https://impulse-<hash>.databricksapps.com`
 
 ### Redeployment (after code changes)
 
