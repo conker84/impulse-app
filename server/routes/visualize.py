@@ -477,7 +477,7 @@ async def get_statistics_data(body: StatisticsDataRequest, request: Request):
             "rows": rows,
             "signal_names": sorted(signal_names_set),
             "stat_labels": sorted(stat_labels_set),
-            "description": dim_row[0] or "",
+            "description": _clean(dim_row[0]),
         }
 
     return {"statistics": statistics}

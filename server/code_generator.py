@@ -113,6 +113,9 @@ def generate_report_notebook(state: ReportState) -> str:
     sig_lines += ["}"]
     cells.append("\n".join(sig_lines))
 
+    # var_name → display name lookup for signal_names in Statistics
+    sig_lookup = {s.var_name: (s.channel_name or s.alias or s.var_name) for s in state.signals}
+
     # ---- Aggregations ----
     agg_lines: list[str] = [
         "page = Page(page_number=1)",
@@ -162,7 +165,8 @@ def generate_report_notebook(state: ReportState) -> str:
         agg_lines.append(f"my_report.add_event({event_name})")
         agg_lines.append("")
         selections_items = ", ".join(f'signals["{ref}"]' for ref in stats.signal_refs)
-        params = [f'    name="{stats.name}"', f"    selections=[{selections_items}]", f"    aggregation_labels={repr(stats.stat_labels)}", f"    event={event_name}"]
+        signal_names = [sig_lookup.get(ref, ref) for ref in stats.signal_refs]
+        params = [f'    name="{stats.name}"', f"    selections=[{selections_items}]", f"    aggregation_labels={repr(stats.stat_labels)}", f"    event={event_name}", f"    signal_names={repr(signal_names)}"]
         if stats.description:
             params.append(f'    desc="{stats.description}"')
         agg_lines.append("page.add_aggregation(Statistics(")
