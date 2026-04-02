@@ -642,7 +642,7 @@ def _dispatch_tool(
     if name == "set_report_metadata":
         return _exec_set_report_metadata(state, args["name"], args.get("description", ""), args.get("creator", ""))
     if name == "set_vehicle":
-        return _exec_set_vehicle(state, args["vehicle_id"], args["start_ts"], args.get("col_name", "test_object_name"), args.get("stop_ts"))
+        return _exec_set_vehicle(state, args["vehicle_id"], args["start_ts"], args.get("col_name"), args.get("stop_ts"))
     if name == "set_data_sources":
         return _exec_set_data_sources(state, **args)
     if name == "preview_code":
