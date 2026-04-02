@@ -37,6 +37,7 @@ def generate_report_notebook(state: ReportState) -> str:
         "from mda_reporting.aggregations.statistics import Statistics",
         "from mda_reporting.aggregations.aggregation_types import AggregationType",
         "from mda_reporting.events.basic_event import BasicEvent",
+        "from mda_reporting.events.container_event import ContainerEvent",
         "from mda_reporting.events.event_types import EventType",
         "",
         "from utils.report_utils import (",
@@ -157,6 +158,8 @@ def generate_report_notebook(state: ReportState) -> str:
         params = [f'    name="{stats.name}"', f"    selections=[{selections_items}]", f"    aggregation_labels={repr(stats.stat_labels)}"]
         if stats.event_signal_ref:
             params.append(f'    event=BasicEvent(name="{stats.name}_event", expr=signals["{stats.event_signal_ref}"])')
+        else:
+            params.append(f'    event=ContainerEvent(name="{stats.name}_event")')
         if stats.description:
             params.append(f'    desc="{stats.description}"')
         agg_lines.append("page.add_aggregation(Statistics(")
