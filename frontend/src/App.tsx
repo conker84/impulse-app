@@ -442,6 +442,13 @@ export default function App() {
 
   const handleTriggerIngest = useCallback(async () => {
     if (!sessionId) return;
+    if (tokenStatus && !tokenStatus.local_mode && !tokenStatus.has_token) {
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: "⚠️ **A Personal Access Token (PAT) is required to run the ingest job.** Please open Settings (gear icon) and save your PAT first." },
+      ]);
+      return;
+    }
     try {
       const resp = await triggerIngest(sessionId);
       setReportState(resp.report_state);
@@ -756,6 +763,13 @@ export default function App() {
 
   const handleDeploy = useCallback(async () => {
     if (!sessionId) return;
+    if (tokenStatus && !tokenStatus.local_mode && !tokenStatus.has_token) {
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: "⚠️ **A Personal Access Token (PAT) is required to deploy and run the report job.** Please open Settings (gear icon) and save your PAT first." },
+      ]);
+      return;
+    }
 
     setDeploying(true);
     setJobStatus(null);

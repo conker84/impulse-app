@@ -238,15 +238,16 @@ The app requires these scopes (set at app creation time via `databricks apps upd
 
 ```
 sql, dashboards.genie, files.files, serving.serving-endpoints,
-vectorsearch.vector-search-indexes, catalog.connections,
-catalog.catalogs:read, catalog.schemas:read, catalog.tables:read
+serving.serving-endpoints-data-plane, vectorsearch.vector-search-indexes,
+catalog.connections, catalog.catalogs:read, catalog.schemas:read,
+catalog.tables:read
 ```
 
 > **Important:** Scopes must be set when the app is first created. They cannot be reliably changed after deployment. The deploy script (`test/deploy-fevm.sh`) sets them automatically.
 
 To set scopes manually:
 ```bash
-databricks apps update <app-name> --json '{"user_api_scopes":["sql","dashboards.genie","files.files","serving.serving-endpoints","vectorsearch.vector-search-indexes","catalog.connections","catalog.catalogs:read","catalog.schemas:read","catalog.tables:read"]}'
+databricks apps update <app-name> --json '{"user_api_scopes":["sql","dashboards.genie","files.files","serving.serving-endpoints","serving.serving-endpoints-data-plane","vectorsearch.vector-search-indexes","catalog.connections","catalog.catalogs:read","catalog.schemas:read","catalog.tables:read"]}'
 ```
 
 ### Local Development Auth

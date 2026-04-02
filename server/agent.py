@@ -670,7 +670,7 @@ def _get_openai_client(user_token: str | None = None):
     host = w.config.host
 
     if IS_DATABRICKS_APP and user_token:
-        # Use OBO token for LLM calls — requires serving.serving-endpoints scope
+        # OBO token — requires serving.serving-endpoints-data-plane scope
         return OpenAI(
             base_url=f"{host}/serving-endpoints",
             api_key=user_token,
