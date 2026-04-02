@@ -247,7 +247,7 @@ async def list_aggregations(
 
     # Statistics
     try:
-        tbl = _table(catalog, schema, prefix, "statistics_dimension")
+        tbl = _table(catalog, schema, prefix, "stats_dimension")
         result = execute_sql(
             f"SELECT visual_id, name, description "
             f"FROM {tbl} ORDER BY visual_id",
@@ -269,7 +269,7 @@ async def list_aggregations(
         msg = str(e)
         if "TABLE_OR_VIEW_NOT_FOUND" not in msg and "does not exist" not in msg.lower():
             raise
-        logger.debug("statistics_dimension table not found, skipping statistics")
+        logger.debug("stats_dimension table not found, skipping statistics")
 
     if not aggregations:
         raise HTTPException(
@@ -416,8 +416,8 @@ async def get_statistics_data(body: StatisticsDataRequest, request: Request):
         _validate_id(name, "statistics_name")
     token = _get_user_token(request)
 
-    fact_tbl = _table(body.catalog, body.schema_name, body.prefix, "statistics_fact")
-    dim_tbl = _table(body.catalog, body.schema_name, body.prefix, "statistics_dimension")
+    fact_tbl = _table(body.catalog, body.schema_name, body.prefix, "stats_fact")
+    dim_tbl = _table(body.catalog, body.schema_name, body.prefix, "stats_dimension")
 
     statistics: dict[str, Any] = {}
     for stat_name in body.statistics_names:
