@@ -28,17 +28,16 @@ def _execute_sql(request: Request, statement: str) -> list[dict]:
         import os
 
         token = request.headers.get("X-Forwarded-Access-Token")
-        if token:
-            cfg = Config(
-                host=os.environ.get("DATABRICKS_HOST", ""),
-                token=token,
-                client_id=None,
-                client_secret=None,
-                auth_type="pat",
-            )
-            w = WorkspaceClient(config=cfg)
-        else:
-            w = get_workspace_client()
+        if not token:
+            raise HTTPException(401, "User authorization token required for UC browsing.")
+        cfg = Config(
+            host=os.environ.get("DATABRICKS_HOST", ""),
+            token=token,
+            client_id=None,
+            client_secret=None,
+            auth_type="pat",
+        )
+        w = WorkspaceClient(config=cfg)
     else:
         w = get_workspace_client()
 

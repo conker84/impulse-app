@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 from server.agent import run_agent
 from server.config import IS_DATABRICKS_APP, resolve_serving_endpoint
 from server.models import ChatMessage, ChatRequest, ChatResponse
-from server.token_store import get_pat, get_serving_endpoint
+from server.token_store import get_serving_endpoint
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["chat"])
@@ -23,10 +23,8 @@ router = APIRouter(prefix="/api", tags=["chat"])
 async def chat(req: ChatRequest, request: Request):
     email = request.headers.get("X-Forwarded-Email", "") if IS_DATABRICKS_APP else ""
 
-    # PAT first — OBO tokens lack required scopes for jobs/workspace APIs
-    user_token = get_pat(email) if email else None
-    if not user_token:
-        user_token = request.headers.get("x-forwarded-access-token")
+    # OBO token for all non-job operations (SQL, LLM, UC browse)
+    user_token = request.headers.get("x-forwarded-access-token") if IS_DATABRICKS_APP else None
 
     user_pref = get_serving_endpoint(email) if email else ""
     endpoint = resolve_serving_endpoint(user_pref)

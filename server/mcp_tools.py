@@ -409,7 +409,7 @@ def call_mcp_tool(mcp_tool_name: str, arguments: dict[str, Any], user_token: str
     """Call a tool on the MCP server.
 
     Local: uses the stdio-based local MCP server.
-    Deployed: uses end-user token when available, falls back to SP.
+    Deployed: uses end-user's OBO token (user authorization).
     """
     if mcp_tool_name == "execute_sql" and "warehouse_id" in arguments:
         from server.config import WAREHOUSE_ID
@@ -417,14 +417,12 @@ def call_mcp_tool(mcp_tool_name: str, arguments: dict[str, Any], user_token: str
 
     try:
         if IS_DATABRICKS_APP:
+            if not user_token:
+                return "Error: no user token available. User authorization (OBO) is required."
             server_url = _get_server_url()
-            if user_token:
-                response = _run_in_thread(
-                    _call_tool_as_user_sync, server_url, mcp_tool_name, arguments, user_token
-                )
-            else:
-                client = _get_sp_client()
-                response = _run_in_thread(client.call_tool, mcp_tool_name, arguments)
+            response = _run_in_thread(
+                _call_tool_as_user_sync, server_url, mcp_tool_name, arguments, user_token
+            )
         else:
             response = _run_in_thread(_local_call_tool_sync, mcp_tool_name, arguments)
 
@@ -438,14 +436,12 @@ def call_mcp_tool(mcp_tool_name: str, arguments: dict[str, Any], user_token: str
 def _execute_sql_once(statement: str, user_token: str | None = None):
     """Execute SQL via MCP and return the raw MCP response object."""
     if IS_DATABRICKS_APP:
+        if not user_token:
+            raise RuntimeError("SQL execution requires a user token (OBO). No token provided.")
         server_url = _get_server_url()
-        if user_token:
-            return _run_in_thread(
-                _call_tool_as_user_sync, server_url, "execute_sql", {"query": statement}, user_token
-            )
-        else:
-            client = _get_sp_client()
-            return _run_in_thread(client.call_tool, "execute_sql", {"query": statement})
+        return _run_in_thread(
+            _call_tool_as_user_sync, server_url, "execute_sql", {"query": statement}, user_token
+        )
     else:
         return _run_in_thread(
             _local_call_tool_sync, "execute_sql", {"sql_query": statement}

@@ -224,16 +224,30 @@ Set `DATABRICKS_PROFILE` to override the CLI profile used.
 
 | Identity | Used for |
 |----------|----------|
-| **App Service Principal** (auto-provisioned) | Lakebase read/write, LLM calls (FMAPI), Fernet key retrieval |
-| **User's PAT** (entered in Settings UI) | SQL queries, UC browsing, job creation/deploy/run, ingest |
+| **User OBO token** (automatic via User Authorization) | SQL queries, UC browsing, LLM calls (FMAPI), MCP tools, file uploads |
+| **User's PAT** (entered in Settings UI) | Job deploy and job run only (ingest + report deploy) |
+| **App Service Principal** (auto-provisioned) | Lakebase read/write, Fernet key retrieval, MCP tool discovery |
 
-Users provide a Databricks Personal Access Token via the Settings UI. The PAT is encrypted with Fernet and stored in Lakebase. All user-facing operations use the stored PAT. The app service principal handles only internal operations.
+The app uses **User Authorization (OBO)** as the primary auth mechanism. When a user accesses the app, Databricks issues an OBO token that is forwarded via the `X-Forwarded-Access-Token` header. This token carries the user's identity and permissions for all data operations.
 
-### Why PAT?
+A PAT is only required for the two job operations (MF4 ingest and report deploy) because OBO tokens lack the `jobs` scope.
 
-OBO (On-Behalf-Of) tokens issued by Databricks Apps lack the `jobs` scope needed for creating and running jobs. PATs provide full API access.
+### User Authorization Scopes
 
-> **Do NOT set `user_api_scopes` on the app.** This causes auth conflicts in the Databricks SDK.
+The app requires these scopes (set at app creation time via `databricks apps update`):
+
+```
+sql, dashboards.genie, files.files, serving.serving-endpoints,
+vectorsearch.vector-search-indexes, catalog.connections,
+catalog.catalogs:read, catalog.schemas:read, catalog.tables:read
+```
+
+> **Important:** Scopes must be set when the app is first created. They cannot be reliably changed after deployment. The deploy script (`test/deploy-fevm.sh`) sets them automatically.
+
+To set scopes manually:
+```bash
+databricks apps update <app-name> --json '{"user_api_scopes":["sql","dashboards.genie","files.files","serving.serving-endpoints","vectorsearch.vector-search-indexes","catalog.connections","catalog.catalogs:read","catalog.schemas:read","catalog.tables:read"]}'
+```
 
 ### Local Development Auth
 
@@ -273,11 +287,8 @@ The Lakebase Postgres role must be created with `databricks_create_role()`, not 
 **`PermissionDenied: does not have READ permission on scope impulse`**
 Grant the SP read access: `databricks secrets put-acl impulse <sp-client-id> READ`
 
-**`more than one authorization method configured: oauth and pat`**
-This means `user_api_scopes` are set on the app, causing SDK conflicts. Clear them:
-```bash
-databricks apps update impulse --json '{"user_api_scopes":[]}' --profile <your-profile>
-```
+**`401 User authorization token required`**
+The app requires User Authorization scopes. Ensure scopes are set on the app (see above) and that the user has consented to the authorization prompt on first access.
 
 **Deploy doesn't pick up changes**
 `databricks sync` only syncs git-tracked files. Make sure to `git commit` before deploying.

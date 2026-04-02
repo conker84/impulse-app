@@ -1,4 +1,9 @@
 command: ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+resources:
+  - name: sql-warehouse
+    sql_warehouse:
+      id: "e0458b451165d343"
+      permission: CAN_USE
 env:
   - name: DATABRICKS_WAREHOUSE_ID
     value: "e0458b451165d343"

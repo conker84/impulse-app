@@ -662,12 +662,22 @@ def _dispatch_tool(
 # OpenAI-compatible client for Databricks Foundation Model API
 # ---------------------------------------------------------------------------
 
-def _get_openai_client():
+def _get_openai_client(user_token: str | None = None):
     from openai import OpenAI
+    from server.config import IS_DATABRICKS_APP
 
     w = get_workspace_client()
-    token = w.config.token
+    host = w.config.host
 
+    if IS_DATABRICKS_APP and user_token:
+        # Use OBO token for LLM calls — requires serving.serving-endpoints scope
+        return OpenAI(
+            base_url=f"{host}/serving-endpoints",
+            api_key=user_token,
+        )
+
+    # Local dev: use profile-based auth
+    token = w.config.token
     if not token:
         try:
             result = w.config.authenticate()
@@ -685,12 +695,12 @@ def _get_openai_client():
     if not token:
         raise RuntimeError(
             f"Could not obtain auth token. auth_type={w.config.auth_type}, "
-            f"host={w.config.host}, "
+            f"host={host}, "
             f"has_client_id={bool(w.config.client_id)}"
         )
 
     return OpenAI(
-        base_url=f"{w.config.host}/serving-endpoints",
+        base_url=f"{host}/serving-endpoints",
         api_key=token,
     )
 
@@ -756,7 +766,7 @@ def run_agent(
 ) -> tuple[str, ReportState, str]:
     """Run the agent for one user turn. Returns (assistant_text, report_state, session_id)."""
     session = _get_session(session_id)
-    client = _get_openai_client()
+    client = _get_openai_client(user_token=user_token)
     system_prompt = build_system_prompt(
         wizard_step=session.state.wizard_step.value,
         signals=[s.model_dump() for s in session.state.signals] if session.state.signals else None,

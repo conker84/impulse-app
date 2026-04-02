@@ -84,6 +84,9 @@ if [ "$SYNC_ONLY" = true ]; then
   exit 0
 fi
 
+echo "==> Setting user authorization scopes on '$APP_NAME'..."
+databricks apps update "$APP_NAME" --profile "$PROFILE" --json '{"user_api_scopes":["sql","dashboards.genie","files.files","serving.serving-endpoints","vectorsearch.vector-search-indexes","catalog.connections","catalog.catalogs:read","catalog.schemas:read","catalog.tables:read"]}' -o json > /dev/null 2>&1 || echo "    WARNING: Failed to set scopes (may need to recreate app)"
+
 echo "==> Deploying app '$APP_NAME'..."
 databricks apps deploy "$APP_NAME" --source-code-path "$WS_PATH" --profile "$PROFILE" --no-wait
 
