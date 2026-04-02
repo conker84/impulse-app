@@ -154,12 +154,15 @@ def generate_report_notebook(state: ReportState) -> str:
         agg_lines.append("")
 
     for stats in (a for a in state.aggregations if isinstance(a, StatisticsDefinition)):
-        selections_items = ", ".join(f'signals["{ref}"]' for ref in stats.signal_refs)
-        params = [f'    name="{stats.name}"', f"    selections=[{selections_items}]", f"    aggregation_labels={repr(stats.stat_labels)}"]
+        event_name = f"{stats.name}_event"
         if stats.event_signal_ref:
-            params.append(f'    event=BasicEvent(name="{stats.name}_event", expr=signals["{stats.event_signal_ref}"])')
+            agg_lines.append(f'{event_name} = BasicEvent(name="{event_name}", expr=signals["{stats.event_signal_ref}"])')
         else:
-            params.append(f'    event=ContainerEvent(name="{stats.name}_event")')
+            agg_lines.append(f'{event_name} = ContainerEvent(name="{event_name}")')
+        agg_lines.append(f"my_report.add_event({event_name})")
+        agg_lines.append("")
+        selections_items = ", ".join(f'signals["{ref}"]' for ref in stats.signal_refs)
+        params = [f'    name="{stats.name}"', f"    selections=[{selections_items}]", f"    aggregation_labels={repr(stats.stat_labels)}", f"    event={event_name}"]
         if stats.description:
             params.append(f'    desc="{stats.description}"')
         agg_lines.append("page.add_aggregation(Statistics(")
