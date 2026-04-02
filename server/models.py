@@ -102,7 +102,7 @@ class StatisticsDefinition(BaseModel):
     agg_kind: Literal["statistics"] = "statistics"
     name: str
     signal_refs: list[str] = Field(default_factory=list)
-    stat_labels: list[str] = Field(default_factory=lambda: ["min", "max", "mean", "median", "std", "count"])
+    stat_labels: list[str] = Field(default_factory=lambda: ["min", "max", "mean", "median"])
     event_signal_ref: str | None = None
     signal_names: list[str] | None = None
     description: str = ""

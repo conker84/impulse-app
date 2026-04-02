@@ -7,7 +7,7 @@ interface Props {
   onAdd: (stats: StatisticsDefinition) => void;
 }
 
-const ALL_STAT_LABELS = ["min", "max", "mean", "median", "std", "count"] as const;
+const ALL_STAT_LABELS = ["min", "max", "mean", "median"] as const;
 
 function makeUniqueName(base: string, existing: Set<string>): string {
   if (!existing.has(base)) return base;

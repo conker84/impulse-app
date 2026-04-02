@@ -269,7 +269,7 @@ TOOLS = [
                         "type": "array",
                         "items": {
                             "type": "string",
-                            "enum": ["min", "max", "mean", "median", "std", "count"],
+                            "enum": ["min", "max", "mean", "median"],
                         },
                         "description": "Which statistics to compute (default: all)",
                     },
@@ -509,7 +509,7 @@ def _exec_add_statistics(state: ReportState, **kwargs: Any) -> str:
     if any(a.name == name for a in state.aggregations):
         return f"Aggregation '{name}' already exists."
     signal_refs = kwargs["signal_refs"]
-    stat_labels = kwargs.get("stat_labels", ["min", "max", "mean", "median", "std", "count"])
+    stat_labels = kwargs.get("stat_labels", ["min", "max", "mean", "median"])
     state.aggregations.append(
         StatisticsDefinition(
             name=name,

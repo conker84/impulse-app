@@ -1,6 +1,6 @@
 # Statistics Aggregation — Detailed Reference
 
-Statistics aggregations compute summary metrics (min, max, mean, median, std, count) across one or more signals. They provide a quick overview without the granularity of histograms.
+Statistics aggregations compute summary metrics (min, max, mean, median) across one or more signals. They provide a quick overview without the granularity of histograms.
 
 ## Constructor
 
@@ -8,7 +8,7 @@ Statistics aggregations compute summary metrics (min, max, mean, median, std, co
 Statistics(
     name="temp_overview_p1",
     signal_refs=["coolant_temp", "oil_temp", "exhaust_temp"],
-    stat_labels=["min", "max", "mean", "median", "std", "count"],
+    stat_labels=["min", "max", "mean", "median"],
     desc="Temperature signal overview"
 )
 ```
@@ -19,7 +19,7 @@ Statistics(
 |---|---|---|---|
 | `name` | str | Yes | Unique aggregation ID |
 | `signal_refs` | list[str] | Yes | List of signal var_names to compute stats for |
-| `stat_labels` | list[str] | No | Which statistics to compute (default: all six) |
+| `stat_labels` | list[str] | No | Which statistics to compute (default: all four) |
 | `event_signal_ref` | str | No | var_name of event signal for point-in-time statistics |
 | `desc` | str | No | Human-readable description |
 
@@ -29,10 +29,8 @@ Statistics(
 |---|---|
 | `min` | Minimum value across all samples/sessions |
 | `max` | Maximum value across all samples/sessions |
-| `mean` | Arithmetic mean |
-| `median` | Median (50th percentile) |
-| `std` | Standard deviation |
-| `count` | Number of samples |
+| `mean` | Duration-weighted arithmetic mean |
+| `median` | Duration-weighted median (50th percentile) |
 
 ## Signal Type Compatibility
 
