@@ -163,11 +163,11 @@ Verify the environment variables match your workspace:
 
 | Resource | Permission | How to grant |
 |----------|-----------|--------------|
-| SQL Warehouse | CAN USE | Warehouse permissions in workspace admin UI |
 | Foundation Model API endpoint | CAN QUERY | Endpoint permissions in workspace admin UI |
 | Lakebase database | OAuth role + ALL PRIVILEGES | See Step 2 |
 | Secret scope `impulse` | READ | `databricks secrets put-acl` (see Step 3) |
-| Unity Catalog tables | SELECT | `GRANT SELECT ON TABLE ... TO <sp-name>` |
+
+> SQL Warehouse and Unity Catalog permissions are **not needed** for the service principal — those operations use the user's OBO token.
 
 ### Step 6: Build and deploy
 
