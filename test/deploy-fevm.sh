@@ -84,7 +84,7 @@ if [ "$SYNC_ONLY" = true ]; then
   exit 0
 fi
 
-USER_API_SCOPES='["sql","sql.statement-execution","dashboards.genie","files.files","serving.serving-endpoints","serving.serving-endpoints-data-plane","vectorsearch.vector-search-indexes","vectorsearch.vector-search-endpoints","catalog.connections","catalog.catalogs","catalog.schemas","catalog.tables"]'
+USER_API_SCOPES='["sql","dashboards.genie","files.files","catalog.connections","catalog.catalogs:read","catalog.schemas:read","catalog.tables:read"]'
 
 # Create app with scopes if it doesn't exist yet; otherwise just deploy
 if ! databricks apps get "$APP_NAME" --profile "$PROFILE" -o json > /dev/null 2>&1; then

@@ -664,19 +664,13 @@ def _dispatch_tool(
 
 def _get_openai_client(user_token: str | None = None):
     from openai import OpenAI
-    from server.config import IS_DATABRICKS_APP
 
     w = get_workspace_client()
     host = w.config.host
 
-    if IS_DATABRICKS_APP and user_token:
-        # OBO token — requires serving.serving-endpoints-data-plane scope
-        return OpenAI(
-            base_url=f"{host}/serving-endpoints",
-            api_key=user_token,
-        )
-
-    # Local dev: use profile-based auth
+    # LLM inference uses the app service principal — serving endpoint
+    # scopes (serving.serving-endpoints, serving.serving-endpoints-data-plane)
+    # break the OAuth consent flow when set as user_api_scopes.
     token = w.config.token
     if not token:
         try:

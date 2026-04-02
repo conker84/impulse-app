@@ -127,6 +127,8 @@ conn.close()
 
 The app automatically creates the required tables on first startup via `server/db.py`.
 
+> **If recreating the app** (delete + create): the new service principal gets a new client ID. You must re-run `databricks_create_role()` and grants for the new SP. If tables already exist from the old SP, drop them first — the new SP cannot ALTER tables it doesn't own.
+
 ### Step 3: Create a secret scope for PAT encryption
 
 ```bash
@@ -224,30 +226,32 @@ Set `DATABRICKS_PROFILE` to override the CLI profile used.
 
 | Identity | Used for |
 |----------|----------|
-| **User OBO token** (automatic via User Authorization) | SQL queries, UC browsing, LLM calls (FMAPI), MCP tools, file uploads |
+| **User OBO token** (automatic via User Authorization) | SQL queries, UC browsing, MCP tools, file uploads |
+| **App Service Principal** (auto-provisioned) | LLM calls (FMAPI), Lakebase read/write, Fernet key retrieval, MCP tool discovery |
 | **User's PAT** (entered in Settings UI) | Job deploy and job run only (ingest + report deploy) |
-| **App Service Principal** (auto-provisioned) | Lakebase read/write, Fernet key retrieval, MCP tool discovery |
 
 The app uses **User Authorization (OBO)** as the primary auth mechanism. When a user accesses the app, Databricks issues an OBO token that is forwarded via the `X-Forwarded-Access-Token` header. This token carries the user's identity and permissions for all data operations.
+
+LLM inference (Foundation Model API) uses the app service principal because the serving endpoint scopes (`serving.serving-endpoints`, `serving.serving-endpoints-data-plane`) break the OAuth consent flow when set as `user_api_scopes`.
 
 A PAT is only required for the two job operations (MF4 ingest and report deploy) because OBO tokens lack the `jobs` scope.
 
 ### User Authorization Scopes
 
-The app requires these scopes (set at app creation time via `databricks apps update`):
+The app requires these scopes (set at app creation time via the deploy script):
 
 ```
-sql, sql.statement-execution, dashboards.genie, files.files,
-serving.serving-endpoints, serving.serving-endpoints-data-plane,
-vectorsearch.vector-search-indexes, vectorsearch.vector-search-endpoints,
-catalog.connections, catalog.catalogs, catalog.schemas, catalog.tables
+sql, dashboards.genie, files.files, catalog.connections,
+catalog.catalogs:read, catalog.schemas:read, catalog.tables:read
 ```
 
-> **Important:** Scopes must be set when the app is first created. They cannot be reliably changed after deployment. The deploy script (`test/deploy-fevm.sh`) sets them automatically.
+> **Note:** Serving endpoint scopes (`serving.serving-endpoints`, `serving.serving-endpoints-data-plane`) are NOT included — they break the OAuth consent flow. FMAPI calls use the app service principal instead.
+
+> **Important:** Scopes should be set when the app is first created. The deploy script (`test/deploy-fevm.sh`) handles this automatically.
 
 To set scopes manually:
 ```bash
-databricks apps update <app-name> --json '{"user_api_scopes":["sql","sql.statement-execution","dashboards.genie","files.files","serving.serving-endpoints","serving.serving-endpoints-data-plane","vectorsearch.vector-search-indexes","vectorsearch.vector-search-endpoints","catalog.connections","catalog.catalogs","catalog.schemas","catalog.tables"]}'
+databricks apps update <app-name> --json '{"user_api_scopes":["sql","dashboards.genie","files.files","catalog.connections","catalog.catalogs:read","catalog.schemas:read","catalog.tables:read"]}'
 ```
 
 ### Local Development Auth
