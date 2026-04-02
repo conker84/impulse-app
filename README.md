@@ -237,17 +237,17 @@ A PAT is only required for the two job operations (MF4 ingest and report deploy)
 The app requires these scopes (set at app creation time via `databricks apps update`):
 
 ```
-sql, dashboards.genie, files.files, serving.serving-endpoints,
-serving.serving-endpoints-data-plane, vectorsearch.vector-search-indexes,
-catalog.connections, catalog.catalogs:read, catalog.schemas:read,
-catalog.tables:read
+sql, sql.statement-execution, dashboards.genie, files.files,
+serving.serving-endpoints, serving.serving-endpoints-data-plane,
+vectorsearch.vector-search-indexes, vectorsearch.vector-search-endpoints,
+catalog.connections, catalog.catalogs, catalog.schemas, catalog.tables
 ```
 
 > **Important:** Scopes must be set when the app is first created. They cannot be reliably changed after deployment. The deploy script (`test/deploy-fevm.sh`) sets them automatically.
 
 To set scopes manually:
 ```bash
-databricks apps update <app-name> --json '{"user_api_scopes":["sql","dashboards.genie","files.files","serving.serving-endpoints","serving.serving-endpoints-data-plane","vectorsearch.vector-search-indexes","catalog.connections","catalog.catalogs:read","catalog.schemas:read","catalog.tables:read"]}'
+databricks apps update <app-name> --json '{"user_api_scopes":["sql","sql.statement-execution","dashboards.genie","files.files","serving.serving-endpoints","serving.serving-endpoints-data-plane","vectorsearch.vector-search-indexes","vectorsearch.vector-search-endpoints","catalog.connections","catalog.catalogs","catalog.schemas","catalog.tables"]}'
 ```
 
 ### Local Development Auth

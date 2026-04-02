@@ -23,7 +23,7 @@ router = APIRouter(prefix="/api", tags=["chat"])
 async def chat(req: ChatRequest, request: Request):
     email = request.headers.get("X-Forwarded-Email", "") if IS_DATABRICKS_APP else ""
 
-    # OBO token for all non-job operations (SQL, LLM, UC browse)
+    # OBO token for all operations (SQL, LLM, UC browse, MCP tools)
     user_token = request.headers.get("x-forwarded-access-token") if IS_DATABRICKS_APP else None
 
     user_pref = get_serving_endpoint(email) if email else ""
