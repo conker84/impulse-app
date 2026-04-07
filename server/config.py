@@ -11,7 +11,7 @@ IS_DATABRICKS_APP = bool(
     or os.environ.get("DATABRICKS_CLIENT_ID")
 )
 DATABRICKS_PROFILE = os.environ.get("DATABRICKS_PROFILE", "fe-vm-maximhammer")
-WAREHOUSE_ID = os.environ.get("DATABRICKS_WAREHOUSE_ID", "e0458b451165d343")
+WAREHOUSE_ID = os.environ.get("DATABRICKS_WAREHOUSE_ID", "997c48107f9a1467")
 SERVING_ENDPOINT = os.environ.get("SERVING_ENDPOINT", "databricks-claude-sonnet-4-6")
 
 AVAILABLE_MODELS = [
