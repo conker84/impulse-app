@@ -27,6 +27,40 @@ The app guides users through a **6-step wizard**:
 
 An LLM agent (configurable per-user from Foundation Model API endpoints) assists throughout — users can describe what they need in natural language and the agent calls tools to build the report incrementally.
 
+### Time Series Explorer
+
+Separate from the report wizard, the **"Explore Time Series"** feature (accessible from the landing screen) provides interactive visualization of massive time series datasets (100M–300M+ data points) from the Impulse silver layer.
+
+**How it works:**
+
+1. **Select** a catalog, schema, container, and one or more signals from the sidebar
+2. **Load** — click "Load & Explore" to fetch channel data from the SQL Warehouse via `databricks-sql-connector` (Arrow-native). Data is loaded into server memory as Polars DataFrames. This is the slow step (~1–5 min for 300M rows depending on warehouse size)
+3. **Explore** — the chart renders with a full-range overview. Drag to zoom into any region and the backend instantly re-aggregates using the LTTB algorithm (`tsdownsample`), selecting ~5,000 visually representative points from however many are in the window. Zoom/pan responses are <50ms regardless of dataset size
+4. **Reset** — double-click to return to the full range
+
+**Key features:**
+- **Scale:** Tested with 300M+ data points on a Large (12 GB) app instance
+- **Multi-signal correlation:** Overlay multiple signals on one chart with automatic dual y-axis grouping by unit (e.g., RPM on left, Voltage on right). For 3+ unit types, signals are clustered into two axis groups with [L]/[R] legend tags
+- **Normalized view:** Toggle between absolute values and [0–1] normalized scale for comparing signals with different magnitudes
+- **Live counters:** "Currently viewing: X data points" updates on every zoom, with a downsampling indicator when LTTB is active
+- **Progressive hover:** At overview level, hover shows basic info. Zoom below 10K points and hover switches to sub-second timestamps with unified cross-trace tooltips
+- **In-memory caching:** After the initial load, all interactions are served from memory — no further SQL queries. LRU eviction manages memory when multiple channels are loaded
+
+**Architecture:**
+
+```
+Browser (Plotly.js scatter + hv lines)
+  │  POST /resample (~50ms)
+  ▼
+FastAPI (ts_cache.py: numpy arrays + LTTB)
+  │  POST /load (once, via background thread)
+  ▼
+SQL Warehouse (databricks-sql-connector, Arrow batches)
+  │
+  ▼
+Delta Lake (silver layer: channels table, RLE format)
+```
+
 ### Key Directories
 
 | Path | Description |
@@ -41,6 +75,8 @@ An LLM agent (configurable per-user from Foundation Model API endpoints) assists
 | `server/db.py` | Lakebase (PostgreSQL) connection layer |
 | `server/code_generator.py` | Generates signal defs, histograms, config JSON from report state |
 | `server/mcp_tools.py` | MCP server integration for SQL and UC browsing |
+| `server/ts_cache.py` | In-memory Polars cache + LTTB resample engine for time series |
+| `server/ts_connector.py` | Direct SQL connector for Arrow-native time series data fetching |
 | `frontend/src/` | React TypeScript source |
 | `frontend/dist/` | Production build (served as static files) |
 | `skills/` | Domain-specific knowledge loaded into the agent's system prompt |
