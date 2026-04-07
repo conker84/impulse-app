@@ -11,7 +11,7 @@ Usage:
 from __future__ import annotations
 
 import numpy as np
-import polars as pl
+import pyarrow as pa
 
 # Synthetic container_id — the routes detect this as the synthetic marker
 SYNTHETIC_CONTAINER_ID = 0
@@ -146,10 +146,10 @@ def _generate_signal(
         noise = rng.normal(0, 0.02, n_points)
         values = v_min + (base + noise).clip(0, 1) * v_range
 
-    return pl.DataFrame({
-        "tstart": tstart,
-        "tend": tend,
-        "value": values.astype(np.float64),
+    return pa.table({
+        "tstart": pa.array(tstart),
+        "tend": pa.array(tend),
+        "value": pa.array(values.astype(np.float64)),
     })
 
 
@@ -182,8 +182,8 @@ def load_synthetic_data(
             results[channel_id] = {"cache_key": cache_key, "already_loaded": True}
             continue
 
-        df = _generate_signal(channel_id, n_points_per_signal, duration_ns, rng)
-        ch = cache.load_from_polars(cache_key, channel_id, df)
+        table = _generate_signal(channel_id, n_points_per_signal, duration_ns, rng)
+        ch = cache.load_from_arrow(cache_key, channel_id, table)
 
         sig["sample_count"] = ch.total_points
         results[channel_id] = {

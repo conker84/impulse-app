@@ -182,7 +182,7 @@ def _background_load(load_id: str, body: LoadRequest, token: str | None):
             job["status"] = "done"
             return
 
-        from server.ts_connector import fetch_channel_polars, get_connection
+        from server.ts_connector import fetch_channel_arrow, get_connection
 
         conn = get_connection(token)
         channels = []
@@ -207,13 +207,13 @@ def _background_load(load_id: str, body: LoadRequest, token: str | None):
 
                 job["message"] = f"Fetching channel {channel_id} from warehouse..."
                 t0 = time.monotonic()
-                df = fetch_channel_polars(
+                table = fetch_channel_arrow(
                     conn, body.catalog, body.schema_name, body.container_id, channel_id
                 )
                 fetch_ms = (time.monotonic() - t0) * 1000
 
-                job["message"] = f"Processing channel {channel_id} ({len(df):,} RLE rows)..."
-                ch = cache.load_from_polars(cache_key, channel_id, df)
+                job["message"] = f"Processing channel {channel_id} ({table.num_rows:,} RLE rows)..."
+                ch = cache.load_from_arrow(cache_key, channel_id, table)
                 total_ms = (time.monotonic() - t0) * 1000
 
                 logger.info(

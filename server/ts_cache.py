@@ -1,7 +1,7 @@
-"""In-memory Polars cache + LTTB resample engine for time series data.
+"""In-memory cache + LTTB resample engine for time series data.
 
-Stores expanded RLE time series as numpy arrays. Supports instant (<50ms)
-LTTB downsampling on any zoom window via tsdownsample.
+Stores time series as NumPy float64 arrays (converted directly from PyArrow).
+Supports instant (<50ms) LTTB downsampling on any zoom window via tsdownsample.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ import time
 from dataclasses import dataclass, field
 
 import numpy as np
-import polars as pl
+import pyarrow as pa
 
 logger = logging.getLogger(__name__)
 
@@ -26,32 +26,13 @@ class ChannelData:
 
     cache_key: str
     channel_id: int
-    expanded_t: np.ndarray  # timestamps in nanoseconds (float64)
+    expanded_t: np.ndarray  # timestamps (float64)
     expanded_v: np.ndarray  # values (float64)
     total_points: int
     t_min_ns: float
     t_max_ns: float
     last_accessed: float = field(default_factory=time.monotonic)
     memory_bytes: int = 0
-
-
-# ---------------------------------------------------------------------------
-# RLE expansion (vectorized in Polars)
-# ---------------------------------------------------------------------------
-
-
-def extract_rle_points(df: pl.DataFrame) -> tuple[np.ndarray, np.ndarray]:
-    """Extract one point per RLE interval (tstart, value).
-
-    No step-pair expansion — the frontend uses line.shape="hv" to render
-    the step-function shape. This halves the data volume compared to
-    duplicating each row as (tstart, value) + (tend, value).
-
-    Returns (timestamps_ns, values) as float64 numpy arrays, sorted by time.
-    """
-    t_arr = df["tstart"].to_numpy(zero_copy_only=False).astype(np.float64)
-    v_arr = df["value"].to_numpy(zero_copy_only=False).astype(np.float64)
-    return t_arr, v_arr
 
 
 # ---------------------------------------------------------------------------
@@ -82,7 +63,7 @@ def _lttb_downsample(
 
 
 class TimeSeriesCache:
-    """In-memory cache of expanded time series channels with LTTB resampling."""
+    """In-memory cache of time series channels with LTTB resampling."""
 
     def __init__(self, max_memory_bytes: int = 8 * 1024**3):
         self._cache: dict[str, ChannelData] = {}
@@ -98,18 +79,18 @@ class TimeSeriesCache:
     def get_memory_usage(self) -> int:
         return sum(ch.memory_bytes for ch in self._cache.values())
 
-    def load_from_polars(
+    def load_from_arrow(
         self,
         cache_key: str,
         channel_id: int,
-        df: pl.DataFrame,
+        table: pa.Table,
     ) -> ChannelData:
-        """Load a channel from a Polars DataFrame of RLE rows into the cache.
+        """Load a channel from a PyArrow Table of RLE rows into the cache.
 
         Args:
             cache_key: Unique identifier for this channel.
             channel_id: The channel ID.
-            df: DataFrame with columns [tstart, tend, value].
+            table: Arrow Table with columns [tstart, tend, value].
 
         Returns:
             The cached ChannelData.
@@ -120,17 +101,18 @@ class TimeSeriesCache:
             return ch
 
         t0 = time.monotonic()
-        t_arr, v_arr = extract_rle_points(df)
-        expand_ms = (time.monotonic() - t0) * 1000
+        n_rows = table.num_rows
+        t_arr = table.column("tstart").to_numpy().astype(np.float64)
+        v_arr = table.column("value").to_numpy().astype(np.float64)
+        convert_ms = (time.monotonic() - t0) * 1000
 
         mem = t_arr.nbytes + v_arr.nbytes
         logger.info(
-            "Loaded %s: %d RLE rows → %d points (%.1f MB) in %.0f ms",
+            "Loaded %s: %d RLE rows (%.1f MB) in %.0f ms",
             cache_key,
-            len(df),
-            len(t_arr),
+            n_rows,
             mem / 1024**2,
-            expand_ms,
+            convert_ms,
         )
 
         ch = ChannelData(

@@ -1,7 +1,8 @@
 """Direct SQL connector for Arrow-native time series data fetching.
 
 Uses databricks-sql-connector to fetch large result sets as Arrow batches,
-bypassing the MCP text-serialization path. Zero-copy into Polars DataFrames.
+bypassing the MCP text-serialization path. Returns PyArrow Tables for
+direct conversion to NumPy arrays.
 """
 
 from __future__ import annotations
@@ -10,7 +11,7 @@ import logging
 import os
 from typing import TYPE_CHECKING
 
-import polars as pl
+import pyarrow as pa
 
 if TYPE_CHECKING:
     from databricks.sql.client import Connection
@@ -52,17 +53,17 @@ def get_connection(token: str | None = None) -> Connection:
     )
 
 
-def fetch_channel_polars(
+def fetch_channel_arrow(
     conn: Connection,
     catalog: str,
     schema: str,
     container_id: int,
     channel_id: int,
-) -> pl.DataFrame:
-    """Fetch all RLE rows for a channel as a Polars DataFrame.
+) -> pa.Table:
+    """Fetch all RLE rows for a channel as a PyArrow Table.
 
-    Returns DataFrame with columns [tstart: Int64, tend: Int64, value: Float64].
-    Uses Arrow-native fetching for zero-copy transfer.
+    Returns Table with columns [tstart, tend, value].
+    Uses Arrow-native fetching — no intermediate DataFrame conversion.
     """
     sql = (
         f"SELECT tstart, tend, value "
@@ -74,7 +75,6 @@ def fetch_channel_polars(
     cursor = conn.cursor()
     try:
         cursor.execute(sql)
-        arrow_table = cursor.fetchall_arrow()
-        return pl.from_arrow(arrow_table)
+        return cursor.fetchall_arrow()
     finally:
         cursor.close()
