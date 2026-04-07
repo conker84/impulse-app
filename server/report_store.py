@@ -23,6 +23,7 @@ _PERSISTED_KEYS = frozenset({
     "description",
     "creator",
     "signals",
+    "events",
     "aggregations",
     "vehicles",
     "data_sources",

@@ -475,7 +475,7 @@ export default function SignalsTab({ signals, events, sessionId, silverCatalog, 
                 <th>Type</th>
                 <th>Expression</th>
                 <th>Output</th>
-                <th style={{ width: 60 }}></th>
+                {onStateUpdate && <th style={{ width: 60 }}></th>}
               </tr>
             </thead>
             <tbody>
@@ -491,6 +491,7 @@ export default function SignalsTab({ signals, events, sessionId, silverCatalog, 
                       {evt.event_type === "interval" ? "Intervals" : "PointsInTime"}
                     </span>
                   </td>
+                  {onStateUpdate && (
                   <td>
                     <div style={{ display: "flex", gap: 2 }}>
                       <button
@@ -507,6 +508,7 @@ export default function SignalsTab({ signals, events, sessionId, silverCatalog, 
                       >&#x2715;</button>
                     </div>
                   </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -515,11 +517,11 @@ export default function SignalsTab({ signals, events, sessionId, silverCatalog, 
 
         {events.length === 0 && !showAddEvent && (
           <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 6 }}>
-            No events defined. Events act as filters for aggregations.
+            No events defined.{onStateUpdate ? " Events act as filters for aggregations." : ""}
           </div>
         )}
 
-        {!showAddEvent ? (
+        {!onStateUpdate ? null : !showAddEvent ? (
           <button className="action-btn" style={{ fontSize: 11 }} onClick={openEventForm}>
             + Add Event
           </button>
