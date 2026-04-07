@@ -104,6 +104,15 @@ class TimeSeriesCache:
         n_rows = table.num_rows
         t_arr = table.column("tstart").to_numpy().astype(np.float64)
         v_arr = table.column("value").to_numpy().astype(np.float64)
+
+        # Ensure sorted by timestamp — Arrow fetch may return chunks
+        # in insertion order rather than globally sorted
+        sort_idx = np.argsort(t_arr, kind="quicksort")
+        if not np.array_equal(sort_idx, np.arange(len(sort_idx))):
+            t_arr = t_arr[sort_idx]
+            v_arr = v_arr[sort_idx]
+            logger.info("Sorted %d points (data was not in order)", n_rows)
+
         convert_ms = (time.monotonic() - t0) * 1000
 
         mem = t_arr.nbytes + v_arr.nbytes

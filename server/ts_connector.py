@@ -68,8 +68,7 @@ def fetch_channel_arrow(
     sql = (
         f"SELECT tstart, tend, value "
         f"FROM {catalog}.{schema}.channels "
-        f"WHERE container_id = {container_id} AND channel_id = {channel_id} "
-        f"ORDER BY tstart"
+        f"WHERE container_id = {container_id} AND channel_id = {channel_id}"
     )
 
     cursor = conn.cursor()
