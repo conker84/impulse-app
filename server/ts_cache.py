@@ -40,22 +40,17 @@ class ChannelData:
 # ---------------------------------------------------------------------------
 
 
-def expand_rle(df: pl.DataFrame) -> tuple[np.ndarray, np.ndarray]:
-    """Expand RLE intervals to step-pair arrays.
+def extract_rle_points(df: pl.DataFrame) -> tuple[np.ndarray, np.ndarray]:
+    """Extract one point per RLE interval (tstart, value).
 
-    Each RLE row (tstart, tend, value) becomes two points:
-      (tstart, value) and (tend, value)  [if tend != tstart]
+    No step-pair expansion — the frontend uses line.shape="hv" to render
+    the step-function shape. This halves the data volume compared to
+    duplicating each row as (tstart, value) + (tend, value).
 
-    Returns (timestamps_ns, values) as float64 numpy arrays.
+    Returns (timestamps_ns, values) as float64 numpy arrays, sorted by time.
     """
-    starts = df.select(pl.col("tstart").alias("t"), pl.col("value"))
-    ends = df.filter(pl.col("tend") != pl.col("tstart")).select(
-        pl.col("tend").alias("t"), pl.col("value")
-    )
-    expanded = pl.concat([starts, ends]).sort("t")
-
-    t_arr = expanded["t"].to_numpy(zero_copy_only=False).astype(np.float64)
-    v_arr = expanded["value"].to_numpy(zero_copy_only=False).astype(np.float64)
+    t_arr = df["tstart"].to_numpy(zero_copy_only=False).astype(np.float64)
+    v_arr = df["value"].to_numpy(zero_copy_only=False).astype(np.float64)
     return t_arr, v_arr
 
 
@@ -125,12 +120,12 @@ class TimeSeriesCache:
             return ch
 
         t0 = time.monotonic()
-        t_arr, v_arr = expand_rle(df)
+        t_arr, v_arr = extract_rle_points(df)
         expand_ms = (time.monotonic() - t0) * 1000
 
         mem = t_arr.nbytes + v_arr.nbytes
         logger.info(
-            "Expanded %s: %d RLE rows → %d points (%.1f MB) in %.0f ms",
+            "Loaded %s: %d RLE rows → %d points (%.1f MB) in %.0f ms",
             cache_key,
             len(df),
             len(t_arr),
