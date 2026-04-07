@@ -299,7 +299,10 @@ export default function TimeSeriesView({ onBack, initialCatalog, initialSchema, 
 
     try {
       const channelIds = Array.from(selectedSignals);
-      const resp = await loadTimeSeriesChannels(catalog, schema, selectedContainer, channelIds);
+      const resp = await loadTimeSeriesChannels(
+        catalog, schema, selectedContainer, channelIds,
+        (msg, elapsedMs) => setLoadingPhase(`${msg} (${Math.round(elapsedMs / 1000)}s)`),
+      );
 
       const loaded = new Map<number, LoadedChannel>();
       const cacheKeys: string[] = [];

@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 import time
+import uuid
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -28,6 +30,9 @@ _IDENTIFIER_RE = re.compile(r"^[a-zA-Z0-9_]+$")
 _SYNTHETIC_CONTAINER_ID = 0
 _SYNTHETIC_CATALOG = "synthetic"
 _SYNTHETIC_SCHEMA = "test"
+
+# Background load jobs — keyed by load_id
+_load_jobs: dict[str, dict] = {}
 
 
 def _validate_id(value: str, name: str) -> str:
@@ -153,7 +158,7 @@ async def list_signals(
 
 
 # ---------------------------------------------------------------------------
-# Load channels into in-memory cache
+# Load channels into in-memory cache (async with polling)
 # ---------------------------------------------------------------------------
 
 
@@ -164,77 +169,163 @@ class LoadRequest(BaseModel):
     channel_ids: list[int]
 
 
-@router.post("/load")
-async def load_channels(body: LoadRequest, request: Request):
-    """Load channel data into in-memory Polars cache for fast resampling.
-
-    For synthetic data (container_id=0): generates test data locally.
-    For real data: fetches from Databricks SQL warehouse via Arrow.
-    """
+def _background_load(load_id: str, body: LoadRequest, token: str | None):
+    """Run the heavy SQL fetch in a background thread."""
+    job = _load_jobs[load_id]
     cache = get_cache()
-    token = _get_user_token(request)
-    results = []
 
-    # Synthetic data path
-    if body.container_id == _SYNTHETIC_CONTAINER_ID:
-        return _load_synthetic(body.channel_ids)
-
-    # Real data path
-    _validate_id(body.catalog, "catalog")
-    _validate_id(body.schema_name, "schema")
-
-    from server.ts_connector import fetch_channel_polars, get_connection
-
-    conn = get_connection(token)
     try:
-        for channel_id in body.channel_ids:
-            cache_key = TimeSeriesCache.make_key(
-                body.catalog, body.schema_name, body.container_id, channel_id
-            )
+        # Synthetic data path
+        if body.container_id == _SYNTHETIC_CONTAINER_ID:
+            result = _load_synthetic(body.channel_ids)
+            job["result"] = result
+            job["status"] = "done"
+            return
 
-            if cache.is_loaded(cache_key):
-                ch = cache._cache[cache_key]
-                results.append({
+        from server.ts_connector import fetch_channel_polars, get_connection
+
+        conn = get_connection(token)
+        channels = []
+        try:
+            for channel_id in body.channel_ids:
+                cache_key = TimeSeriesCache.make_key(
+                    body.catalog, body.schema_name, body.container_id, channel_id
+                )
+
+                if cache.is_loaded(cache_key):
+                    ch = cache._cache[cache_key]
+                    channels.append({
+                        "channel_id": channel_id,
+                        "cache_key": cache_key,
+                        "total_points": ch.total_points,
+                        "t_min_ns": ch.t_min_ns,
+                        "t_max_ns": ch.t_max_ns,
+                        "load_time_ms": 0,
+                        "cached": True,
+                    })
+                    continue
+
+                job["message"] = f"Fetching channel {channel_id} from warehouse..."
+                t0 = time.monotonic()
+                df = fetch_channel_polars(
+                    conn, body.catalog, body.schema_name, body.container_id, channel_id
+                )
+                fetch_ms = (time.monotonic() - t0) * 1000
+
+                job["message"] = f"Processing channel {channel_id} ({len(df):,} RLE rows)..."
+                ch = cache.load_from_polars(cache_key, channel_id, df)
+                total_ms = (time.monotonic() - t0) * 1000
+
+                logger.info(
+                    "Loaded %s: fetch=%.0fms, total=%.0fms, %d points",
+                    cache_key, fetch_ms, total_ms, ch.total_points,
+                )
+
+                channels.append({
                     "channel_id": channel_id,
                     "cache_key": cache_key,
                     "total_points": ch.total_points,
                     "t_min_ns": ch.t_min_ns,
                     "t_max_ns": ch.t_max_ns,
-                    "load_time_ms": 0,
-                    "cached": True,
+                    "load_time_ms": round(total_ms),
+                    "cached": False,
                 })
-                continue
+        finally:
+            conn.close()
 
-            t0 = time.monotonic()
-            df = fetch_channel_polars(
-                conn, body.catalog, body.schema_name, body.container_id, channel_id
-            )
-            fetch_ms = (time.monotonic() - t0) * 1000
+        job["result"] = {
+            "channels": channels,
+            "memory_used_mb": round(cache.get_memory_usage() / 1024**2),
+        }
+        job["status"] = "done"
 
-            ch = cache.load_from_polars(cache_key, channel_id, df)
-            total_ms = (time.monotonic() - t0) * 1000
+    except Exception as e:
+        logger.exception("Background load failed for %s", load_id)
+        job["status"] = "error"
+        job["error"] = str(e)
 
-            logger.info(
-                "Loaded %s: fetch=%.0fms, total=%.0fms, %d points",
-                cache_key, fetch_ms, total_ms, ch.total_points,
-            )
 
-            results.append({
+@router.post("/load")
+async def load_channels(body: LoadRequest, request: Request):
+    """Start loading channel data in the background. Returns a load_id to poll."""
+    cache = get_cache()
+    token = _get_user_token(request)
+
+    # Quick path: if all channels are already cached, return immediately
+    all_cached = True
+    channels = []
+    for channel_id in body.channel_ids:
+        if body.container_id == _SYNTHETIC_CONTAINER_ID:
+            all_cached = False
+            break
+        cache_key = TimeSeriesCache.make_key(
+            body.catalog, body.schema_name, body.container_id, channel_id
+        )
+        if cache.is_loaded(cache_key):
+            ch = cache._cache[cache_key]
+            channels.append({
                 "channel_id": channel_id,
                 "cache_key": cache_key,
                 "total_points": ch.total_points,
                 "t_min_ns": ch.t_min_ns,
                 "t_max_ns": ch.t_max_ns,
-                "load_time_ms": round(total_ms),
-                "cached": False,
+                "load_time_ms": 0,
+                "cached": True,
             })
-    finally:
-        conn.close()
+        else:
+            all_cached = False
+            break
 
-    return {
-        "channels": results,
-        "memory_used_mb": round(cache.get_memory_usage() / 1024**2),
+    if all_cached:
+        return {
+            "status": "done",
+            "channels": channels,
+            "memory_used_mb": round(cache.get_memory_usage() / 1024**2),
+        }
+
+    # Start background load
+    load_id = uuid.uuid4().hex[:12]
+    _load_jobs[load_id] = {
+        "status": "loading",
+        "message": "Starting data fetch...",
+        "result": None,
+        "error": None,
+        "started": time.monotonic(),
     }
+
+    thread = threading.Thread(
+        target=_background_load, args=(load_id, body, token), daemon=True
+    )
+    thread.start()
+
+    return {"status": "loading", "load_id": load_id}
+
+
+@router.get("/load/status/{load_id}")
+async def load_status(load_id: str):
+    """Poll for background load completion."""
+    job = _load_jobs.get(load_id)
+    if job is None:
+        raise HTTPException(404, "Unknown load_id")
+
+    elapsed_ms = round((time.monotonic() - job["started"]) * 1000)
+
+    if job["status"] == "loading":
+        return {
+            "status": "loading",
+            "message": job["message"],
+            "elapsed_ms": elapsed_ms,
+        }
+
+    if job["status"] == "error":
+        # Clean up
+        _load_jobs.pop(load_id, None)
+        return {"status": "error", "error": job["error"], "elapsed_ms": elapsed_ms}
+
+    # Done — return result and clean up
+    result = job["result"]
+    _load_jobs.pop(load_id, None)
+    return {"status": "done", "elapsed_ms": elapsed_ms, **result}
 
 
 # ---------------------------------------------------------------------------

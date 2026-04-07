@@ -574,14 +574,15 @@ export async function fetchTimeSeriesData(
   return request(url);
 }
 
-// New load/resample API for large datasets
+// New load/resample API for large datasets (async with polling)
 export async function loadTimeSeriesChannels(
   catalog: string,
   schema: string,
   containerId: number,
   channelIds: number[],
+  onProgress?: (message: string, elapsedMs: number) => void,
 ): Promise<TimeSeriesLoadResponse> {
-  return request("/timeseries/load", {
+  const initial = await request<any>("/timeseries/load", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -591,6 +592,27 @@ export async function loadTimeSeriesChannels(
       channel_ids: channelIds,
     }),
   });
+
+  // If already cached, result is immediate
+  if (initial.status === "done") {
+    return initial as TimeSeriesLoadResponse;
+  }
+
+  // Poll for completion
+  const loadId = initial.load_id;
+  while (true) {
+    await new Promise((r) => setTimeout(r, 1000));
+    const status = await request<any>(`/timeseries/load/status/${loadId}`);
+    if (status.status === "loading") {
+      onProgress?.(status.message || "Loading...", status.elapsed_ms || 0);
+      continue;
+    }
+    if (status.status === "error") {
+      throw new Error(status.error || "Load failed");
+    }
+    // Done
+    return status as TimeSeriesLoadResponse;
+  }
 }
 
 export async function resampleTimeSeries(
