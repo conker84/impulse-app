@@ -55,16 +55,18 @@ interface AxisAssignment {
 }
 
 /**
- * Group signals into 2 y-axis clusters by unit + value range.
- * If 1 unit → all left. If 2 units → one per axis.
- * If 3+ units → cluster by value range similarity into 2 groups.
+ * Group signals into y-axis assignments.
+ * - 1 signal: left axis with its unit name.
+ * - 2 signals, same unit: both left, single axis label.
+ * - 2 signals, different units: one per axis, each labeled with its unit.
+ * - 3+ signals: smart clustering by unit + value range into 2 groups.
  */
 function assignAxes(
   signals: TimeSeriesSignal[],
   selectedIds: Set<number>,
-): { assignments: Map<number, AxisSide>; leftLabel: string; rightLabel: string } {
+): { assignments: Map<number, AxisSide>; leftLabel: string; rightLabel: string; useAxisTags: boolean } {
   const selected = signals.filter((s) => selectedIds.has(s.channel_id));
-  if (selected.length === 0) return { assignments: new Map(), leftLabel: "", rightLabel: "" };
+  if (selected.length === 0) return { assignments: new Map(), leftLabel: "", rightLabel: "", useAxisTags: false };
 
   // Group by unit
   const unitGroups = new Map<string, TimeSeriesSignal[]>();
@@ -78,13 +80,13 @@ function assignAxes(
   const assignments = new Map<number, AxisSide>();
 
   if (units.length <= 1) {
-    // Single unit: all left
+    // Single unit: all left, label is the unit name
     for (const s of selected) assignments.set(s.channel_id, "left");
-    return { assignments, leftLabel: units[0] || "value", rightLabel: "" };
+    return { assignments, leftLabel: units[0] || "value", rightLabel: "", useAxisTags: false };
   }
 
   if (units.length === 2) {
-    // Two units: larger group goes left
+    // Two units: one per axis, no [L]/[R] tags needed (axis label is clear)
     const [u1, u2] = units;
     const g1 = unitGroups.get(u1)!;
     const g2 = unitGroups.get(u2)!;
@@ -92,10 +94,10 @@ function assignAxes(
     for (const s of selected) {
       assignments.set(s.channel_id, (s.unit || "value") === leftUnit ? "left" : "right");
     }
-    return { assignments, leftLabel: leftUnit, rightLabel: rightUnit };
+    return { assignments, leftLabel: leftUnit, rightLabel: rightUnit, useAxisTags: false };
   }
 
-  // 3+ units: cluster by median value range into 2 groups
+  // 3+ units: cluster by median value range into 2 groups, show [L]/[R] tags
   const unitMedians = units.map((u) => {
     const sigs = unitGroups.get(u)!;
     const mid = sigs.reduce((sum, s) => {
@@ -107,7 +109,6 @@ function assignAxes(
   });
   unitMedians.sort((a, b) => a.median - b.median);
 
-  // Split: put the top unit(s) by median on right if they're clearly different
   const splitIdx = Math.max(1, unitMedians.length - 1);
   const leftUnits = new Set(unitMedians.slice(0, splitIdx).map((u) => u.unit));
   const rightUnits = new Set(unitMedians.slice(splitIdx).map((u) => u.unit));
@@ -119,7 +120,7 @@ function assignAxes(
 
   const leftLabel = Array.from(leftUnits).join(", ");
   const rightLabel = Array.from(rightUnits).join(", ");
-  return { assignments, leftLabel, rightLabel };
+  return { assignments, leftLabel, rightLabel, useAxisTags: true };
 }
 
 // ---------------------------------------------------------------------------
@@ -197,7 +198,7 @@ export default function TimeSeriesView({ onBack, initialCatalog, initialSchema, 
   );
 
   // Axis assignments
-  const { assignments: axisMap, leftLabel, rightLabel } = useMemo(
+  const { assignments: axisMap, leftLabel, rightLabel, useAxisTags } = useMemo(
     () => assignAxes(signals, selectedSignals),
     [signals, selectedSignals],
   );
@@ -341,13 +342,15 @@ export default function TimeSeriesView({ onBack, initialCatalog, initialSchema, 
 
     if (xMinRaw == null || xMaxRaw == null) return;
 
-    // Convert date strings back to nanoseconds
-    const xMinSec = (new Date(xMinRaw).getTime() - baseMs) / 1000;
-    const xMaxSec = (new Date(xMaxRaw).getTime() - baseMs) / 1000;
-    if (isNaN(xMinSec) || isNaN(xMaxSec)) return;
+    // Convert date strings back to nanoseconds for the cache lookup.
+    // The display formula is: Date = baseMs + (raw_ns / 1e6)
+    // So: raw_ns = (Date_ms - baseMs) * 1e6
+    const xMinMs = new Date(xMinRaw).getTime();
+    const xMaxMs = new Date(xMaxRaw).getTime();
+    if (isNaN(xMinMs) || isNaN(xMaxMs)) return;
 
-    const xMinNs = xMinSec * 1e9;
-    const xMaxNs = xMaxSec * 1e9;
+    const xMinNs = (xMinMs - baseMs) * 1e6;
+    const xMaxNs = (xMaxMs - baseMs) * 1e6;
     setWindowNs({ min: xMinNs, max: xMaxNs });
 
     const cacheKeys = traces.map((t) => t.cacheKey);
@@ -375,7 +378,7 @@ export default function TimeSeriesView({ onBack, initialCatalog, initialSchema, 
       const side = axisMap.get(trace.channelId) || "left";
       const yAxisRef = side === "right" && hasDualAxis ? ("y2" as const) : ("y" as const);
       const xDates = trace.data.map((p) => toISOFromNsOffset(p.t, baseMs));
-      const axisTag = hasDualAxis ? (side === "left" ? " [L]" : " [R]") : "";
+      const axisTag = useAxisTags && hasDualAxis ? (side === "left" ? " [L]" : " [R]") : "";
       const displayName = `${trace.channelName}${trace.unit ? ` (${trace.unit})` : ""}${axisTag}`;
 
       // Progressive hover: rich detail when zoomed in, basic at overview
@@ -406,15 +409,18 @@ export default function TimeSeriesView({ onBack, initialCatalog, initialSchema, 
 
   const layout = useMemo(() => {
     const yTitle = normalized ? "Normalized [0–1]" : (leftLabel || "value");
+    const axisTitleFont = { size: 12, color: "rgba(200,200,200,0.9)" };
     return mergeLayout({
       xaxis: {
-        title: "Time",
+        title: { text: "Time", font: axisTitleFont },
         type: "date" as const,
       },
-      yaxis: { title: yTitle },
+      yaxis: {
+        title: { text: yTitle, font: axisTitleFont },
+      },
       ...(hasDualAxis && !normalized ? {
         yaxis2: {
-          title: rightLabel,
+          title: { text: rightLabel, font: axisTitleFont },
           overlaying: "y" as const,
           side: "right" as const,
           gridcolor: "rgba(128,128,128,0.08)",
@@ -424,7 +430,7 @@ export default function TimeSeriesView({ onBack, initialCatalog, initialSchema, 
       hovermode: isDetailLevel ? ("x unified" as const) : ("closest" as const),
       showlegend: traces.length > 1,
       legend: { orientation: "h" as const, y: -0.15, font: { size: 10 } },
-      margin: { t: 8, r: hasDualAxis && !normalized ? 56 : 16, b: 56, l: 56 },
+      margin: { t: 8, r: hasDualAxis && !normalized ? 64 : 24, b: 64, l: 64 },
     });
   }, [leftLabel, rightLabel, hasDualAxis, normalized, isDetailLevel, traces.length]);
 
@@ -508,7 +514,7 @@ export default function TimeSeriesView({ onBack, initialCatalog, initialSchema, 
             <div className="viz-checkbox-list" style={{ maxHeight: 240 }}>
               {signals.map((s) => {
                 const side = axisMap.get(s.channel_id);
-                const axisTag = hasDualAxis && side ? (side === "left" ? " [L]" : " [R]") : "";
+                const axisTag = useAxisTags && hasDualAxis && side ? (side === "left" ? " [L]" : " [R]") : "";
                 return (
                   <label key={s.channel_id} className="viz-checkbox-row">
                     <input
