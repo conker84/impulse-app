@@ -1,17 +1,20 @@
 import { useState, useCallback } from "react";
 import Plot from "react-plotly.js";
-import type { SignalDefinition, TimeSeriesPoint, TimeSeriesContainer, VehicleConfig } from "../types";
-import { fetchTimeSeriesContainers, fetchTimeSeriesSignals, fetchTimeSeriesData } from "../api";
+import type { SignalDefinition, EventDefinition, EventType, ThresholdCondition, TimeSeriesPoint, TimeSeriesContainer, VehicleConfig } from "../types";
+import { fetchTimeSeriesContainers, fetchTimeSeriesSignals, fetchTimeSeriesData, addEvent, updateEvent, deleteEvent } from "../api";
 import { PALETTE, BASE_CONFIG, mergeLayout } from "../plotlyTheme";
 
 interface Props {
   signals: SignalDefinition[];
+  events: EventDefinition[];
+  sessionId: string;
   silverCatalog?: string;
   silverSchema?: string;
   vehicles?: VehicleConfig[];
   onDelete?: (varName: string) => void;
   onUpdate?: (varName: string, payload: { var_name: string; expression?: string; eval_type?: string; description?: string; alias?: string }) => void;
   onAddVirtual?: (payload: { var_name: string; expression: string; eval_type?: string; description?: string }) => void;
+  onStateUpdate?: (state: import("../types").ReportState) => void;
 }
 
 const EVAL_TYPES = ["SampleSeries", "Intervals", "PointsInTime", "PitSeries"];
@@ -45,7 +48,28 @@ function containerInTimeframe(c: TimeSeriesContainer, vehicles: VehicleConfig[])
   return true;
 }
 
-export default function SignalsTab({ signals, silverCatalog, silverSchema, vehicles, onDelete, onUpdate, onAddVirtual }: Props) {
+const EVENT_TYPES: { value: EventType; label: string; output: string }[] = [
+  { value: "interval", label: "Interval (threshold)", output: "Intervals" },
+  { value: "rising_edges", label: "Rising Edges", output: "PointsInTime" },
+  { value: "falling_edges", label: "Falling Edges", output: "PointsInTime" },
+  { value: "change_points", label: "Change Points", output: "PointsInTime" },
+];
+
+const OPERATORS = [">", "<", ">=", "<=", "==", "!="] as const;
+
+function eventSummary(evt: EventDefinition): string {
+  if (evt.event_type === "change_points") {
+    return `${evt.signal_ref}.change_points(${evt.from_state} → ${evt.to_state})`;
+  }
+  const parts = evt.conditions.map((c) => `${c.signal_ref} ${c.operator} ${c.value}`);
+  const logic = evt.compound_logic === "OR" ? " | " : " & ";
+  const base = parts.length === 1 ? parts[0] : `(${parts.join(logic)})`;
+  if (evt.event_type === "rising_edges") return `${base}.rising_edges()`;
+  if (evt.event_type === "falling_edges") return `${base}.falling_edges()`;
+  return base;
+}
+
+export default function SignalsTab({ signals, events, sessionId, silverCatalog, silverSchema, vehicles, onDelete, onUpdate, onAddVirtual, onStateUpdate }: Props) {
   const PREVIEW_POINTS = 5000;
 
   const [previewSignal, setPreviewSignal] = useState<string | null>(null);
@@ -68,6 +92,90 @@ export default function SignalsTab({ signals, silverCatalog, silverSchema, vehic
   const [newExpression, setNewExpression] = useState("");
   const [newEvalType, setNewEvalType] = useState("SampleSeries");
   const [newDescription, setNewDescription] = useState("");
+
+  // Event form state
+  const [showAddEvent, setShowAddEvent] = useState(false);
+  const [editingEvent, setEditingEvent] = useState<string | null>(null);
+  const [evtName, setEvtName] = useState("");
+  const [evtType, setEvtType] = useState<EventType>("interval");
+  const [evtConditions, setEvtConditions] = useState<ThresholdCondition[]>([{ signal_ref: "", operator: ">", value: 0 }]);
+  const [evtLogic, setEvtLogic] = useState<"AND" | "OR">("AND");
+  const [evtSignalRef, setEvtSignalRef] = useState("");
+  const [evtFromState, setEvtFromState] = useState<number>(0);
+  const [evtToState, setEvtToState] = useState<number>(1);
+  const [evtDescription, setEvtDescription] = useState("");
+  const [evtError, setEvtError] = useState("");
+
+  const resetEventForm = () => {
+    setEvtName("");
+    setEvtType("interval");
+    setEvtConditions([{ signal_ref: "", operator: ">", value: 0 }]);
+    setEvtLogic("AND");
+    setEvtSignalRef("");
+    setEvtFromState(0);
+    setEvtToState(1);
+    setEvtDescription("");
+    setEvtError("");
+  };
+
+  const openEventForm = () => { resetEventForm(); setEditingEvent(null); setShowAddEvent(true); };
+
+  const startEditEvent = (evt: EventDefinition) => {
+    setEvtName(evt.name);
+    setEvtType(evt.event_type);
+    setEvtConditions(evt.conditions.length ? evt.conditions.map((c) => ({ ...c })) : [{ signal_ref: "", operator: ">", value: 0 }]);
+    setEvtLogic(evt.compound_logic);
+    setEvtSignalRef(evt.signal_ref || "");
+    setEvtFromState(evt.from_state ?? 0);
+    setEvtToState(evt.to_state ?? 1);
+    setEvtDescription(evt.description);
+    setEvtError("");
+    setEditingEvent(evt.name);
+    setShowAddEvent(true);
+  };
+
+  const isChangePoints = evtType === "change_points";
+  const needsConditions = evtType === "interval" || evtType === "rising_edges" || evtType === "falling_edges";
+
+  const canSaveEvent = () => {
+    if (!evtName.trim()) return false;
+    if (isChangePoints) return !!evtSignalRef;
+    return evtConditions.every((c) => c.signal_ref !== "");
+  };
+
+  const handleSaveEvent = async () => {
+    setEvtError("");
+    const payload = {
+      name: evtName.trim(),
+      event_type: evtType,
+      conditions: needsConditions ? evtConditions : [],
+      compound_logic: evtLogic,
+      signal_ref: isChangePoints ? evtSignalRef : null,
+      from_state: isChangePoints ? evtFromState : null,
+      to_state: isChangePoints ? evtToState : null,
+      description: evtDescription,
+    };
+    try {
+      const res = editingEvent
+        ? await updateEvent(sessionId, editingEvent, payload)
+        : await addEvent(sessionId, payload);
+      onStateUpdate?.(res.report_state);
+      setShowAddEvent(false);
+      resetEventForm();
+      setEditingEvent(null);
+    } catch (e) {
+      setEvtError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const handleDeleteEvent = async (name: string) => {
+    try {
+      const res = await deleteEvent(sessionId, name);
+      onStateUpdate?.(res.report_state);
+    } catch (e) {
+      setEvtError(e instanceof Error ? e.message : String(e));
+    }
+  };
 
   const canPreview = !!silverCatalog && !!silverSchema;
 
@@ -354,6 +462,235 @@ export default function SignalsTab({ signals, silverCatalog, silverSchema, vehic
           )}
         </div>
       )}
+
+      {/* Events section */}
+      <div style={{ marginTop: 16 }}>
+        <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 6, color: "var(--text-primary)" }}>Events</div>
+
+        {events.length > 0 && (
+          <table className="data-table" style={{ marginBottom: 8 }}>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Type</th>
+                <th>Expression</th>
+                <th>Output</th>
+                <th style={{ width: 60 }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {events.map((evt) => (
+                <tr key={evt.name}>
+                  <td><code>{evt.name}</code></td>
+                  <td style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                    {EVENT_TYPES.find((t) => t.value === evt.event_type)?.label || evt.event_type}
+                  </td>
+                  <td><code style={{ fontSize: 11 }}>{eventSummary(evt)}</code></td>
+                  <td>
+                    <span className={`badge ${evt.event_type === "interval" ? "ok" : "duration"}`}>
+                      {evt.event_type === "interval" ? "Intervals" : "PointsInTime"}
+                    </span>
+                  </td>
+                  <td>
+                    <div style={{ display: "flex", gap: 2 }}>
+                      <button
+                        className="action-btn"
+                        style={{ fontSize: 10, padding: "2px 6px" }}
+                        onClick={() => startEditEvent(evt)}
+                        title="Edit event"
+                      >&#x270E;</button>
+                      <button
+                        className="action-btn danger"
+                        style={{ fontSize: 10, padding: "2px 6px" }}
+                        onClick={() => handleDeleteEvent(evt.name)}
+                        title="Delete event"
+                      >&#x2715;</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+
+        {events.length === 0 && !showAddEvent && (
+          <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 6 }}>
+            No events defined. Events act as filters for aggregations.
+          </div>
+        )}
+
+        {!showAddEvent ? (
+          <button className="action-btn" style={{ fontSize: 11 }} onClick={openEventForm}>
+            + Add Event
+          </button>
+        ) : (
+          <div className="card" style={{ padding: 12 }}>
+            <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 8 }}>
+              {editingEvent ? `Edit Event: ${editingEvent}` : "New Event"}
+            </div>
+
+            {evtError && <div style={{ color: "var(--error)", fontSize: 12, marginBottom: 6 }}>{evtError}</div>}
+
+            <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+              <input
+                className="form-input"
+                style={{ flex: 1, fontSize: 12 }}
+                placeholder="Event name (required)"
+                value={evtName}
+                onChange={(e) => setEvtName(e.target.value)}
+              />
+              <select
+                className="form-input"
+                style={{ fontSize: 11, padding: "2px 4px", width: 180 }}
+                value={evtType}
+                onChange={(e) => setEvtType(e.target.value as EventType)}
+              >
+                {EVENT_TYPES.map((et) => (
+                  <option key={et.value} value={et.value}>{et.label} ({et.output})</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Threshold conditions for interval / rising / falling */}
+            {needsConditions && (
+              <div style={{ marginBottom: 6 }}>
+                {evtConditions.map((cond, i) => (
+                  <div key={i} style={{ display: "flex", gap: 4, marginBottom: 4, alignItems: "center" }}>
+                    {i > 0 && (
+                      <span style={{ fontSize: 11, color: "var(--text-muted)", width: 30, textAlign: "center" }}>
+                        {evtLogic}
+                      </span>
+                    )}
+                    <select
+                      className="form-input"
+                      style={{ flex: 2, fontSize: 12 }}
+                      value={cond.signal_ref}
+                      onChange={(e) => {
+                        const next = [...evtConditions];
+                        next[i] = { ...cond, signal_ref: e.target.value };
+                        setEvtConditions(next);
+                      }}
+                    >
+                      <option value="">Select signal...</option>
+                      {signals.map((s) => (
+                        <option key={s.var_name} value={s.var_name}>{s.var_name}</option>
+                      ))}
+                    </select>
+                    <select
+                      className="form-input"
+                      style={{ width: 60, fontSize: 12 }}
+                      value={cond.operator}
+                      onChange={(e) => {
+                        const next = [...evtConditions];
+                        next[i] = { ...cond, operator: e.target.value as typeof cond.operator };
+                        setEvtConditions(next);
+                      }}
+                    >
+                      {OPERATORS.map((op) => <option key={op} value={op}>{op}</option>)}
+                    </select>
+                    <input
+                      className="form-input"
+                      type="number"
+                      style={{ width: 90, fontSize: 12 }}
+                      value={cond.value}
+                      onChange={(e) => {
+                        const next = [...evtConditions];
+                        next[i] = { ...cond, value: parseFloat(e.target.value) || 0 };
+                        setEvtConditions(next);
+                      }}
+                    />
+                    {evtConditions.length > 1 && (
+                      <button
+                        className="action-btn danger"
+                        style={{ fontSize: 10, padding: "2px 6px" }}
+                        onClick={() => setEvtConditions(evtConditions.filter((_, j) => j !== i))}
+                      >&#x2715;</button>
+                    )}
+                  </div>
+                ))}
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <button
+                    className="action-btn"
+                    style={{ fontSize: 10 }}
+                    onClick={() => setEvtConditions([...evtConditions, { signal_ref: "", operator: ">", value: 0 }])}
+                  >+ Add Condition</button>
+                  {evtConditions.length > 1 && (
+                    <select
+                      className="form-input"
+                      style={{ fontSize: 11, padding: "2px 4px", width: 70 }}
+                      value={evtLogic}
+                      onChange={(e) => setEvtLogic(e.target.value as "AND" | "OR")}
+                    >
+                      <option value="AND">AND</option>
+                      <option value="OR">OR</option>
+                    </select>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Change points fields */}
+            {isChangePoints && (
+              <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+                <select
+                  className="form-input"
+                  style={{ flex: 2, fontSize: 12 }}
+                  value={evtSignalRef}
+                  onChange={(e) => setEvtSignalRef(e.target.value)}
+                >
+                  <option value="">Select signal...</option>
+                  {signals.map((s) => (
+                    <option key={s.var_name} value={s.var_name}>{s.var_name}</option>
+                  ))}
+                </select>
+                <input
+                  className="form-input"
+                  type="number"
+                  style={{ width: 90, fontSize: 12 }}
+                  placeholder="From state"
+                  value={evtFromState}
+                  onChange={(e) => setEvtFromState(parseFloat(e.target.value) || 0)}
+                />
+                <span style={{ fontSize: 12, color: "var(--text-muted)", alignSelf: "center" }}>&rarr;</span>
+                <input
+                  className="form-input"
+                  type="number"
+                  style={{ width: 90, fontSize: 12 }}
+                  placeholder="To state"
+                  value={evtToState}
+                  onChange={(e) => setEvtToState(parseFloat(e.target.value) || 0)}
+                />
+              </div>
+            )}
+
+            <input
+              className="form-input"
+              style={{ width: "100%", fontSize: 12, marginBottom: 6 }}
+              placeholder="Description (optional)"
+              value={evtDescription}
+              onChange={(e) => setEvtDescription(e.target.value)}
+            />
+
+            <div style={{ display: "flex", gap: 6 }}>
+              <button
+                className="action-btn primary"
+                style={{ fontSize: 11 }}
+                disabled={!canSaveEvent()}
+                onClick={handleSaveEvent}
+              >
+                {editingEvent ? "Update" : "Add"}
+              </button>
+              <button
+                className="action-btn"
+                style={{ fontSize: 11 }}
+                onClick={() => { setShowAddEvent(false); setEditingEvent(null); resetEventForm(); }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Inline preview chart */}
       {previewSignal && (

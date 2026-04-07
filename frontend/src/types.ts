@@ -27,6 +27,25 @@ export interface SignalDefinition {
   description: string;
 }
 
+export interface ThresholdCondition {
+  signal_ref: string;
+  operator: ">" | "<" | ">=" | "<=" | "==" | "!=";
+  value: number;
+}
+
+export type EventType = "interval" | "rising_edges" | "falling_edges" | "change_points";
+
+export interface EventDefinition {
+  name: string;
+  event_type: EventType;
+  conditions: ThresholdCondition[];
+  compound_logic: "AND" | "OR";
+  signal_ref: string | null;
+  from_state: number | null;
+  to_state: number | null;
+  description: string;
+}
+
 export interface Histogram1DDefinition {
   agg_kind: "histogram_1d";
   name: string;
@@ -37,7 +56,7 @@ export interface Histogram1DDefinition {
   values_unit: string | null;
   description: string;
   max_duration: number | null;
-  event_signal_ref: string | null;
+  event_ref: string | null;
   weight_signal_ref: string | null;
   weight_const: number | null;
 }
@@ -54,6 +73,7 @@ export interface Histogram2DDefinition {
   x_signal_name: string | null;
   y_signal_name: string | null;
   values_unit: string | null;
+  event_ref: string | null;
   description: string;
 }
 
@@ -62,7 +82,7 @@ export interface StatisticsDefinition {
   name: string;
   signal_refs: string[];
   stat_labels: string[];
-  event_signal_ref: string | null;
+  event_ref: string | null;
   signal_names: string[] | null;
   description: string;
 }
@@ -163,6 +183,7 @@ export interface ReportState {
   available_channels: AvailableChannel[];
   signal_candidates: SignalCandidate[];
   signals: SignalDefinition[];
+  events: EventDefinition[];
   aggregations: AggregationDefinition[];
   vehicle_candidates: VehicleCandidate[];
   vehicles: VehicleConfig[];

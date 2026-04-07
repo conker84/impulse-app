@@ -1,412 +1,308 @@
-# Time Series Explorer Revamp — Project Plan
+# Event Signal Support — Implementation Plan
 
-## Overview
+## Background
 
-Revamp the "Explore Time Series" section of the Impulse app to support interactive visualization of extremely large datasets (100M–300M+ data points) with dynamic zoom/pan re-aggregation, multi-signal overlay for correlation analysis, and smart dual-axis handling for signals with different units.
+The MDA/impulse framework supports **Events** as boolean time-series expressions that segment continuous data into meaningful intervals. Events act as optional filters on aggregations, scoping histogram/statistics computations to specific conditions (e.g. "engine temp above 90C", "moment of engine start").
 
-**Scope:** Only the Time Series Explorer (entered via "Explore Time Series" on the landing screen). NOT the report output visualization flow.
+Events are currently **not properly supported** in the impulse app. The Statistics builder has a dropdown that lists raw channels (wrong — should list defined events). Histograms and 2D Histograms have no event support in the UI at all. Code generation only handles events for Statistics.
+
+This plan adds Events as a first-class concept across the entire app.
+
+---
+
+## Framework Fundamentals
+
+### Event Output Types
+
+Events produce one of two fundamentally different output types:
+
+| Category | Output Type | Expression Example |
+|---|---|---|
+| Threshold (single) | **Intervals** | `signals["Eng_Temp"] > 90` |
+| Compound threshold | **Intervals** | `(signals["Eng_Temp"] > 90) & (signals["RPM"] > 5000)` |
+| Rising Edges | **PointsInTime** | `(signals["Eng_Running"] > 0).rising_edges()` |
+| Falling Edges | **PointsInTime** | `(signals["Eng_Running"] > 0).falling_edges()` |
+| Change Points | **PointsInTime** | `signals["Gear"].change_points(from_state=2, to_state=3)` |
+
+### Aggregation Compatibility
+
+**Verified against framework source code** — the framework has zero runtime validation but silently crashes or produces wrong results for incompatible combinations:
+
+| Event Output Type | Duration Histogram | Distance Histogram | 2D Histogram | Statistics |
+|---|---|---|---|---|
+| **Intervals** | OK | OK | OK | OK |
+| **PointsInTime** | CRASH (no `.tends`) | CRASH | CRASH | CRASH (wrong data format) |
+
+**PointsInTime events cannot be used with any aggregation type** in the current framework. They would require an `event_count` agg_type which does not exist in the framework despite being previously documented in skill docs (now removed).
+
+**PointsInTime events ARE useful** for virtual signal expressions:
+- `temperature.where(engine_start_events)` produces a PitSeries (values at event points)
+- `start_points.flipflop(stop_points)` converts PointsInTime to Intervals
+- `points.expand(width=5.0)` expands points into Intervals of given width
+
+### Code Generation Pattern
+
+For all aggregation types, the framework requires:
+```python
+event = BasicEvent(name="high_temp", expr=signals["Eng_Temp"] > 90)
+my_report.add_event(event)  # Must register with report
+
+page.add_aggregation(Histogram(
+    ...,
+    event=event,  # Optional filter
+))
+```
+
+Events used in aggregations MUST be registered with the report via `add_event()` before `determine_report()` is called, or a `ValueError` is raised.
+
+---
 
 ## Design Decisions
 
-### Why Not Dash / Plotly Resampler?
-
-The article ([Visualizing a Billion Points](https://medium.com/dbsql-sme-engineering/visualizing-a-billion-points-databricks-plotly-dash-and-the-plotly-resampler-45461bc3f466)) uses Plotly Dash + Plotly Resampler. We deliberately chose a different path:
-
-1. **The app is FastAPI + React.** Dash is a separate web framework (Flask-based). Embedding it means two frameworks, two routing systems, two component libraries in one process. The time series section would feel like a foreign iframe.
-2. **Dash adds nothing we can't do ourselves.** Strip away the framework, and Resampler does three things: stores data server-side (our Polars cache), listens for zoom/pan events (our React `onRelayout`), and runs LTTB (our `tsdownsample` calls). We already have all three pieces.
-3. **UI consistency.** Dash components (buttons, dropdowns) look and behave differently from our React UI. Users would notice the seam.
-4. **Auth is already solved.** The OBO token flow (`X-Forwarded-Access-Token`) works in our FastAPI routes. Wiring it through Dash callbacks adds fragile plumbing.
-5. **Memory budget.** The 6–12 GB app memory should go to data, not framework overhead (~15 MB for Dash + dependencies).
-
-The "magic" is `tsdownsample` (the Rust-based LTTB library) and Polars (fast in-memory DataFrames), not the Dash framework.
-
-### Visual Style: Single Overlaid Chart (Article Figure 8)
-
-Chose the single large chart with overlaid `scattergl` traces because:
-- **Best for correlation** — the primary goal ("understand how signals move together")
-- **Maximizes chart area** — no vertical space lost to subplot stacking
-- **Proven at scale** — the article shows 24 traces with 1M points each in this layout
-
-Navigation uses standard Plotly interactions (box-zoom, scroll-zoom, pan, double-click reset) rather than the article's dual coarse+dynamic chart pattern (Figure 6). Simpler, takes no extra vertical space, same user experience.
-
-### Multi-Unit Axis Strategy
-
-Learned from the article's Figure 8: they use dual y-axes with smart grouping — most signals share the left axis, outlier-range signals go to the right axis. Hover always shows the correct value.
-
-Our approach:
-- **Auto dual-axis (default):** Group signals into 2 clusters by unit + value range. Left y-axis gets the majority group, right y-axis gets the rest. Hover tooltip always shows actual value + unit.
-- **Normalized mode (toggle):** All signals min-max scaled to [0, 1]. Single y-axis. Hover shows real value: `Signal: 42.5 C (normalized: 0.73)`. Best for pure correlation when magnitudes differ wildly.
-- Grouping uses `min`/`max` from `channel_metrics` (already fetched in signal listing).
-
-### Data Transport: Direct SQL Connector, Not MCP
-
-The current `execute_sql` via MCP serializes every row as JSON text through the MCP protocol — unusable for 300M rows. The new data path uses `databricks-sql-connector` with Arrow-native result fetching, zero-copy into Polars. Metadata queries (containers, signals) stay on the existing MCP path since they return small result sets.
-
-### In-Memory Polars Cache, Not Parquet/Volume
-
-The article caches to Parquet files. We cache in-memory (Polars DataFrames) because:
-- Parquet write + SQL re-read adds latency on both ends
-- Data is already persisted in Delta Lake — no need for a second copy
-- In-memory LTTB resampling is <50ms for any window on 300M points
-- 12 GB app memory (large instance) supports multiple loaded channels
+1. **Events are a separate first-class concept** — stored in their own list, not mixed with virtual signals
+2. **All five event types supported** in the Channels tab UI (interval, compound, rising_edges, falling_edges, change_points)
+3. **Only Interval events selectable in aggregation dropdowns** — PointsInTime events exist for use in virtual signal expressions only
+4. **Compound events** (multiple threshold conditions with AND/OR) supported from day one
+5. **Change points** require both `from_state` and `to_state` (both required fields)
+6. **Event names** are user-provided, with a blocker preventing save if name is empty
+7. **Incompatibility enforcement**: UI blocks selecting PointsInTime events in aggregation dropdowns; if somehow set, code generation should also validate
+8. **Field rename**: `event_signal_ref` (which pointed to a raw channel) becomes `event_ref` (which points to an EventDefinition by name)
 
 ---
 
-## High-Level Architecture
+## Data Model
 
-```
-                         ┌──────────────────────────────────────┐
-                         │   React Frontend (Plotly.js scattergl)│
-                         │                                      │
-                         │  Signal selector ──► "Load & Explore"│
-                         │       │                              │
-                         │  Zoom/Pan ──► POST /resample (~50ms) │
-                         └────────────┬─────────────────────────┘
-                                      │ REST API
-                         ┌────────────▼─────────────────────────┐
-                         │   FastAPI Backend                     │
-                         │                                      │
-                         │  ┌─ timeseries routes ─────────────┐ │
-                         │  │ GET  /containers (metadata, MCP) │ │
-                         │  │ GET  /signals    (metadata, MCP) │ │
-                         │  │ POST /load       (fetch → cache) │ │
-                         │  │ POST /resample   (LTTB → JSON)  │ │
-                         │  └──────────────────────────────────┘ │
-                         │                                      │
-                         │  ┌─ ts_cache.py (Polars engine) ───┐ │
-                         │  │ In-memory Polars DataFrames      │ │
-                         │  │ Vectorized RLE expansion         │ │
-                         │  │ tsdownsample LTTB on any window  │ │
-                         │  │ LRU eviction by memory pressure  │ │
-                         │  └──────────────────────────────────┘ │
-                         │                                      │
-                         │  ┌─ ts_connector.py ────────────────┐ │
-                         │  │ databricks-sql-connector          │ │
-                         │  │ Arrow-native fetch → Polars       │ │
-                         │  │ OBO token auth                    │ │
-                         │  └──────────────────────────────────┘ │
-                         └────────────┬─────────────────────────┘
-                                      │ DBSQL Protocol (Arrow)
-                         ┌────────────▼─────────────────────────┐
-                         │   Databricks SQL Warehouse            │
-                         │   {catalog}.{schema}.channels (RLE)   │
-                         │   300M+ rows per container             │
-                         └──────────────────────────────────────┘
+### Python (`server/models.py`)
+
+```python
+class ThresholdCondition(BaseModel):
+    signal_ref: str        # var_name of a defined signal
+    operator: str          # ">", "<", ">=", "<=", "==", "!="
+    value: float           # threshold value
+
+class EventDefinition(BaseModel):
+    name: str
+    event_type: Literal["interval", "rising_edges", "falling_edges", "change_points"]
+    # For interval & edge events (threshold-based conditions)
+    conditions: list[ThresholdCondition] = []
+    compound_logic: Literal["AND", "OR"] = "AND"
+    # For change_points only
+    signal_ref: str | None = None       # which signal to detect state changes on
+    from_state: float | None = None
+    to_state: float | None = None
+    description: str = ""
 ```
 
-### Data Flow
+- `interval` type uses `conditions` (1+ threshold conditions combined with `compound_logic`)
+- `rising_edges` / `falling_edges` use `conditions` (threshold condition(s) whose edges are detected)
+- `change_points` uses `signal_ref` + `from_state` + `to_state`
 
-1. **Select:** User picks catalog → schema → container → signals (checkboxes)
-2. **Load:** `POST /load` → `databricks-sql-connector` fetches RLE rows as Arrow → zero-copy into Polars DataFrame → vectorized RLE expansion → numpy arrays cached in memory. This is the slow step (~10–60s for 300M rows).
-3. **Render:** `POST /resample` with full range → LTTB downsamples to ~5,000 points per trace → JSON to frontend → Plotly `scattergl` renders
-4. **Zoom:** User drags to select a time range → Plotly `relayout` event → debounced `POST /resample` with `x_min`/`x_max` → LTTB on just the visible window → chart updates with finer detail (~50ms round-trip)
-5. **Reset:** Double-click → `POST /resample` with null range → back to full overview
+### Generated Expression Examples
+
+| Event Type | Conditions / Fields | Generated Expression |
+|---|---|---|
+| interval (single) | `[{Eng_Temp, >, 90}]` | `signals["Eng_Temp"] > 90` |
+| interval (compound AND) | `[{Eng_Temp, >, 90}, {RPM, >, 5000}]` | `(signals["Eng_Temp"] > 90) & (signals["RPM"] > 5000)` |
+| interval (compound OR) | `[{Eng_Temp, >, 90}, {RPM, >, 5000}]` | `(signals["Eng_Temp"] > 90) \| (signals["RPM"] > 5000)` |
+| rising_edges (single) | `[{Eng_Running, >, 0}]` | `(signals["Eng_Running"] > 0).rising_edges()` |
+| rising_edges (compound) | `[{Eng_Temp, >, 90}, {RPM, >, 5000}]` | `((signals["Eng_Temp"] > 90) & (signals["RPM"] > 5000)).rising_edges()` |
+| falling_edges | `[{Eng_Running, >, 0}]` | `(signals["Eng_Running"] > 0).falling_edges()` |
+| change_points | `signal_ref=Gear, from=2, to=3` | `signals["Gear"].change_points(from_state=2, to_state=3)` |
+
+### State Changes
+
+In `ReportState`:
+```python
+events: list[EventDefinition] = []  # NEW field
+```
+
+On aggregation models:
+- `Histogram1DDefinition`: rename `event_signal_ref` to `event_ref`
+- `Histogram2DDefinition`: add `event_ref: str | None = None`
+- `StatisticsDefinition`: rename `event_signal_ref` to `event_ref`
+
+### TypeScript (`frontend/src/types.ts`)
+
+Mirror all Python model changes with equivalent TS interfaces.
 
 ---
 
-## Implementation Plan
+## Implementation Steps
 
-### Phase 1: Dependencies & Direct SQL Connector
+### Step 1: Backend Models (`server/models.py`)
 
-**New dependencies** (add to `requirements.txt`):
-- `databricks-sql-connector>=3.0.0` — Arrow-native DBSQL fetching
-- `polars>=1.0.0` — in-memory DataFrame engine
-- `pyarrow>=14.0.0` — Arrow interop between connector and Polars
+- Add `ThresholdCondition` and `EventDefinition` models
+- Add `events: list[EventDefinition] = Field(default_factory=list)` to `ReportState`
+- Rename `event_signal_ref` → `event_ref` on `Histogram1DDefinition` and `StatisticsDefinition`
+- Add `event_ref: str | None = None` to `Histogram2DDefinition`
 
-(`tsdownsample` and `numpy` already present.)
+### Step 2: Backend API (`server/routes/state.py`)
 
-**New file: `server/ts_connector.py`**
+New endpoints:
+- `POST /add-event/{session_id}` — create event definition
+- `PUT /event/{session_id}/{event_name}` — update event definition
+- `DELETE /event/{session_id}/{event_name}` — delete event definition (also clears `event_ref` from any aggregation referencing it)
 
-Thin wrapper around `databricks-sql-connector`:
-- `get_connection(token: str)` — creates connection using OBO token + host/warehouse from `server.config`
-  - Host from `get_workspace_client().config.host`
-  - HTTP path from `WAREHOUSE_ID` → `/sql/1.0/warehouses/{id}`
-  - `access_token=token` for OBO auth
-  - Local dev fallback: uses CLI profile token
-- `fetch_channel_polars(conn, catalog, schema, container_id, channel_id) -> pl.DataFrame`
-  - Executes: `SELECT tstart, tend, value FROM {catalog}.{schema}.channels WHERE container_id = ? AND channel_id = ? ORDER BY tstart`
-  - Uses `cursor.fetchall_arrow()` → `pl.from_arrow()` (zero-copy)
-  - Returns DataFrame with columns `[tstart: Int64, tend: Int64, value: Float64]`
+Update existing endpoints:
+- `POST /add-histogram/{session_id}` — accept `event_ref` instead of `event_signal_ref`
+- `PUT /aggregation/{session_id}/{name}` — accept `event_ref`
+- `POST /add-histogram-2d/{session_id}` — accept `event_ref`
+- `POST /add-statistics/{session_id}` — accept `event_ref` instead of `event_signal_ref`
 
-### Phase 2: In-Memory Cache Engine
+Validation in API layer:
+- `event_ref` must reference an existing event name in `state.events`
+- For histograms and 2D histograms: referenced event must have `event_type == "interval"` (Intervals output)
+- For statistics: any event type is allowed (even though PointsInTime currently crashes in framework, this keeps the door open)
 
-**New file: `server/ts_cache.py`**
+Actually — per framework findings, PointsInTime events crash with Statistics too. So: **only Interval events allowed for all aggregation types**. The dropdown filter handles this in the UI; the API validates as a safety net.
 
-```
-class ChannelData:
-    cache_key: str               # "catalog.schema.container_id.channel_id"
-    df: pl.DataFrame             # Raw RLE rows (tstart, tend, value)
-    expanded_t: np.ndarray       # Step-pair timestamps (float64, nanoseconds)
-    expanded_v: np.ndarray       # Step-pair values (float64)
-    total_points: int            # len(expanded_t)
-    t_min_ns: int                # First timestamp
-    t_max_ns: int                # Last timestamp
-    last_accessed: float         # time.monotonic() for LRU eviction
+### Step 3: Code Generation (`server/code_generator.py`)
 
-class TimeSeriesCache:
-    _cache: dict[str, ChannelData]
-    _max_memory_bytes: int       # Default 8 GB (configurable)
-
-    load_channel(catalog, schema, container_id, channel_id, token) -> ChannelData
-    resample(cache_key, x_min_ns, x_max_ns, n_points, normalize) -> dict
-    is_loaded(cache_key) -> bool
-    evict_lru() -> None
-    get_memory_usage() -> int
+New helper function:
+```python
+def _generate_event_expr(event: EventDefinition) -> str:
+    """Generate the BasicEvent expression string from an EventDefinition."""
 ```
 
-**`load_channel` flow:**
-1. Build cache key, check if already loaded (return immediately if so)
-2. Open connection via `ts_connector.get_connection(token)`
-3. Fetch all RLE rows → Polars DataFrame
-4. Vectorized RLE expansion in Polars:
-   ```python
-   starts = df.select(col("tstart").alias("t"), col("value"))
-   ends = df.filter(col("tend") != col("tstart")).select(col("tend").alias("t"), col("value"))
-   expanded = pl.concat([starts, ends]).sort("t")
-   ```
-5. Extract numpy arrays: `expanded["t"].to_numpy()`, `expanded["value"].to_numpy()` (zero-copy)
-6. Store as `ChannelData`, check memory, evict LRU if over threshold
+This produces the correct Python expression based on `event_type`, `conditions`, `compound_logic`, etc. (see Generated Expression Examples above).
 
-**`resample` flow:**
-1. Look up `ChannelData` by cache key
-2. Binary-search `expanded_t` for window `[x_min_ns, x_max_ns]` → get slice indices
-3. `tsdownsample.LTTBDownsampler().downsample(t_slice, v_slice, n_out=n_points)` → index array
-4. If `normalize=True`: apply min-max scaling to values, include raw values in output
-5. Convert timestamps ns → seconds, return as `[{t, v, v_raw?}, ...]`
-6. Update `last_accessed` timestamp
+Changes to aggregation code generation:
+- **Before signals cell**: generate event definitions as named variables
+- **Deduplicate**: if multiple aggregations reference the same event, generate the BasicEvent once
+- **Register**: call `my_report.add_event(event_var)` for each unique event
+- **All aggregation types** (histogram, histogram2d, statistics) pass `event=event_var` when an `event_ref` is set
+- **No event**: statistics still use `ContainerEvent` (current behavior); histograms simply omit the `event` parameter
 
-### Phase 3: API Endpoints
+### Step 4: Frontend Types (`frontend/src/types.ts`)
 
-**Modify: `server/routes/timeseries.py`**
+Add interfaces:
+```typescript
+interface ThresholdCondition {
+  signal_ref: string;
+  operator: ">" | "<" | ">=" | "<=" | "==" | "!=";
+  value: number;
+}
 
-Keep existing GET endpoints unchanged (containers, signals). Add:
-
-**`POST /api/timeseries/load`**
-```
-Request:
-  { "catalog": "...", "schema": "...",
-    "container_id": 1, "channel_ids": [5, 12, 33] }
-
-Response:
-  { "channels": [
-      { "channel_id": 5,  "cache_key": "cat.sch.1.5",
-        "total_points": 45000000, "t_min_ns": ..., "t_max_ns": ...,
-        "load_time_ms": 12400 },
-      { "channel_id": 12, "cache_key": "cat.sch.1.12",
-        "total_points": 82000000, "t_min_ns": ..., "t_max_ns": ...,
-        "load_time_ms": 18200 },
-      ...
-    ],
-    "memory_used_mb": 3200 }
-```
-- Loads each requested channel into the Polars cache
-- If already cached, returns immediately with cached metadata
-- This is the slow operation (~10–60s depending on data volume and warehouse size)
-
-**`POST /api/timeseries/resample`**
-```
-Request:
-  { "cache_keys": ["cat.sch.1.5", "cat.sch.1.12"],
-    "x_min_ns": null, "x_max_ns": null,
-    "n_points": 5000, "normalize": false }
-
-Response:
-  { "traces": [
-      { "cache_key": "cat.sch.1.5", "channel_id": 5,
-        "data": [{"t": 1.234, "v": 42.5}, ...],
-        "total_points": 45000000,
-        "window_points": 45000000 },
-      { "cache_key": "cat.sch.1.12", "channel_id": 12,
-        "data": [{"t": 1.234, "v": 7.1}, ...],
-        "total_points": 82000000,
-        "window_points": 82000000 }
-    ] }
-```
-- Instant response (<50ms) — purely in-memory LTTB
-- `x_min_ns` / `x_max_ns` = null means full range
-- `window_points` = number of raw points in the current zoom window (for UI indicator)
-- `normalize=true` returns min-max scaled values with `v_raw` field for hover
-
-### Phase 4: Frontend — TimeSeriesView.tsx Rewrite
-
-**Two-phase UX:**
-
-1. **Selection phase** (mostly unchanged):
-   Catalog → Schema → Container (radio) → Signals (checkbox multi-select)
-
-2. **Load phase** (new):
-   User clicks "Load & Explore" → calls `POST /load` → shows loading indicator with channel-by-channel status ("Loading Signal A... 45M points loaded") → once all channels are loaded, auto-calls `/resample` to render
-
-3. **Explore phase** (enhanced):
-   - Chart renders with `scattergl`, ~5,000 points per trace
-   - Drag to select range → Plotly `relayout` fires → debounced (200ms) `POST /resample` with zoomed `x_min_ns`/`x_max_ns` → chart updates with finer detail
-   - Double-click reset → `/resample` with null range → full overview
-   - Scroll-wheel zoom supported
-
-**Live data point counter (inspired by article Figure 8):**
-- Prominently displayed above the chart: **"Currently viewing: 1,671,266 data points"**
-- Updates on every zoom/pan — the `window_points` sum across all traces from the `/resample` response
-- At full zoom-out shows total across all loaded signals
-- Format: `Currently viewing: 1,671,266 data points (showing 5,000 per trace)`
-
-**Smart axis assignment:**
-- Frontend reads `unit`, `min_value`, `max_value` from each signal's metadata
-- Groups signals into 2 clusters by unit + value range
-- Cluster with more signals → left y-axis; other → right y-axis
-- If 1 unit → single y-axis
-- If exactly 2 units → one per axis
-
-**Clear axis labeling (learned from article Figure 8):**
-- Left y-axis title: unit name(s) for the signals assigned there, e.g., `"rpm"` or `"Temperature (°C), Pressure (bar)"`
-- Right y-axis title: unit name(s) for secondary group, e.g., `"Voltage (V)"`
-- Legend entries show axis assignment: `"EngineSpeed (rpm) [L]"` vs `"BatteryVoltage (V) [R]"`
-- Both axis sets persist at all zoom levels — zooming never collapses to a single axis
-
-**Hover behavior — progressive detail based on zoom level:**
-- **Overview level** (`window_points > 10,000` per trace): basic hover showing signal name, approximate time, value, and unit. Template: `<b>EngineSpeed</b><br>2024-03-15 14:23<br>2,450 rpm`
-- **Detail level** (`window_points <= 10,000` per trace): rich hover with precise timestamp (sub-second), exact value, unit, and which axis. Template: `<b>EngineSpeed</b><br>2024-03-15 14:23:07.342<br>2,450.73 rpm<br>Left axis`. Also enable `hovermode: "x unified"` so hovering shows values for ALL traces at that timestamp in a single tooltip — best for correlation analysis.
-- The `/resample` response already includes `window_points` per trace; the frontend uses this to switch hover templates.
-- With dual y-axes, hover must show the **correct** y-value for each trace (Plotly handles this natively when traces are assigned to `yaxis` vs `yaxis2`).
-
-**Normalize toggle:**
-- Button in chart header: `[Absolute | Normalized]`
-- Switching calls `/resample` with `normalize=true/false`
-- Normalized mode: single y-axis [0, 1], hover shows real values: `"EngineSpeed: 0.73 (2,450 rpm)"`
-- Axis labels update to "Normalized [0–1]"
-
-**Adding a signal while exploring:**
-- If signal is already cached → just add trace, call `/resample` for the new channel
-- If not cached → trigger `/load` for just that channel, then add to chart
-- No full reload needed
-- New signal auto-assigned to correct axis based on unit/range grouping
-
-**Chart header bar:**
-```
-  Currently viewing: 127,000,000 data points (showing 5,000 per trace)
-  Signals: EngineSpeed (rpm) [L], OilTemp (°C) [L]  |  Voltage (V) [R]    [Absolute ▾]  [Export CSV]
+interface EventDefinition {
+  name: string;
+  event_type: "interval" | "rising_edges" | "falling_edges" | "change_points";
+  conditions: ThresholdCondition[];
+  compound_logic: "AND" | "OR";
+  signal_ref: string | null;
+  from_state: number | null;
+  to_state: number | null;
+  description: string;
+}
 ```
 
-**New API functions** (add to `frontend/src/api.ts`):
-- `loadTimeSeriesChannels(catalog, schema, containerId, channelIds)` → POST `/load`
-- `resampleTimeSeries(cacheKeys, xMinNs, xMaxNs, nPoints, normalize)` → POST `/resample`
+Update `ReportState` to include `events: EventDefinition[]`.
+Rename `event_signal_ref` → `event_ref` on all aggregation interfaces.
+Add `event_ref: string | null` to `Histogram2DDefinition`.
 
-**New types** (add to `frontend/src/types.ts`):
-- `TimeSeriesLoadResponse`
-- `TimeSeriesResampleRequest` / `TimeSeriesResampleResponse`
+### Step 5: Frontend API (`frontend/src/api.ts`)
 
-### Phase 5: Testing Strategy
+Add functions:
+- `addEvent(sessionId, payload)` → POST
+- `updateEvent(sessionId, eventName, payload)` → PUT
+- `deleteEvent(sessionId, eventName)` → DELETE
 
-Testing uses a two-layer approach: local synthetic data for rapid UI iteration, then FEVM deploy for real-data validation.
+Update existing functions:
+- `addHistogram`, `updateHistogram` → use `event_ref`
+- `addStatistics` → use `event_ref`
+- Add `event_ref` to 2D histogram functions
 
-**Layer 1 — Local with synthetic data (self-service, no user involvement):**
+### Step 6: Channels Tab UI (`frontend/src/components/SignalsTab.tsx`)
 
-New file: `test/synthetic_ts.py` — generates realistic test data and pre-populates the cache:
-- Multiple signal types: sine waves (rpm), step functions (gear), random walks (temperature), sawtooth (voltage)
-- Different units and value ranges to exercise dual-axis grouping
-- Configurable point counts (default 1M per signal for responsive local testing)
-- Registers synthetic container/signals so the UI can discover and select them
+Add a new **Events** section below the virtual signals section:
 
-The `/load` endpoint detects `container_id=0` as the synthetic marker and loads from the generator instead of the SQL connector. The rest of the pipeline (cache, resample, frontend) runs identically.
+**Events list:**
+- Table showing defined events with columns: Name, Type (badge: Interval/Rising/Falling/Change), Expression summary, Description
+- Each row has Edit and Delete buttons
+- Visual indicator of output type: "Intervals" badge (green) or "PointsInTime" badge (blue)
 
-What this covers:
-- [ ] Chart layout, axis labels, legend with [L]/[R] annotations
-- [ ] Dual-axis grouping logic (signals with different units)
-- [ ] Hover behavior at overview vs detail zoom levels
-- [ ] "Currently viewing: X data points" counter updating on zoom
-- [ ] Normalize toggle (absolute ↔ normalized)
-- [ ] Signal add/remove without full reload
-- [ ] Loading states and error handling
-- [ ] Progressive hover (basic → rich when zoomed below 10k window points)
-- [ ] Visual regression via `screencapture` after frontend rebuild
+**"+ Add Event" button** (same style as "+ Add Virtual Signal"):
+- Opens an inline form card
 
-Testing loop: edit code → `npx tsc -b && npx vite build` → reload localhost:8001 → screenshot → verify.
+**Event form:**
+- **Name** field (required, blocks save if empty)
+- **Event Type** dropdown: Interval | Rising Edges | Falling Edges | Change Points
+- **Conditional section** based on type:
+  - **Interval / Rising Edges / Falling Edges:**
+    - Condition rows, each with: signal dropdown + operator dropdown + threshold input + remove button
+    - "+ Add Condition" button (for compound events)
+    - AND/OR toggle (shown only when 2+ conditions exist)
+  - **Change Points:**
+    - Signal dropdown
+    - From State input (number, required)
+    - To State input (number, required)
+- **Description** field (optional)
+- **Add / Cancel** buttons
 
-**Layer 2 — FEVM deploy with real data (user validates):**
+### Step 7: Aggregation Builders
 
-After the UI is visually solid locally, commit + deploy via `test/deploy-fevm.sh`. User tests with real 300M-row silver layer data.
+**All three builders** (HistogramBuilder, 2D Histogram builder, StatisticsBuilder):
+- Add "Event (optional)" dropdown
+- Populate ONLY with Interval-type events from `state.events` (filter: `event_type === "interval"`)
+- Show "(no events defined)" disabled option if no interval events exist
+- Show "None" as default (no event filter)
+- The dropdown label should read "Event Filter (optional)"
 
-What only real data can validate:
-- [ ] `databricks-sql-connector` Arrow fetch with OBO token auth
-- [ ] Load performance with 300M rows (target: <60s on medium warehouse)
-- [ ] Memory pressure and LRU eviction under real load
-- [ ] Real RLE data characteristics (gaps, irregular intervals, mixed sample rates)
-- [ ] Resample latency with 300M cached points (target: <50ms)
-- [ ] End-to-end zoom/pan cycle with warehouse-scale data
+**StatisticsBuilder** specifically:
+- REPLACE the current "Event Signal" dropdown (which lists raw channels) with the new event-only dropdown
+- Update helper text from "If set, statistics are computed at event trigger points only." to "If set, statistics are computed only within the event's time intervals."
 
-**Execution flow:**
-```
-1. Build backend (ts_connector, ts_cache, routes)
-2. Build synthetic data generator
-3. Build frontend rewrite
-4. Local iteration: screenshot → fix → screenshot → fix (3-4 cycles)
-5. Commit + deploy to FEVM
-6. User tests with real 300M-row data
-7. Fix issues from feedback → redeploy
-```
+**HistogramBuilder**:
+- Add the event dropdown (currently missing entirely)
+
+**2D Histogram builder**:
+- Add the event dropdown (currently missing entirely)
+
+### Step 8: Aggregation Display Cards (`AggregationsTab.tsx`)
+
+All aggregation cards should show the event reference if set:
+- Display: `Event: <event_name>` with the event type badge
+
+### Step 9: Agent Tools (`server/agent.py`)
+
+New tool:
+- `add_event(name, event_type, conditions?, compound_logic?, signal_ref?, from_state?, to_state?, description?)` — creates an event definition
+
+Update existing tools:
+- `add_histogram` — replace `event_signal_ref` param with `event_ref` (references event name)
+- `add_statistics` — replace `event_signal_ref` param with `event_ref`
+- `add_histogram_2d` — add `event_ref` param
+
+### Step 10: Skills Documentation
+
+**`skills/define-channels/SKILL.md`:**
+- Add section documenting event creation via `add_event` tool
+- Document all five event types with examples
+- Explain that PointsInTime events are for virtual signal expressions, Interval events for aggregation filtering
+
+**`skills/define-aggregations/SKILL.md`:**
+- Update `add_histogram` tool call to show `event_ref` (replaces removed `event_signal_ref`)
+- Update `add_statistics` tool call to show `event_ref`
+- Update `add_histogram_2d` tool call to show `event_ref`
+- Add note: only Interval events can be used with aggregations
+- Update statistics reference doc (`statistics_types.md`) to use `event_ref` instead of `event_signal_ref`
 
 ---
 
-## File Change Summary
+## What We Removed
 
-| File | Action | Description |
-|------|--------|-------------|
-| `requirements.txt` | Modify | Add `polars`, `databricks-sql-connector`, `pyarrow` |
-| `server/ts_connector.py` | **New** | Direct SQL connector for Arrow-native data fetching |
-| `server/ts_cache.py` | **New** | In-memory Polars cache + LTTB resample engine |
-| `server/routes/timeseries.py` | Modify | Add `POST /load` and `POST /resample` endpoints; keep existing metadata GETs |
-| `test/synthetic_ts.py` | **New** | Synthetic data generator for local testing |
-| `frontend/src/components/TimeSeriesView.tsx` | Modify | Two-phase UX (load → explore), instant zoom/pan, dual-axis grouping, normalize toggle |
-| `frontend/src/api.ts` | Modify | Add `loadTimeSeriesChannels()`, `resampleTimeSeries()` |
-| `frontend/src/types.ts` | Modify | Add load/resample request/response types |
-| `frontend/package.json` | No change | Already has `plotly.js-dist-min` and `react-plotly.js` |
+The following incorrect references were removed from skill docs (already done):
+
+- **`event_count` histogram sub-type** from `SKILL.md` — not supported by framework (PointsInTime events crash at runtime with `AttributeError` on `.tends`)
+- **`event_signal_ref` parameter** from `add_histogram` tool call in `SKILL.md`
+- **Event Count section** from `histogram_1d_types.md` — entire section with constructor example and documentation
+- **Decision tree entry** for "What values at specific events?" → event_count
+- **Signal type compatibility entry** for event_count
 
 ---
 
-## Architecture Section (for README)
+## Out of Scope
 
-> Paste this into the README under a new `### Time Series Explorer` subsection once implementation is complete.
-
-```markdown
-### Time Series Explorer
-
-The "Explore Time Series" feature provides interactive visualization of massive time series
-datasets (100M–300M+ data points) from the Impulse silver layer.
-
-**Architecture:**
-- **Data transport:** `databricks-sql-connector` fetches RLE channel data as Arrow batches
-  from the SQL Warehouse, zero-copy into Polars DataFrames
-- **In-memory cache:** Polars DataFrames hold expanded time series in server memory.
-  LRU eviction keeps total usage within the app's memory budget (6–12 GB)
-- **Dynamic resampling:** On every zoom/pan interaction, the LTTB algorithm
-  (`tsdownsample`) downsamples the visible window to ~5,000 representative points
-  in <50ms, preserving visual fidelity
-- **Rendering:** Plotly.js `scattergl` (GPU-accelerated WebGL) renders overlaid traces
-  with smart dual y-axis grouping for signals with different units
-
-**User flow:**
-1. Select catalog, schema, container, and signals
-2. Click "Load & Explore" — data is fetched from the warehouse into server memory (10–60s)
-3. Chart renders with full-range overview, live counter shows total data points in view
-4. Drag to zoom into a region — chart re-aggregates instantly with finer detail
-5. At high zoom levels (<10k points in view), hover switches to rich detail mode
-   with precise timestamps, unified cross-trace tooltips, and axis identification
-6. Double-click to reset to full range
-
-**Key features:**
-- Multi-signal overlay with automatic dual y-axis grouping by unit/value range
-- Live "Currently viewing: X data points" counter that updates on every interaction
-- Progressive hover: basic at overview level, rich with sub-second timestamps when zoomed in
-- Clear axis labels and legend entries showing which signals map to which y-axis
-- Optional normalized [0–1] view for comparing signals with wildly different scales
-- Add/remove signals without reloading already-cached data
-```
-
----
-
-## Constraints & Assumptions
-
-- **App memory:** 6 GB default, upgradeable to 12 GB (large instance). Each channel at 300M RLE rows ≈ 7.2 GB expanded. Practical limit: 1–2 large channels or many smaller ones simultaneously.
-- **SQL Warehouse:** Must be running or auto-start enabled. Initial load time depends on warehouse size.
-- **OBO token:** Used for all SQL queries. Token lifecycle is not handled in this phase.
-- **Browser:** `scattergl` requires WebGL support (all modern browsers).
-- **Fallback:** If `databricks-sql-connector` is unavailable (e.g., local dev without it installed), fall back to the existing MCP `execute_sql` path with the current 50k-point limit.
+- Adding `event_count` as a histogram agg_type (requires framework changes)
+- Converting PointsInTime to Intervals automatically (expand/flipflop) — users can do this manually via virtual signals
+- Backward compatibility with saved sessions using old `event_signal_ref` field
+- Framework-level validation for event/aggregation compatibility

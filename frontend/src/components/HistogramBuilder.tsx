@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import type { Histogram1DDefinition, SignalDefinition } from "../types";
+import type { EventDefinition, Histogram1DDefinition, SignalDefinition } from "../types";
 
 type HistogramType = Histogram1DDefinition["histogram_type"];
 
@@ -12,6 +12,7 @@ interface BinSuggestion {
 
 interface Props {
   signals: SignalDefinition[];
+  events: EventDefinition[];
   existingNames: Set<string>;
   onAdd: (histogram: Histogram1DDefinition) => void;
   onSuggestBins: (type: string, signalRef: string) => Promise<BinSuggestion>;
@@ -50,6 +51,7 @@ function makeUniqueName(
 
 export default function HistogramBuilder({
   signals,
+  events,
   existingNames,
   onAdd,
   onSuggestBins,
@@ -65,6 +67,7 @@ export default function HistogramBuilder({
   const [maxDurationEnabled, setMaxDurationEnabled] = useState(false);
   const [maxDurationSec, setMaxDurationSec] = useState("");
   const [weightSignalRef, setWeightSignalRef] = useState("");
+  const [eventRef, setEventRef] = useState("");
   const [suggesting, setSuggesting] = useState(false);
   const [error, setError] = useState("");
 
@@ -86,6 +89,7 @@ export default function HistogramBuilder({
         setMaxDurationSec("");
       }
       setWeightSignalRef(editingHistogram.weight_signal_ref || "");
+      setEventRef(editingHistogram.event_ref || "");
     }
   }, [editingHistogram]);
 
@@ -98,6 +102,7 @@ export default function HistogramBuilder({
     setMaxDurationEnabled(false);
     setMaxDurationSec("");
     setWeightSignalRef("");
+    setEventRef("");
     setError("");
   };
 
@@ -176,7 +181,7 @@ export default function HistogramBuilder({
         selectedType === "duration" && maxDurationEnabled
           ? parseFloat(maxDurationSec) * 1e9 || null
           : null,
-      event_signal_ref: null,
+      event_ref: eventRef || null,
       weight_signal_ref:
         selectedType === "distance" && weightSignalRef
           ? weightSignalRef
@@ -339,6 +344,25 @@ export default function HistogramBuilder({
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Short description of this histogram"
             />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Event Filter (optional)</label>
+            <select
+              className="form-input"
+              value={eventRef}
+              onChange={(e) => setEventRef(e.target.value)}
+            >
+              <option value="">None — no event filter</option>
+              {events.filter((e) => e.event_type === "interval").map((e) => (
+                <option key={e.name} value={e.name}>
+                  {e.name}{e.description ? ` — ${e.description}` : ""}
+                </option>
+              ))}
+            </select>
+            <div className="form-hint">
+              Only interval events are compatible with histograms. Define events in the Channels tab.
+            </div>
           </div>
 
           {selectedType === "duration" && (

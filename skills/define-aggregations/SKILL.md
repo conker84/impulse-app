@@ -27,18 +27,17 @@ Distributes a signal's values into bins, weighted by time, distance, or event co
 | `duration` | Time spent in each bin | SampleSeries | Engine speed distribution, temperature profile |
 | `distance` | Distance traveled in each bin | SampleSeries | Speed vs. distance driven |
 | `duration_count` | How many intervals fall into each duration bin | Intervals | Cold start duration distribution |
-| `event_count` | How many events occur at each signal value | SampleSeries + PointsInTime | Temperature at engine stop events |
 
 **Tool call:**
 ```
 add_histogram(
     name: str,              # Unique ID, convention: <short_name>_p<page>
-    histogram_type: str,    # "duration" | "distance" | "duration_count" | "event_count"
+    histogram_type: str,    # "duration" | "distance" | "duration_count"
     signal_ref: str,        # var_name of the signal to histogram
     bins: list[float],      # Bin edge values
     bins_unit: str,         # Unit for the x-axis (e.g. "rpm", "°C")
     description: str,       # Human-readable description
-    event_signal_ref: str,  # (event_count only) var_name of the event trigger signal
+    event_ref: str,         # (optional) name of an interval event defined in Channels tab
     weight_signal_ref: str, # (distance only) var_name of the cumulative distance signal
     max_duration: float     # (duration only) max sample duration cap in nanoseconds
 )
@@ -64,6 +63,7 @@ add_histogram_2d(
     y_bins: list[float],    # Bin edges for y-axis
     x_bins_unit: str,       # Unit for x-axis
     y_bins_unit: str,       # Unit for y-axis
+    event_ref: str,         # (optional) name of an interval event defined in Channels tab
     description: str        # Human-readable description
 )
 ```
@@ -89,7 +89,7 @@ add_statistics(
     name: str,              # Unique ID
     signal_refs: list[str], # var_names of signals to analyze
     stat_labels: list[str], # Which stats: ["min", "max", "mean", "median", "std", "count"]
-    event_signal_ref: str,  # (optional) var_name of event signal for point-in-time stats
+    event_ref: str,         # (optional) name of an interval event defined in Channels tab
     description: str        # Human-readable description
 )
 ```
@@ -106,7 +106,6 @@ User wants to analyze a signal
 ├── "How is the signal distributed?" → 1D Histogram (duration)
 ├── "How far do we drive at each value?" → 1D Histogram (distance)
 ├── "How long do operating conditions last?" → 1D Histogram (duration_count)
-├── "What values at specific events?" → 1D Histogram (event_count)
 ├── "How do two signals correlate?" → 2D Histogram
 ├── "What are the min/max/mean?" → Statistics
 └── "Give me an overview" → Statistics + key histograms
@@ -119,7 +118,6 @@ User wants to analyze a signal
 | duration histogram | SampleSeries |
 | distance histogram | SampleSeries |
 | duration_count histogram | Intervals |
-| event_count histogram | SampleSeries (base) + PointsInTime (event) |
 | 2D histogram | SampleSeries (both axes) |
 | statistics | Any type |
 

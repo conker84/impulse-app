@@ -15,7 +15,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Annotated, Any, Literal, Union
 
-from pydantic import BaseModel, Discriminator, Field, Tag
+from pydantic import BaseModel, Discriminator, Field, Tag, field_validator
 
 
 # ---------------------------------------------------------------------------
@@ -60,6 +60,44 @@ class SignalDefinition(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Event definitions
+# ---------------------------------------------------------------------------
+
+class ThresholdCondition(BaseModel):
+    signal_ref: str
+    operator: Literal[">", "<", ">=", "<=", "==", "!="]
+    value: float
+
+
+class EventDefinition(BaseModel):
+    name: str
+    event_type: Literal["interval", "rising_edges", "falling_edges", "change_points"]
+    # For interval & edge events (threshold-based conditions)
+    conditions: list[ThresholdCondition] = Field(default_factory=list)
+    compound_logic: Literal["AND", "OR"] = "AND"
+    # For change_points only
+    signal_ref: str | None = None
+    from_state: float | None = None
+    to_state: float | None = None
+    description: str = ""
+
+    @field_validator("conditions", mode="after")
+    @classmethod
+    def _check_conditions(cls, v: list[ThresholdCondition], info) -> list[ThresholdCondition]:
+        et = info.data.get("event_type", "")
+        if et in ("interval", "rising_edges", "falling_edges") and len(v) == 0:
+            raise ValueError(f"event_type '{et}' requires at least one condition")
+        return v
+
+    @property
+    def output_type(self) -> str:
+        """Returns 'Intervals' or 'PointsInTime' based on event_type."""
+        if self.event_type == "interval":
+            return "Intervals"
+        return "PointsInTime"
+
+
+# ---------------------------------------------------------------------------
 # Aggregation definitions (discriminated union)
 # ---------------------------------------------------------------------------
 
@@ -78,7 +116,7 @@ class Histogram1DDefinition(BaseModel):
     values_unit: str | None = None
     description: str = ""
     max_duration: float | None = None
-    event_signal_ref: str | None = None
+    event_ref: str | None = None
     weight_signal_ref: str | None = None
     weight_const: float | None = None
 
@@ -95,6 +133,7 @@ class Histogram2DDefinition(BaseModel):
     x_signal_name: str | None = None
     y_signal_name: str | None = None
     values_unit: str | None = None
+    event_ref: str | None = None
     description: str = ""
 
 
@@ -103,7 +142,7 @@ class StatisticsDefinition(BaseModel):
     name: str
     signal_refs: list[str] = Field(default_factory=list)
     stat_labels: list[str] = Field(default_factory=lambda: ["min", "max", "mean", "median"])
-    event_signal_ref: str | None = None
+    event_ref: str | None = None
     signal_names: list[str] | None = None
     description: str = ""
 
@@ -239,6 +278,7 @@ class ReportState(BaseModel):
     available_channels: list[AvailableChannel] = Field(default_factory=list)
     signal_candidates: list[SignalCandidate] = Field(default_factory=list)
     signals: list[SignalDefinition] = Field(default_factory=list)
+    events: list[EventDefinition] = Field(default_factory=list)
     aggregations: list[AggregationDefinition] = Field(default_factory=list)
     vehicle_candidates: list[VehicleCandidate] = Field(default_factory=list)
     vehicle_col_name: str = "test_object_name"

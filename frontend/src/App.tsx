@@ -42,6 +42,7 @@ const INITIAL_STATE: ReportState = {
   available_channels: [],
   signal_candidates: [],
   signals: [],
+  events: [],
   aggregations: [],
   vehicle_candidates: [],
   vehicles: [],
@@ -935,6 +936,8 @@ export default function App() {
         onDeleteAggregation={handleDeleteAggregation}
         onUpdateAggregation={handleUpdateAggregation}
         onSuggestBins={handleSuggestBins}
+        sessionId={sessionId}
+        onStateUpdate={setReportState}
         jobStatus={jobStatus}
 
         deploying={deploying}

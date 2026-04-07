@@ -39,8 +39,8 @@ export default function HistogramsTab({ histograms }: Props) {
             {h.max_duration && (
               <span>Max dur: {(h.max_duration / 1e9).toFixed(0)}s</span>
             )}
-            {h.event_signal_ref && (
-              <span>Event: <code>{h.event_signal_ref}</code></span>
+            {h.event_ref && (
+              <span>Event: <code>{h.event_ref}</code></span>
             )}
           </div>
           <div style={{ marginTop: 8, fontSize: 11, color: "var(--text-muted)" }}>

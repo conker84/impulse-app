@@ -57,7 +57,7 @@ function generateHistogramCode(state: ReportState): string {
 
   histograms.forEach((h) => {
     const params = [`    name="${h.name}"`, `    base_expr=signals["${h.signal_ref}"]`, `    bins=${JSON.stringify(h.bins)}`];
-    if (h.event_signal_ref) params.push(`    event=BasicEvent(name="${h.name}_event", expr=signals["${h.event_signal_ref}"])`);
+    if (h.event_ref) params.push(`    event=evt_${h.event_ref}`);
     if (h.description) params.push(`    desc="${h.description}"`);
     params.push(`    agg_type="${h.histogram_type}"`);
     if (h.bins_unit) params.push(`    bins_unit="${h.bins_unit}"`);

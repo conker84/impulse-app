@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from server.models import Histogram1DDefinition, Histogram2DDefinition, HistogramType, ReportState, StatisticsDefinition
+from server.models import EventDefinition, Histogram1DDefinition, Histogram2DDefinition, HistogramType, ReportState, StatisticsDefinition
 
 
 _HISTOGRAM_AGG_TYPE_MAP = {
@@ -11,7 +11,36 @@ _HISTOGRAM_AGG_TYPE_MAP = {
     HistogramType.DISTANCE: "distance",
 }
 
+_OP_MAP = {">": ">", "<": "<", ">=": ">=", "<=": "<=", "==": "==", "!=": "!="}
+_LOGIC_MAP = {"AND": "&", "OR": "|"}
+
 _SEP = "\n\n# COMMAND ----------\n\n"
+
+
+def _generate_event_expr(event: EventDefinition) -> str:
+    """Generate the Python expression string for a BasicEvent from an EventDefinition."""
+    if event.event_type == "change_points":
+        return f'signals["{event.signal_ref}"].change_points(from_state={event.from_state}, to_state={event.to_state})'
+
+    # Build threshold expression from conditions
+    parts = []
+    for c in event.conditions:
+        op = _OP_MAP[c.operator]
+        parts.append(f'(signals["{c.signal_ref}"] {op} {c.value})')
+
+    logic = _LOGIC_MAP[event.compound_logic]
+    if len(parts) == 1:
+        base_expr = parts[0]
+    else:
+        base_expr = f" {logic} ".join(parts)
+
+    if event.event_type == "interval":
+        return base_expr
+    elif event.event_type == "rising_edges":
+        return f"({base_expr}).rising_edges()"
+    elif event.event_type == "falling_edges":
+        return f"({base_expr}).falling_edges()"
+    return base_expr
 
 
 def generate_report_notebook(state: ReportState) -> str:
@@ -116,6 +145,27 @@ def generate_report_notebook(state: ReportState) -> str:
     # var_name → display name lookup for signal_names in Statistics
     sig_lookup = {s.var_name: (s.channel_name or s.alias or s.var_name) for s in state.signals}
 
+    # ---- Event definitions ----
+    # Build a lookup of event definitions by name
+    event_lookup: dict[str, EventDefinition] = {e.name: e for e in state.events}
+
+    # Collect unique event refs used by aggregations
+    used_event_refs: set[str] = set()
+    for agg in state.aggregations:
+        ref = getattr(agg, "event_ref", None)
+        if ref and ref in event_lookup:
+            used_event_refs.add(ref)
+
+    event_lines: list[str] = []
+    # Generate BasicEvent variables for referenced events
+    for ref in sorted(used_event_refs):
+        evt = event_lookup[ref]
+        var = f"evt_{ref}"
+        expr = _generate_event_expr(evt)
+        event_lines.append(f'{var} = BasicEvent(name="{ref}", expr={expr})')
+        event_lines.append(f"my_report.add_event({var})")
+        event_lines.append("")
+
     # ---- Aggregations ----
     agg_lines: list[str] = [
         "page = Page(page_number=1)",
@@ -133,6 +183,8 @@ def generate_report_notebook(state: ReportState) -> str:
             params.append(f'    bins_unit="{hist.bins_unit}"')
         if hist.values_unit:
             params.append(f'    values_unit="{hist.values_unit}"')
+        if hist.event_ref and hist.event_ref in event_lookup:
+            params.append(f'    event=evt_{hist.event_ref}')
         agg_lines.append("page.add_aggregation(Histogram(")
         agg_lines.append(",\n".join(params) + ",")
         agg_lines.append("))")
@@ -151,22 +203,25 @@ def generate_report_notebook(state: ReportState) -> str:
             params.append(f'    y_bins_unit="{hist2d.y_bins_unit}"')
         if hist2d.values_unit:
             params.append(f'    values_unit="{hist2d.values_unit}"')
+        if hist2d.event_ref and hist2d.event_ref in event_lookup:
+            params.append(f'    event=evt_{hist2d.event_ref}')
         agg_lines.append("page.add_aggregation(Histogram2D(")
         agg_lines.append(",\n".join(params) + ",")
         agg_lines.append("))")
         agg_lines.append("")
 
     for stats in (a for a in state.aggregations if isinstance(a, StatisticsDefinition)):
-        event_name = f"{stats.name}_event"
-        if stats.event_signal_ref:
-            agg_lines.append(f'{event_name} = BasicEvent(name="{event_name}", expr=signals["{stats.event_signal_ref}"])')
+        # Use referenced event or fall back to ContainerEvent
+        if stats.event_ref and stats.event_ref in event_lookup:
+            event_var = f"evt_{stats.event_ref}"
         else:
-            agg_lines.append(f'{event_name} = ContainerEvent(name="{event_name}")')
-        agg_lines.append(f"my_report.add_event({event_name})")
-        agg_lines.append("")
+            event_var = f"{stats.name}_container_event"
+            agg_lines.append(f'{event_var} = ContainerEvent(name="{event_var}")')
+            agg_lines.append(f"my_report.add_event({event_var})")
+            agg_lines.append("")
         selections_items = ", ".join(f'signals["{ref}"]' for ref in stats.signal_refs)
         signal_names = [sig_lookup.get(ref, ref) for ref in stats.signal_refs]
-        params = [f'    name="{stats.name}"', f"    selections=[{selections_items}]", f"    aggregation_labels={repr(stats.stat_labels)}", f"    event={event_name}", f"    signal_names={repr(signal_names)}"]
+        params = [f'    name="{stats.name}"', f"    selections=[{selections_items}]", f"    aggregation_labels={repr(stats.stat_labels)}", f"    event={event_var}", f"    signal_names={repr(signal_names)}"]
         if stats.description:
             params.append(f'    desc="{stats.description}"')
         agg_lines.append("page.add_aggregation(Statistics(")
@@ -174,7 +229,7 @@ def generate_report_notebook(state: ReportState) -> str:
         agg_lines.append("))")
         agg_lines.append("")
 
-    cells.append("\n".join(agg_lines))
+    cells.append("\n".join(event_lines + agg_lines))
 
     # ---- Execute (with failure handling) ----
     cells.append("\n".join([

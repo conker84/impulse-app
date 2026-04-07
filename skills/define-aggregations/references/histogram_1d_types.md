@@ -31,7 +31,7 @@ Histogram(
 | `bins` | list[float] | Yes | Bin edges in the unit of `base_expr` |
 | `event` | Event | No | Event filter (BasicEvent or ContainerEvent) |
 | `desc` | str | No | Human-readable description |
-| `agg_type` | str | No | Type label (e.g. "duration", "distance", "duration_count", "event_count") |
+| `agg_type` | str | No | Type label: "duration", "distance", or "duration_count" |
 | `signal_name` | str | No | Display name for the signal |
 | `values_unit` | str | No | Unit for the values axis (typically `"nanoseconds"`) |
 | `bins_unit` | str | No | Unit for the bins axis (e.g. `"rpm"`, `"°C"`) |
@@ -157,41 +157,6 @@ hist = Histogram(
     bins_unit="Duration [nanoseconds]"
 )
 ```
-
----
-
-## Histogram (Event Count)
-
-Counts how many **events** occur at each **signal value**. Uses a `BasicEvent` to define the event trigger.
-
-**Input:** `base_expr` must evaluate to `SampleSeries`.
-
-### Constructor
-
-```python
-from mda_reporting.events.basic_event import BasicEvent
-
-event = BasicEvent(name="engine_stop", expr=signals["syc_rising"])
-
-hist = Histogram(
-    name="tmp_opf_hist_p1",
-    base_expr=signals["mean_temp_opf"],
-    bins=[float(i) for i in range(0, 1000, 100)],
-    event=event,
-    desc="OPF temperature distribution at engine stop events",
-    agg_type="event_count",
-    values_unit="event count",
-    bins_unit="°C"
-)
-```
-
-### When to use
-- Analyzing signal values at specific events (e.g. temperature at engine start/stop)
-- Counting how often a signal is in a certain range when an event occurs
-
-### Important
-- The `event` parameter takes a `BasicEvent` with an expression that evaluates to `PointsInTime`
-- `base_expr` is evaluated at the event points to determine which bin to increment
 
 ---
 

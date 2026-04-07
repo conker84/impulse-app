@@ -335,6 +335,62 @@ export async function suggestBins(
   });
 }
 
+// ---------------------------------------------------------------------------
+// Event CRUD
+// ---------------------------------------------------------------------------
+
+export async function addEvent(
+  sessionId: string,
+  payload: {
+    name: string;
+    event_type: string;
+    conditions?: { signal_ref: string; operator: string; value: number }[];
+    compound_logic?: string;
+    signal_ref?: string | null;
+    from_state?: number | null;
+    to_state?: number | null;
+    description?: string;
+  }
+): Promise<{ report_state: ReportState }> {
+  return request(`/add-event/${sessionId}`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateEvent(
+  sessionId: string,
+  eventName: string,
+  payload: {
+    name: string;
+    event_type: string;
+    conditions?: { signal_ref: string; operator: string; value: number }[];
+    compound_logic?: string;
+    signal_ref?: string | null;
+    from_state?: number | null;
+    to_state?: number | null;
+    description?: string;
+  }
+): Promise<{ report_state: ReportState }> {
+  return request(`/event/${sessionId}/${encodeURIComponent(eventName)}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteEvent(
+  sessionId: string,
+  eventName: string
+): Promise<{ report_state: ReportState }> {
+  return request(`/event/${sessionId}/${encodeURIComponent(eventName)}`, {
+    method: "DELETE",
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Histogram
+// ---------------------------------------------------------------------------
+
 export async function addHistogram(
   sessionId: string,
   payload: {
@@ -346,7 +402,7 @@ export async function addHistogram(
     values_unit?: string | null;
     description?: string;
     max_duration?: number | null;
-    event_signal_ref?: string | null;
+    event_ref?: string | null;
     weight_signal_ref?: string | null;
     weight_const?: number | null;
   }
@@ -367,6 +423,7 @@ export async function addHistogram2D(
     y_bins: number[];
     x_bins_unit?: string | null;
     y_bins_unit?: string | null;
+    event_ref?: string | null;
     description?: string;
   }
 ): Promise<{ report_state: ReportState }> {
@@ -382,7 +439,7 @@ export async function addStatistics(
     name: string;
     signal_refs: string[];
     stat_labels: string[];
-    event_signal_ref?: string | null;
+    event_ref?: string | null;
     description?: string;
   }
 ): Promise<{ report_state: ReportState }> {
@@ -413,7 +470,7 @@ export async function updateAggregation(
     values_unit?: string | null;
     description?: string;
     max_duration?: number | null;
-    event_signal_ref?: string | null;
+    event_ref?: string | null;
     weight_signal_ref?: string | null;
     weight_const?: number | null;
   }

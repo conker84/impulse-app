@@ -143,6 +143,62 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "add_event",
+            "description": (
+                "Add an event definition. Events are named filters used by aggregations. "
+                "Interval events produce time windows; rising/falling/change_points produce discrete moments (PointsInTime). "
+                "Only interval events can be used with histograms and 2D histograms."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Unique event name",
+                    },
+                    "event_type": {
+                        "type": "string",
+                        "enum": ["interval", "rising_edges", "falling_edges", "change_points"],
+                    },
+                    "conditions": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "signal_ref": {"type": "string"},
+                                "operator": {"type": "string", "enum": [">", "<", ">=", "<=", "==", "!="]},
+                                "value": {"type": "number"},
+                            },
+                            "required": ["signal_ref", "operator", "value"],
+                        },
+                        "description": "Threshold conditions (for interval/rising_edges/falling_edges)",
+                    },
+                    "compound_logic": {
+                        "type": "string",
+                        "enum": ["AND", "OR"],
+                        "description": "How to combine multiple conditions (default AND)",
+                    },
+                    "signal_ref": {
+                        "type": "string",
+                        "description": "Signal for change_points events",
+                    },
+                    "from_state": {
+                        "type": "number",
+                        "description": "From state value for change_points",
+                    },
+                    "to_state": {
+                        "type": "number",
+                        "description": "To state value for change_points",
+                    },
+                    "description": {"type": "string"},
+                },
+                "required": ["name", "event_type"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "add_histogram",
             "description": (
                 "Add a 1D histogram visualization. "
@@ -173,9 +229,9 @@ TOOLS = [
                         "type": "number",
                         "description": "Max sample duration in nanoseconds (duration type only)",
                     },
-                    "event_signal_ref": {
+                    "event_ref": {
                         "type": "string",
-                        "description": "Event trigger signal ref",
+                        "description": "Name of an event defined in the Channels tab (interval events only)",
                     },
                     "weight_const": {"type": "number"},
                     "description": {"type": "string"},
@@ -239,6 +295,10 @@ TOOLS = [
                     },
                     "x_bins_unit": {"type": "string", "description": "Unit for X bins axis"},
                     "y_bins_unit": {"type": "string", "description": "Unit for Y bins axis"},
+                    "event_ref": {
+                        "type": "string",
+                        "description": "Name of an event defined in the Channels tab (interval events only)",
+                    },
                     "description": {"type": "string"},
                 },
                 "required": ["name", "x_signal_ref", "y_signal_ref", "x_bins", "y_bins"],
@@ -273,9 +333,9 @@ TOOLS = [
                         },
                         "description": "Which statistics to compute (default: all)",
                     },
-                    "event_signal_ref": {
+                    "event_ref": {
                         "type": "string",
-                        "description": "Optional event signal ref to compute stats at event points",
+                        "description": "Name of an event defined in the Channels tab (interval events only)",
                     },
                     "description": {"type": "string"},
                 },
@@ -460,6 +520,26 @@ def _exec_suggest_candidates(state: ReportState, candidates: list[dict]) -> str:
     )
 
 
+def _exec_add_event(state: ReportState, **kwargs: Any) -> str:
+    name = kwargs["name"]
+    if any(e.name == name for e in state.events):
+        return f"Event '{name}' already exists."
+    from server.models import EventDefinition, ThresholdCondition
+    conditions = [ThresholdCondition(**c) for c in kwargs.get("conditions", [])]
+    event = EventDefinition(
+        name=name,
+        event_type=kwargs["event_type"],
+        conditions=conditions,
+        compound_logic=kwargs.get("compound_logic", "AND"),
+        signal_ref=kwargs.get("signal_ref"),
+        from_state=kwargs.get("from_state"),
+        to_state=kwargs.get("to_state"),
+        description=kwargs.get("description", ""),
+    )
+    state.events.append(event)
+    return f"Added {kwargs['event_type']} event '{name}' (output: {event.output_type})."
+
+
 def _exec_add_histogram(state: ReportState, **kwargs: Any) -> str:
     name = kwargs["name"]
     if any(a.name == name for a in state.aggregations):
@@ -474,7 +554,7 @@ def _exec_add_histogram(state: ReportState, **kwargs: Any) -> str:
             values_unit=kwargs.get("values_unit"),
             description=kwargs.get("description", ""),
             max_duration=kwargs.get("max_duration"),
-            event_signal_ref=kwargs.get("event_signal_ref"),
+            event_ref=kwargs.get("event_ref"),
             weight_signal_ref=kwargs.get("weight_signal_ref"),
             weight_const=kwargs.get("weight_const"),
         )
@@ -495,6 +575,7 @@ def _exec_add_histogram_2d(state: ReportState, **kwargs: Any) -> str:
             y_bins=kwargs.get("y_bins", []),
             x_bins_unit=kwargs.get("x_bins_unit"),
             y_bins_unit=kwargs.get("y_bins_unit"),
+            event_ref=kwargs.get("event_ref"),
             description=kwargs.get("description", ""),
         )
     )
@@ -515,7 +596,7 @@ def _exec_add_statistics(state: ReportState, **kwargs: Any) -> str:
             name=name,
             signal_refs=signal_refs,
             stat_labels=stat_labels,
-            event_signal_ref=kwargs.get("event_signal_ref"),
+            event_ref=kwargs.get("event_ref"),
             description=kwargs.get("description", ""),
         )
     )
@@ -591,6 +672,7 @@ _TOOL_STEP_MAP: dict[str, set[WizardStep]] = {
     "add_physical_signal": {WizardStep.CHANNELS},
     "add_virtual_signal": {WizardStep.CHANNELS},
     "suggest_signal_candidates": {WizardStep.CHANNELS},
+    "add_event": {WizardStep.CHANNELS, WizardStep.AGGREGATIONS},
     "add_histogram": {WizardStep.AGGREGATIONS},
     "add_histogram_2d": {WizardStep.AGGREGATIONS},
     "add_statistics": {WizardStep.AGGREGATIONS},
@@ -631,6 +713,8 @@ def _dispatch_tool(
         return _exec_add_virtual_signal(state, args["var_name"], args["expression"], args["eval_type"], args.get("description", ""))
     if name == "suggest_signal_candidates":
         return _exec_suggest_candidates(state, args["candidates"])
+    if name == "add_event":
+        return _exec_add_event(state, **args)
     if name == "add_histogram":
         return _exec_add_histogram(state, **args)
     if name == "add_histogram_2d":

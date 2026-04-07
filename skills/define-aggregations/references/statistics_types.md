@@ -20,7 +20,7 @@ Statistics(
 | `name` | str | Yes | Unique aggregation ID |
 | `signal_refs` | list[str] | Yes | List of signal var_names to compute stats for |
 | `stat_labels` | list[str] | No | Which statistics to compute (default: all four) |
-| `event_signal_ref` | str | No | var_name of event signal for point-in-time statistics |
+| `event_ref` | str | No | var_name of event signal for point-in-time statistics |
 | `desc` | str | No | Human-readable description |
 
 ## Available Statistics
@@ -60,7 +60,7 @@ Statistics(
     name="start_temp_stats_p1",
     signal_refs=["coolant_temp", "oil_temp"],
     stat_labels=["min", "max", "mean", "count"],
-    event_signal_ref="engine_start_events",
+    event_ref="engine_start_events",
     desc="Temperatures at engine start"
 )
 ```

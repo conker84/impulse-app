@@ -56,8 +56,8 @@ function Histogram1DCard({
         {h.max_duration && (
           <span>Max dur: {(h.max_duration / 1e9).toFixed(0)}s</span>
         )}
-        {h.event_signal_ref && (
-          <span>Event: <code>{h.event_signal_ref}</code></span>
+        {h.event_ref && (
+          <span>Event: <code>{h.event_ref}</code></span>
         )}
       </div>
       <div style={{ marginTop: 8, fontSize: 11, color: "var(--text-muted)" }}>
@@ -119,6 +119,7 @@ export default function AggregationsTab({ aggregations, onDelete, onEdit }: Prop
               <div className="card-meta">
                 <span>X: <code>{a.x_signal_ref}</code> ({a.x_bins.length} edges{a.x_bins_unit ? `, ${a.x_bins_unit}` : ""})</span>
                 <span>Y: <code>{a.y_signal_ref}</code> ({a.y_bins.length} edges{a.y_bins_unit ? `, ${a.y_bins_unit}` : ""})</span>
+                {a.event_ref && <span>Event: <code>{a.event_ref}</code></span>}
               </div>
               <div style={{ marginTop: 8, fontSize: 11, color: "var(--text-muted)" }}>
                 X: [{a.x_bins[0]} ... {a.x_bins[a.x_bins.length - 1]}] | Y: [{a.y_bins[0]} ... {a.y_bins[a.y_bins.length - 1]}]
@@ -152,6 +153,7 @@ export default function AggregationsTab({ aggregations, onDelete, onEdit }: Prop
               <div className="card-meta">
                 <span>Signals: {a.signal_refs.length}</span>
                 <span>Stats: {a.stat_labels.join(", ")}</span>
+                {a.event_ref && <span>Event: <code>{a.event_ref}</code></span>}
               </div>
             </div>
           );

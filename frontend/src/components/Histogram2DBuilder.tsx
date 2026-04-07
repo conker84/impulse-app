@@ -1,8 +1,9 @@
 import { useState } from "react";
-import type { Histogram2DDefinition, SignalDefinition } from "../types";
+import type { EventDefinition, Histogram2DDefinition, SignalDefinition } from "../types";
 
 interface Props {
   signals: SignalDefinition[];
+  events: EventDefinition[];
   existingNames: Set<string>;
   onAdd: (histogram: Histogram2DDefinition) => void;
   onSuggestBins: (type: string, signalRef: string) => Promise<{
@@ -19,7 +20,7 @@ function makeUniqueName(base: string, existing: Set<string>): string {
   return `${base}_${Date.now()}`;
 }
 
-export default function Histogram2DBuilder({ signals, existingNames, onAdd, onSuggestBins }: Props) {
+export default function Histogram2DBuilder({ signals, events, existingNames, onAdd, onSuggestBins }: Props) {
   const [expanded, setExpanded] = useState(false);
   const [xSignalRef, setXSignalRef] = useState("");
   const [ySignalRef, setYSignalRef] = useState("");
@@ -29,6 +30,7 @@ export default function Histogram2DBuilder({ signals, existingNames, onAdd, onSu
   const [yBinsText, setYBinsText] = useState("");
   const [xBinsUnit, setXBinsUnit] = useState("");
   const [yBinsUnit, setYBinsUnit] = useState("");
+  const [eventRef, setEventRef] = useState("");
   const [suggesting, setSuggesting] = useState<"x" | "y" | null>(null);
   const [error, setError] = useState("");
 
@@ -41,6 +43,7 @@ export default function Histogram2DBuilder({ signals, existingNames, onAdd, onSu
     setYBinsText("");
     setXBinsUnit("");
     setYBinsUnit("");
+    setEventRef("");
     setError("");
   };
 
@@ -136,6 +139,7 @@ export default function Histogram2DBuilder({ signals, existingNames, onAdd, onSu
       x_signal_name: null,
       y_signal_name: null,
       values_unit: null,
+      event_ref: eventRef || null,
       description,
     };
 
@@ -315,6 +319,25 @@ export default function Histogram2DBuilder({ signals, existingNames, onAdd, onSu
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Short description"
             />
+          </div>
+        </div>
+
+        <div className="form-group">
+          <label className="form-label">Event Filter (optional)</label>
+          <select
+            className="form-input"
+            value={eventRef}
+            onChange={(e) => setEventRef(e.target.value)}
+          >
+            <option value="">None — no event filter</option>
+            {events.filter((e) => e.event_type === "interval").map((e) => (
+              <option key={e.name} value={e.name}>
+                {e.name}{e.description ? ` — ${e.description}` : ""}
+              </option>
+            ))}
+          </select>
+          <div className="form-hint">
+            Only interval events are compatible with histograms. Define events in the Channels tab.
           </div>
         </div>
 

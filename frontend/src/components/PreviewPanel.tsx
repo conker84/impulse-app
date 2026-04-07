@@ -62,6 +62,8 @@ interface Props {
   onSuggestBins: (type: string, signalRef: string) => Promise<{
     bins: number[]; bins_unit: string; description: string; name: string;
   }>;
+  sessionId: string | null;
+  onStateUpdate: (state: ReportState) => void;
   jobStatus: DeployStatusResponse | null;
   deploying: boolean;
   validating: boolean;
@@ -119,6 +121,8 @@ export default function PreviewPanel({
   onDeleteAggregation,
   onUpdateAggregation,
   onSuggestBins,
+  sessionId,
+  onStateUpdate,
   jobStatus,
   deploying,
   validating,
@@ -235,12 +239,15 @@ export default function PreviewPanel({
             )}
             <SignalsTab
               signals={state.signals}
+              events={state.events || []}
+              sessionId={sessionId || ""}
               silverCatalog={state.source_data.silver_catalog}
               silverSchema={state.source_data.silver_schema}
               vehicles={state.vehicles}
               onDelete={onDeleteSignal}
               onUpdate={onUpdateSignal}
               onAddVirtual={onAddVirtualSignal}
+              onStateUpdate={onStateUpdate}
             />
           </StepSection>
         )}
@@ -253,6 +260,7 @@ export default function PreviewPanel({
             />
             <HistogramBuilder
               signals={state.signals}
+              events={state.events || []}
               existingNames={new Set(state.aggregations.map((a) => a.name))}
               onAdd={handleAddOrUpdateHistogram}
               onSuggestBins={onSuggestBins}
@@ -261,12 +269,14 @@ export default function PreviewPanel({
             />
             <Histogram2DBuilder
               signals={state.signals}
+              events={state.events || []}
               existingNames={new Set(state.aggregations.map((a) => a.name))}
               onAdd={onAddHistogram2D}
               onSuggestBins={onSuggestBins}
             />
             <StatisticsBuilder
               signals={state.signals}
+              events={state.events || []}
               existingNames={new Set(state.aggregations.map((a) => a.name))}
               onAdd={onAddStatistics}
             />
@@ -1839,7 +1849,7 @@ function ReadyPanel({
             onChange={onClusterConfigChange}
           />
           <div className="code-label" style={{ marginTop: 16 }}>Signals</div>
-          <SignalsTab signals={state.signals} silverCatalog={state.source_data.silver_catalog} silverSchema={state.source_data.silver_schema} />
+          <SignalsTab signals={state.signals} events={state.events || []} sessionId="" silverCatalog={state.source_data.silver_catalog} silverSchema={state.source_data.silver_schema} />
           <div className="code-label" style={{ marginTop: 16 }}>Aggregations</div>
           <AggregationsTab aggregations={state.aggregations} />
           <div className="code-label" style={{ marginTop: 16 }}>Vehicles & Data Sources</div>

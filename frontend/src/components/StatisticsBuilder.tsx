@@ -1,8 +1,9 @@
 import { useState } from "react";
-import type { SignalDefinition, StatisticsDefinition } from "../types";
+import type { EventDefinition, SignalDefinition, StatisticsDefinition } from "../types";
 
 interface Props {
   signals: SignalDefinition[];
+  events: EventDefinition[];
   existingNames: Set<string>;
   onAdd: (stats: StatisticsDefinition) => void;
 }
@@ -18,13 +19,13 @@ function makeUniqueName(base: string, existing: Set<string>): string {
   return `${base}_${Date.now()}`;
 }
 
-export default function StatisticsBuilder({ signals, existingNames, onAdd }: Props) {
+export default function StatisticsBuilder({ signals, events, existingNames, onAdd }: Props) {
   const [expanded, setExpanded] = useState(false);
   const [selectedSignals, setSelectedSignals] = useState<Set<string>>(new Set());
   const [selectedStats, setSelectedStats] = useState<Set<string>>(new Set(ALL_STAT_LABELS));
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [eventSignalRef, setEventSignalRef] = useState("");
+  const [eventRef, setEventRef] = useState("");
   const [error, setError] = useState("");
 
   const resetForm = () => {
@@ -32,7 +33,7 @@ export default function StatisticsBuilder({ signals, existingNames, onAdd }: Pro
     setSelectedStats(new Set(ALL_STAT_LABELS));
     setName("");
     setDescription("");
-    setEventSignalRef("");
+    setEventRef("");
     setError("");
   };
 
@@ -84,7 +85,7 @@ export default function StatisticsBuilder({ signals, existingNames, onAdd }: Pro
       name: finalName,
       signal_refs: signalRefs,
       stat_labels: Array.from(selectedStats),
-      event_signal_ref: eventSignalRef || null,
+      event_ref: eventRef || null,
       signal_names: null,
       description,
     };
@@ -184,21 +185,21 @@ export default function StatisticsBuilder({ signals, existingNames, onAdd }: Pro
         </div>
 
         <div className="form-group">
-          <label className="form-label">Event Signal (optional)</label>
+          <label className="form-label">Event Filter (optional)</label>
           <select
             className="form-input"
-            value={eventSignalRef}
-            onChange={(e) => setEventSignalRef(e.target.value)}
+            value={eventRef}
+            onChange={(e) => setEventRef(e.target.value)}
           >
             <option value="">None — compute over full signal</option>
-            {signals.map((s) => (
-              <option key={s.var_name} value={s.var_name}>
-                {s.var_name}{s.description ? ` — ${s.description}` : ""}
+            {events.filter((e) => e.event_type === "interval").map((e) => (
+              <option key={e.name} value={e.name}>
+                {e.name}{e.description ? ` — ${e.description}` : ""}
               </option>
             ))}
           </select>
           <div className="form-hint">
-            If set, statistics are computed at event trigger points only.
+            Only interval events are compatible. Define events in the Channels tab.
           </div>
         </div>
 

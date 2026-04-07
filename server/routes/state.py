@@ -16,6 +16,7 @@ from server.models import (
     AggregationDefinition,
     AvailableChannel,
     EvalType,
+    EventDefinition,
     Histogram1DDefinition,
     Histogram2DDefinition,
     HistogramDefinition,
@@ -25,6 +26,7 @@ from server.models import (
     SourceDataConfig,
     SourceDataMode,
     StatisticsDefinition,
+    ThresholdCondition,
     VehicleCandidate,
     VehicleConfig,
     WizardStep,
@@ -850,6 +852,124 @@ async def advance_step(session_id: str):
 
 
 # ---------------------------------------------------------------------------
+# Event definition endpoints
+# ---------------------------------------------------------------------------
+
+
+class AddEventPayload(BaseModel):
+    name: str
+    event_type: str
+    conditions: list[dict] = []
+    compound_logic: str = "AND"
+    signal_ref: str | None = None
+    from_state: float | None = None
+    to_state: float | None = None
+    description: str = ""
+
+
+def _validate_event_ref(state: ReportState, event_ref: str | None, allow_points: bool = False) -> None:
+    """Validate that event_ref points to an existing interval event."""
+    if not event_ref:
+        return
+    evt = next((e for e in state.events if e.name == event_ref), None)
+    if not evt:
+        raise HTTPException(400, f"Event '{event_ref}' does not exist.")
+    if not allow_points and evt.output_type != "Intervals":
+        raise HTTPException(
+            400,
+            f"Event '{event_ref}' produces {evt.output_type}, but only Interval events "
+            "are compatible with this aggregation type.",
+        )
+
+
+@router.post("/add-event/{session_id}")
+async def add_event(session_id: str, payload: AddEventPayload):
+    """Add an event definition."""
+    session = _sessions.get(session_id)
+    if not session:
+        raise HTTPException(404, "Session not found")
+
+    state = session.state
+
+    if any(e.name == payload.name for e in state.events):
+        raise HTTPException(400, f"Event '{payload.name}' already exists.")
+
+    conditions = [ThresholdCondition(**c) for c in payload.conditions]
+
+    event = EventDefinition(
+        name=payload.name,
+        event_type=payload.event_type,
+        conditions=conditions,
+        compound_logic=payload.compound_logic,
+        signal_ref=payload.signal_ref,
+        from_state=payload.from_state,
+        to_state=payload.to_state,
+        description=payload.description,
+    )
+    state.events.append(event)
+    return {"report_state": state.model_dump()}
+
+
+@router.put("/event/{session_id}/{event_name}")
+async def update_event(session_id: str, event_name: str, payload: AddEventPayload):
+    """Update an existing event definition."""
+    session = _sessions.get(session_id)
+    if not session:
+        raise HTTPException(404, "Session not found")
+
+    state = session.state
+    idx = next((i for i, e in enumerate(state.events) if e.name == event_name), None)
+    if idx is None:
+        raise HTTPException(404, f"Event '{event_name}' not found.")
+
+    if payload.name != event_name and any(e.name == payload.name for e in state.events):
+        raise HTTPException(400, f"Event '{payload.name}' already exists.")
+
+    conditions = [ThresholdCondition(**c) for c in payload.conditions]
+
+    state.events[idx] = EventDefinition(
+        name=payload.name,
+        event_type=payload.event_type,
+        conditions=conditions,
+        compound_logic=payload.compound_logic,
+        signal_ref=payload.signal_ref,
+        from_state=payload.from_state,
+        to_state=payload.to_state,
+        description=payload.description,
+    )
+
+    # Update references if name changed
+    if payload.name != event_name:
+        for agg in state.aggregations:
+            if hasattr(agg, "event_ref") and agg.event_ref == event_name:
+                agg.event_ref = payload.name
+
+    return {"report_state": state.model_dump()}
+
+
+@router.delete("/event/{session_id}/{event_name}")
+async def delete_event(session_id: str, event_name: str):
+    """Delete an event definition and clear references from aggregations."""
+    session = _sessions.get(session_id)
+    if not session:
+        raise HTTPException(404, "Session not found")
+
+    state = session.state
+    idx = next((i for i, e in enumerate(state.events) if e.name == event_name), None)
+    if idx is None:
+        raise HTTPException(404, f"Event '{event_name}' not found.")
+
+    state.events.pop(idx)
+
+    # Clear references from aggregations
+    for agg in state.aggregations:
+        if hasattr(agg, "event_ref") and agg.event_ref == event_name:
+            agg.event_ref = None
+
+    return {"report_state": state.model_dump()}
+
+
+# ---------------------------------------------------------------------------
 # Histogram builder endpoints
 # ---------------------------------------------------------------------------
 
@@ -868,7 +988,7 @@ class AddHistogramPayload(BaseModel):
     values_unit: str | None = None
     description: str = ""
     max_duration: float | None = None
-    event_signal_ref: str | None = None
+    event_ref: str | None = None
     weight_signal_ref: str | None = None
     weight_const: float | None = None
 
@@ -960,6 +1080,8 @@ async def add_histogram(session_id: str, payload: AddHistogramPayload):
     if not payload.bins or len(payload.bins) < 2:
         raise HTTPException(400, "At least 2 bin edges are required.")
 
+    _validate_event_ref(state, payload.event_ref)
+
     state.aggregations.append(
         Histogram1DDefinition(
             name=payload.name,
@@ -970,7 +1092,7 @@ async def add_histogram(session_id: str, payload: AddHistogramPayload):
             values_unit=payload.values_unit,
             description=payload.description,
             max_duration=payload.max_duration,
-            event_signal_ref=payload.event_signal_ref,
+            event_ref=payload.event_ref,
             weight_signal_ref=payload.weight_signal_ref,
             weight_const=payload.weight_const,
         )
@@ -1017,6 +1139,8 @@ async def update_aggregation(session_id: str, name: str, payload: AddHistogramPa
     if payload.name != name and any(a.name == payload.name for a in state.aggregations):
         raise HTTPException(400, f"Aggregation '{payload.name}' already exists.")
 
+    _validate_event_ref(state, payload.event_ref)
+
     state.aggregations[idx] = Histogram1DDefinition(
         name=payload.name,
         histogram_type=HistogramType(payload.histogram_type),
@@ -1026,7 +1150,7 @@ async def update_aggregation(session_id: str, name: str, payload: AddHistogramPa
         values_unit=payload.values_unit,
         description=payload.description,
         max_duration=payload.max_duration,
-        event_signal_ref=payload.event_signal_ref,
+        event_ref=payload.event_ref,
         weight_signal_ref=payload.weight_signal_ref,
         weight_const=payload.weight_const,
     )
@@ -1050,6 +1174,7 @@ class AddHistogram2DPayload(BaseModel):
     x_signal_name: str | None = None
     y_signal_name: str | None = None
     values_unit: str | None = None
+    event_ref: str | None = None
     description: str = ""
 
 
@@ -1075,6 +1200,8 @@ async def add_histogram_2d(session_id: str, payload: AddHistogram2DPayload):
     if not payload.y_bins or len(payload.y_bins) < 2:
         raise HTTPException(400, "At least 2 Y bin edges are required.")
 
+    _validate_event_ref(state, payload.event_ref)
+
     state.aggregations.append(
         Histogram2DDefinition(
             name=payload.name,
@@ -1087,6 +1214,7 @@ async def add_histogram_2d(session_id: str, payload: AddHistogram2DPayload):
             x_signal_name=payload.x_signal_name,
             y_signal_name=payload.y_signal_name,
             values_unit=payload.values_unit,
+            event_ref=payload.event_ref,
             description=payload.description,
         )
     )
@@ -1105,7 +1233,7 @@ class AddStatisticsPayload(BaseModel):
     name: str
     signal_refs: list[str]
     stat_labels: list[str] = ["min", "max", "mean", "median", "std", "count"]
-    event_signal_ref: str | None = None
+    event_ref: str | None = None
     signal_names: list[str] | None = None
     description: str = ""
 
@@ -1133,12 +1261,14 @@ async def add_statistics(session_id: str, payload: AddStatisticsPayload):
     if invalid:
         raise HTTPException(400, f"Invalid stat labels: {invalid}")
 
+    _validate_event_ref(state, payload.event_ref)
+
     state.aggregations.append(
         StatisticsDefinition(
             name=payload.name,
             signal_refs=payload.signal_refs,
             stat_labels=payload.stat_labels,
-            event_signal_ref=payload.event_signal_ref,
+            event_ref=payload.event_ref,
             signal_names=payload.signal_names,
             description=payload.description,
         )
