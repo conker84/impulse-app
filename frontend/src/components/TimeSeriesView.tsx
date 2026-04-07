@@ -578,9 +578,11 @@ export default function TimeSeriesView({ onBack, initialCatalog, initialSchema, 
                 <span style={{ fontWeight: 600 }}>
                   Currently viewing: {formatPointCount(totalViewingPoints)} data points
                 </span>
-                <span className="viz-hint">
-                  (showing {showingPerTrace.toLocaleString()} per trace)
-                </span>
+                {totalViewingPoints > showingPerTrace * traces.length * 2 && (
+                  <span className="viz-hint">
+                    (downsampled to {showingPerTrace.toLocaleString()} per trace)
+                  </span>
+                )}
                 {isDetailLevel && (
                   <span style={{ marginLeft: 4, color: "var(--success, #22c55e)", fontSize: 11 }}>
                     ● Detail hover active
