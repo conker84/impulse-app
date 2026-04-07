@@ -1,4 +1,5 @@
 command: ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+compute_size: LARGE
 env:
   - name: DATABRICKS_WAREHOUSE_ID
     value: "997c48107f9a1467"
