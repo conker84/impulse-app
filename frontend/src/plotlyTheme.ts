@@ -39,9 +39,10 @@ export const BASE_LAYOUT: Record<string, any> = {
     tickfont: { size: 10 },
   },
   hoverlabel: {
-    bgcolor: "var(--bg-secondary)",
-    bordercolor: "var(--border)",
-    font: { color: "var(--text-primary)", size: 11 },
+    bgcolor: "#1e293b",
+    bordercolor: "#475569",
+    font: { color: "#f1f5f9", size: 12 },
+    namelength: -1,
   },
 };
 

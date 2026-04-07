@@ -134,8 +134,9 @@ function formatPointCount(n: number): string {
   return String(n);
 }
 
-function toISOFromNsOffset(tSeconds: number, baseMs: number): string {
-  return new Date(baseMs + tSeconds * 1000).toISOString();
+/** Convert seconds-offset to epoch milliseconds for Plotly date axis. */
+function toEpochMs(tSeconds: number, baseMs: number): number {
+  return baseMs + tSeconds * 1000;
 }
 
 // ---------------------------------------------------------------------------
@@ -342,11 +343,10 @@ export default function TimeSeriesView({ onBack, initialCatalog, initialSchema, 
 
     if (xMinRaw == null || xMaxRaw == null) return;
 
-    // Convert date strings back to nanoseconds for the cache lookup.
-    // The display formula is: Date = baseMs + (raw_ns / 1e6)
-    // So: raw_ns = (Date_ms - baseMs) * 1e6
-    const xMinMs = new Date(xMinRaw).getTime();
-    const xMaxMs = new Date(xMaxRaw).getTime();
+    // With numeric x values (epoch ms), Plotly sends range as numbers.
+    // Convert back to nanoseconds: raw_ns = (epoch_ms - baseMs) * 1e6
+    const xMinMs = typeof xMinRaw === "number" ? xMinRaw : new Date(xMinRaw).getTime();
+    const xMaxMs = typeof xMaxRaw === "number" ? xMaxRaw : new Date(xMaxRaw).getTime();
     if (isNaN(xMinMs) || isNaN(xMaxMs)) return;
 
     const xMinNs = (xMinMs - baseMs) * 1e6;
@@ -377,7 +377,7 @@ export default function TimeSeriesView({ onBack, initialCatalog, initialSchema, 
     return traces.map((trace, i) => {
       const side = axisMap.get(trace.channelId) || "left";
       const yAxisRef = side === "right" && hasDualAxis ? ("y2" as const) : ("y" as const);
-      const xDates = trace.data.map((p) => toISOFromNsOffset(p.t, baseMs));
+      const xDates = trace.data.map((p) => toEpochMs(p.t, baseMs));
       const axisTag = useAxisTags && hasDualAxis ? (side === "left" ? " [L]" : " [R]") : "";
       const displayName = `${trace.channelName}${trace.unit ? ` (${trace.unit})` : ""}${axisTag}`;
 
