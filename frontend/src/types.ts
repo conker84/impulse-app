@@ -286,6 +286,35 @@ export interface TimeSeriesSignal {
 export interface TimeSeriesPoint {
   t: number; // seconds
   v: number;
+  v_raw?: number; // original value when normalized
+}
+
+// Load/resample API types
+export interface TimeSeriesLoadChannel {
+  channel_id: number;
+  cache_key: string;
+  total_points: number;
+  t_min_ns: number;
+  t_max_ns: number;
+  load_time_ms: number;
+  cached: boolean;
+}
+
+export interface TimeSeriesLoadResponse {
+  channels: TimeSeriesLoadChannel[];
+  memory_used_mb: number;
+}
+
+export interface TimeSeriesResampleTrace {
+  cache_key: string;
+  channel_id: number;
+  data: TimeSeriesPoint[];
+  total_points: number;
+  window_points: number;
+}
+
+export interface TimeSeriesResampleResponse {
+  traces: TimeSeriesResampleTrace[];
 }
 
 export interface ChatMessage {

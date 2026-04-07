@@ -75,7 +75,9 @@ const STEP_PLACEHOLDER: Record<WizardStep, string> = {
 };
 
 export default function App() {
-  const [view, setView] = useState<AppView>("landing");
+  const [view, setView] = useState<AppView>(
+    new URLSearchParams(window.location.search).has("synthetic") ? "timeseries" : "landing",
+  );
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [reportState, setReportState] = useState<ReportState>(INITIAL_STATE);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -858,10 +860,16 @@ export default function App() {
   }
 
   if (view === "timeseries") {
+    const isSynthetic = new URLSearchParams(window.location.search).has("synthetic");
     return (
       <>
         <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
-        <TimeSeriesView onBack={handleBackToLanding} settingsButton={settingsBtn} />
+        <TimeSeriesView
+          onBack={handleBackToLanding}
+          settingsButton={settingsBtn}
+          initialCatalog={isSynthetic ? "synthetic" : undefined}
+          initialSchema={isSynthetic ? "test" : undefined}
+        />
       </>
     );
   }

@@ -1,25 +1,33 @@
 """Time series endpoints — /api/timeseries/*
 
 Query Silver layer channels table (RLE intervals) for interactive time series
-visualization. Supports LTTB downsampling for large datasets.
+visualization. Supports in-memory Polars cache with LTTB downsampling for
+datasets with 100M–300M+ data points.
 """
 
 from __future__ import annotations
 
 import logging
 import re
+import time
 from typing import Any
 
-import numpy as np
 from fastapi import APIRouter, HTTPException, Query, Request
+from pydantic import BaseModel
 
 from server.mcp_tools import execute_sql
+from server.ts_cache import TimeSeriesCache, get_cache
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/timeseries", tags=["timeseries"])
 
 _IDENTIFIER_RE = re.compile(r"^[a-zA-Z0-9_]+$")
+
+# Synthetic test data marker
+_SYNTHETIC_CONTAINER_ID = 0
+_SYNTHETIC_CATALOG = "synthetic"
+_SYNTHETIC_SCHEMA = "test"
 
 
 def _validate_id(value: str, name: str) -> str:
@@ -42,6 +50,11 @@ async def list_containers(
     catalog: str, schema: str, request: Request,
 ):
     """List available measurement containers with metadata."""
+    # Synthetic data path
+    if catalog == _SYNTHETIC_CATALOG and schema == _SYNTHETIC_SCHEMA:
+        from test.synthetic_ts import SYNTHETIC_CONTAINER
+        return {"containers": [SYNTHETIC_CONTAINER]}
+
     _validate_id(catalog, "catalog")
     _validate_id(schema, "schema")
     token = _get_user_token(request)
@@ -91,6 +104,10 @@ async def list_signals(
     catalog: str, schema: str, container_id: int, request: Request,
 ):
     """List available signals for a container with metadata."""
+    # Synthetic data path
+    if container_id == _SYNTHETIC_CONTAINER_ID:
+        return _list_synthetic_signals()
+
     _validate_id(catalog, "catalog")
     _validate_id(schema, "schema")
     token = _get_user_token(request)
@@ -136,25 +153,147 @@ async def list_signals(
 
 
 # ---------------------------------------------------------------------------
-# Time series data with LTTB downsampling
+# Load channels into in-memory cache
 # ---------------------------------------------------------------------------
 
 
-def _lttb_downsample(t: np.ndarray, v: np.ndarray, n_out: int) -> tuple[np.ndarray, np.ndarray]:
-    """Downsample using Largest-Triangle-Three-Buckets (LTTB).
+class LoadRequest(BaseModel):
+    catalog: str
+    schema_name: str  # 'schema' is a Pydantic reserved name
+    container_id: int
+    channel_ids: list[int]
 
-    Falls back to pure-numpy implementation if tsdownsample is unavailable.
+
+@router.post("/load")
+async def load_channels(body: LoadRequest, request: Request):
+    """Load channel data into in-memory Polars cache for fast resampling.
+
+    For synthetic data (container_id=0): generates test data locally.
+    For real data: fetches from Databricks SQL warehouse via Arrow.
     """
+    cache = get_cache()
+    token = _get_user_token(request)
+    results = []
+
+    # Synthetic data path
+    if body.container_id == _SYNTHETIC_CONTAINER_ID:
+        return _load_synthetic(body.channel_ids)
+
+    # Real data path
+    _validate_id(body.catalog, "catalog")
+    _validate_id(body.schema_name, "schema")
+
+    from server.ts_connector import fetch_channel_polars, get_connection
+
+    conn = get_connection(token)
+    try:
+        for channel_id in body.channel_ids:
+            cache_key = TimeSeriesCache.make_key(
+                body.catalog, body.schema_name, body.container_id, channel_id
+            )
+
+            if cache.is_loaded(cache_key):
+                ch = cache._cache[cache_key]
+                results.append({
+                    "channel_id": channel_id,
+                    "cache_key": cache_key,
+                    "total_points": ch.total_points,
+                    "t_min_ns": ch.t_min_ns,
+                    "t_max_ns": ch.t_max_ns,
+                    "load_time_ms": 0,
+                    "cached": True,
+                })
+                continue
+
+            t0 = time.monotonic()
+            df = fetch_channel_polars(
+                conn, body.catalog, body.schema_name, body.container_id, channel_id
+            )
+            fetch_ms = (time.monotonic() - t0) * 1000
+
+            ch = cache.load_from_polars(cache_key, channel_id, df)
+            total_ms = (time.monotonic() - t0) * 1000
+
+            logger.info(
+                "Loaded %s: fetch=%.0fms, total=%.0fms, %d points",
+                cache_key, fetch_ms, total_ms, ch.total_points,
+            )
+
+            results.append({
+                "channel_id": channel_id,
+                "cache_key": cache_key,
+                "total_points": ch.total_points,
+                "t_min_ns": ch.t_min_ns,
+                "t_max_ns": ch.t_max_ns,
+                "load_time_ms": round(total_ms),
+                "cached": False,
+            })
+    finally:
+        conn.close()
+
+    return {
+        "channels": results,
+        "memory_used_mb": round(cache.get_memory_usage() / 1024**2),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Resample from cache (fast path — <50ms)
+# ---------------------------------------------------------------------------
+
+
+class ResampleRequest(BaseModel):
+    cache_keys: list[str]
+    x_min_ns: float | None = None
+    x_max_ns: float | None = None
+    n_points: int = 5000
+    normalize: bool = False
+
+
+@router.post("/resample")
+async def resample_channels(body: ResampleRequest):
+    """Resample cached channels using LTTB. Instant response from in-memory data."""
+    cache = get_cache()
+    traces = []
+
+    for cache_key in body.cache_keys:
+        if not cache.is_loaded(cache_key):
+            raise HTTPException(404, f"Channel {cache_key} not loaded. Call /load first.")
+
+        t0 = time.monotonic()
+        result = cache.resample(
+            cache_key,
+            x_min_ns=body.x_min_ns,
+            x_max_ns=body.x_max_ns,
+            n_points=body.n_points,
+            normalize=body.normalize,
+        )
+        resample_ms = (time.monotonic() - t0) * 1000
+
+        logger.debug("Resample %s: %.1fms, %d window pts", cache_key, resample_ms, result["window_points"])
+
+        result["cache_key"] = cache_key
+        traces.append(result)
+
+    return {"traces": traces}
+
+
+# ---------------------------------------------------------------------------
+# Legacy data endpoint (kept for backward compatibility)
+# ---------------------------------------------------------------------------
+
+
+def _lttb_downsample(t, v, n_out):
+    """Downsample using LTTB — legacy path."""
+    import numpy as np
+
     if len(t) <= n_out:
         return t, v
-
     try:
         from tsdownsample import LTTBDownsampler
-
         indices = LTTBDownsampler().downsample(t, v, n_out=n_out)
         return t[indices], v[indices]
     except ImportError:
-        # Pure-numpy fallback — simple bucket-based selection
         indices = np.round(np.linspace(0, len(t) - 1, n_out)).astype(int)
         return t[indices], v[indices]
 
@@ -170,19 +309,14 @@ async def get_timeseries_data(
     x_max: int | None = Query(None, description="Max timestamp (nanoseconds)"),
     n_points: int = Query(5000, ge=100, le=50000),
 ):
-    """Fetch time series data for a single channel, downsampled with LTTB.
+    """Legacy: fetch + downsample in one call. Use /load + /resample for large data."""
+    import numpy as np
 
-    The Silver layer stores RLE intervals (tstart, tend, value). We expand
-    each interval to step pairs [(tstart, value), (tend, value)] to preserve
-    the step-function shape, then downsample.
-    """
     _validate_id(catalog, "catalog")
     _validate_id(schema, "schema")
     token = _get_user_token(request)
 
-    # Build channels table name — it's simply 'channels' in the schema
     channels_table = f"{catalog}.{schema}.channels"
-
     where_parts = [
         f"container_id = {container_id}",
         f"channel_id = {channel_id}",
@@ -192,12 +326,10 @@ async def get_timeseries_data(
     if x_max is not None:
         where_parts.append(f"tstart <= {x_max}")
 
-    where_sql = " AND ".join(where_parts)
-
     sql = (
         f"SELECT tstart, tend, value "
         f"FROM {channels_table} "
-        f"WHERE {where_sql} "
+        f"WHERE {' AND '.join(where_parts)} "
         f"ORDER BY tstart"
     )
 
@@ -213,7 +345,6 @@ async def get_timeseries_data(
     if not rows:
         return {"data": [], "total_points": 0}
 
-    # Expand RLE intervals to step pairs
     times: list[int] = []
     values: list[float] = []
     for row in rows:
@@ -228,16 +359,55 @@ async def get_timeseries_data(
 
     t_arr = np.array(times, dtype=np.float64)
     v_arr = np.array(values, dtype=np.float64)
-
     total_points = len(t_arr)
 
-    # Downsample
     t_ds, v_ds = _lttb_downsample(t_arr, v_arr, n_points)
 
-    # Convert nanosecond timestamps to seconds for JSON transport
     data = [
         {"t": t / 1e9, "v": float(v)}
         for t, v in zip(t_ds.tolist(), v_ds.tolist())
     ]
 
     return {"data": data, "total_points": total_points}
+
+
+# ---------------------------------------------------------------------------
+# Synthetic data helpers
+# ---------------------------------------------------------------------------
+
+
+def _list_synthetic_signals() -> dict:
+    """Return synthetic signal metadata without touching Databricks."""
+    from test.synthetic_ts import SYNTHETIC_SIGNALS
+    return {"signals": [dict(s) for s in SYNTHETIC_SIGNALS]}
+
+
+def _load_synthetic(channel_ids: list[int]) -> dict:
+    """Load synthetic data into cache."""
+    from test.synthetic_ts import load_synthetic_data
+
+    all_results = load_synthetic_data()
+    cache = get_cache()
+
+    channels = []
+    for cid in channel_ids:
+        info = all_results.get(cid, {})
+        cache_key = info.get("cache_key", TimeSeriesCache.make_key(
+            _SYNTHETIC_CATALOG, _SYNTHETIC_SCHEMA, _SYNTHETIC_CONTAINER_ID, cid
+        ))
+        ch = cache._cache.get(cache_key)
+        if ch:
+            channels.append({
+                "channel_id": cid,
+                "cache_key": cache_key,
+                "total_points": ch.total_points,
+                "t_min_ns": ch.t_min_ns,
+                "t_max_ns": ch.t_max_ns,
+                "load_time_ms": 0,
+                "cached": True,
+            })
+
+    return {
+        "channels": channels,
+        "memory_used_mb": round(cache.get_memory_usage() / 1024**2),
+    }

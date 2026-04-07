@@ -1,12 +1,18 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import Plot from "react-plotly.js";
-import type { TimeSeriesContainer, TimeSeriesSignal, TimeSeriesPoint } from "../types";
+import type {
+  TimeSeriesContainer,
+  TimeSeriesSignal,
+  TimeSeriesLoadChannel,
+  TimeSeriesResampleTrace,
+} from "../types";
 import {
   listCatalogs,
   listSchemas,
   fetchTimeSeriesContainers,
   fetchTimeSeriesSignals,
-  fetchTimeSeriesData,
+  loadTimeSeriesChannels,
+  resampleTimeSeries,
 } from "../api";
 import { PALETTE, BASE_CONFIG, mergeLayout } from "../plotlyTheme";
 
@@ -17,68 +23,123 @@ interface Props {
   settingsButton?: React.ReactNode;
 }
 
+/** Loaded channel metadata from /load response */
+interface LoadedChannel {
+  channelId: number;
+  cacheKey: string;
+  totalPoints: number;
+  tMinNs: number;
+  tMaxNs: number;
+}
+
+/** Trace data from /resample response */
 interface TraceData {
+  cacheKey: string;
   channelId: number;
   channelName: string;
   unit: string;
-  points: TimeSeriesPoint[];
+  data: { t: number; v: number; v_raw?: number }[];
   totalPoints: number;
+  windowPoints: number;
 }
 
-type ViewMode = "line" | "daily" | "hourly" | "minutely";
+// ---------------------------------------------------------------------------
+// Axis grouping logic
+// ---------------------------------------------------------------------------
 
-function toISOTimestamps(points: TimeSeriesPoint[], baseMs: number): string[] {
-  return points.map((p) => new Date(baseMs + p.t * 1000).toISOString());
+type AxisSide = "left" | "right";
+
+interface AxisAssignment {
+  channelId: number;
+  side: AxisSide;
 }
 
-function bucketBoxPlots(
-  points: TimeSeriesPoint[],
-  baseMs: number,
-  mode: "daily" | "hourly" | "minutely",
-): { x: string[]; low: number[]; q1: number[]; median: number[]; q3: number[]; high: number[] } {
-  const buckets = new Map<string, number[]>();
+/**
+ * Group signals into 2 y-axis clusters by unit + value range.
+ * If 1 unit → all left. If 2 units → one per axis.
+ * If 3+ units → cluster by value range similarity into 2 groups.
+ */
+function assignAxes(
+  signals: TimeSeriesSignal[],
+  selectedIds: Set<number>,
+): { assignments: Map<number, AxisSide>; leftLabel: string; rightLabel: string } {
+  const selected = signals.filter((s) => selectedIds.has(s.channel_id));
+  if (selected.length === 0) return { assignments: new Map(), leftLabel: "", rightLabel: "" };
 
-  for (const p of points) {
-    const d = new Date(baseMs + p.t * 1000);
-    let key: string;
-    if (mode === "daily") {
-      key = d.toISOString().slice(0, 10); // YYYY-MM-DD
-    } else if (mode === "hourly") {
-      key = d.toISOString().slice(0, 13) + ":00"; // YYYY-MM-DDTHH:00
-    } else {
-      key = d.toISOString().slice(0, 16); // YYYY-MM-DDTHH:MM
+  // Group by unit
+  const unitGroups = new Map<string, TimeSeriesSignal[]>();
+  for (const s of selected) {
+    const u = s.unit || "value";
+    if (!unitGroups.has(u)) unitGroups.set(u, []);
+    unitGroups.get(u)!.push(s);
+  }
+
+  const units = Array.from(unitGroups.keys());
+  const assignments = new Map<number, AxisSide>();
+
+  if (units.length <= 1) {
+    // Single unit: all left
+    for (const s of selected) assignments.set(s.channel_id, "left");
+    return { assignments, leftLabel: units[0] || "value", rightLabel: "" };
+  }
+
+  if (units.length === 2) {
+    // Two units: larger group goes left
+    const [u1, u2] = units;
+    const g1 = unitGroups.get(u1)!;
+    const g2 = unitGroups.get(u2)!;
+    const [leftUnit, rightUnit] = g1.length >= g2.length ? [u1, u2] : [u2, u1];
+    for (const s of selected) {
+      assignments.set(s.channel_id, (s.unit || "value") === leftUnit ? "left" : "right");
     }
-    if (!buckets.has(key)) buckets.set(key, []);
-    buckets.get(key)!.push(p.v);
+    return { assignments, leftLabel: leftUnit, rightLabel: rightUnit };
   }
 
-  const x: string[] = [];
-  const low: number[] = [];
-  const q1: number[] = [];
-  const median: number[] = [];
-  const q3: number[] = [];
-  const high: number[] = [];
+  // 3+ units: cluster by median value range into 2 groups
+  const unitMedians = units.map((u) => {
+    const sigs = unitGroups.get(u)!;
+    const mid = sigs.reduce((sum, s) => {
+      const lo = s.min_value ?? 0;
+      const hi = s.max_value ?? 0;
+      return sum + (lo + hi) / 2;
+    }, 0) / sigs.length;
+    return { unit: u, median: mid, count: sigs.length };
+  });
+  unitMedians.sort((a, b) => a.median - b.median);
 
-  const sorted = Array.from(buckets.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-  for (const [key, vals] of sorted) {
-    if (vals.length === 0) continue;
-    vals.sort((a, b) => a - b);
-    const pct = (p: number) => {
-      const idx = (p / 100) * (vals.length - 1);
-      const lo = Math.floor(idx);
-      const hi = Math.ceil(idx);
-      return lo === hi ? vals[lo] : vals[lo] + (vals[hi] - vals[lo]) * (idx - lo);
-    };
-    x.push(key);
-    low.push(vals[0]);
-    q1.push(pct(25));
-    median.push(pct(50));
-    q3.push(pct(75));
-    high.push(vals[vals.length - 1]);
+  // Split: put the top unit(s) by median on right if they're clearly different
+  const splitIdx = Math.max(1, unitMedians.length - 1);
+  const leftUnits = new Set(unitMedians.slice(0, splitIdx).map((u) => u.unit));
+  const rightUnits = new Set(unitMedians.slice(splitIdx).map((u) => u.unit));
+
+  for (const s of selected) {
+    const u = s.unit || "value";
+    assignments.set(s.channel_id, leftUnits.has(u) ? "left" : "right");
   }
 
-  return { x, low, q1, median, q3, high };
+  const leftLabel = Array.from(leftUnits).join(", ");
+  const rightLabel = Array.from(rightUnits).join(", ");
+  return { assignments, leftLabel, rightLabel };
 }
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function formatPointCount(n: number): string {
+  if (n >= 1e9) return `${(n / 1e9).toFixed(1)}B`;
+  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
+  if (n >= 1e3) return `${(n / 1e3).toFixed(1)}K`;
+  return String(n);
+}
+
+function toISOFromNsOffset(tSeconds: number, baseMs: number): string {
+  return new Date(baseMs + tSeconds * 1000).toISOString();
+}
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
 
 export default function TimeSeriesView({ onBack, initialCatalog, initialSchema, settingsButton }: Props) {
   // UC browser
@@ -93,16 +154,22 @@ export default function TimeSeriesView({ onBack, initialCatalog, initialSchema, 
   const [signals, setSignals] = useState<TimeSeriesSignal[]>([]);
   const [selectedSignals, setSelectedSignals] = useState<Set<number>>(new Set());
 
-  // Chart data
-  const [traces, setTraces] = useState<TraceData[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<ViewMode>("line");
+  // Loaded channels (from /load)
+  const [loadedChannels, setLoadedChannels] = useState<Map<number, LoadedChannel>>(new Map());
+  const [loadingPhase, setLoadingPhase] = useState<string | null>(null);
 
-  // Debounce zoom/pan
+  // Chart state
+  const [traces, setTraces] = useState<TraceData[]>([]);
+  const [normalized, setNormalized] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Current zoom window (nanoseconds)
+  const [windowNs, setWindowNs] = useState<{ min: number | null; max: number | null }>({ min: null, max: null });
+
+  // Debounce zoom/pan resample calls
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Resolve container start_dt for timestamp conversion
+  // Container start time for timestamp conversion
   const activeContainer = useMemo(
     () => containers.find((c) => c.container_id === selectedContainer),
     [containers, selectedContainer],
@@ -112,27 +179,62 @@ export default function TimeSeriesView({ onBack, initialCatalog, initialSchema, 
     [activeContainer],
   );
 
-  // Load catalogs on mount
+  // Aggregate stats for the status bar
+  const totalViewingPoints = useMemo(
+    () => traces.reduce((sum, t) => sum + t.windowPoints, 0),
+    [traces],
+  );
+  const totalLoadedPoints = useMemo(
+    () => traces.reduce((sum, t) => sum + t.totalPoints, 0),
+    [traces],
+  );
+  const showingPerTrace = traces.length > 0 ? traces[0].data.length : 0;
+
+  // Detail threshold: if all traces have <10k window points, use rich hover
+  const isDetailLevel = useMemo(
+    () => traces.length > 0 && traces.every((t) => t.windowPoints <= 10_000),
+    [traces],
+  );
+
+  // Axis assignments
+  const { assignments: axisMap, leftLabel, rightLabel } = useMemo(
+    () => assignAxes(signals, selectedSignals),
+    [signals, selectedSignals],
+  );
+  const hasDualAxis = rightLabel !== "";
+
+  // ------ Data loading ------
+
   useEffect(() => {
     listCatalogs()
-      .then((r) => setCatalogs(r.catalogs.map((c) => c.name)))
-      .catch(() => {});
+      .then((r) => {
+        const names = r.catalogs.map((c) => c.name);
+        // Always include synthetic test data option
+        if (!names.includes("synthetic")) names.unshift("synthetic");
+        setCatalogs(names);
+      })
+      .catch(() => setCatalogs(["synthetic"]));
   }, []);
 
-  // Load schemas when catalog changes
   useEffect(() => {
     if (!catalog) { setSchemas([]); return; }
+    if (catalog === "synthetic") { setSchemas(["test"]); return; }
     listSchemas(catalog)
       .then((r) => setSchemas(r.schemas.map((s) => s.name)))
       .catch(() => setSchemas([]));
   }, [catalog]);
 
-  // Load containers when schema changes
   useEffect(() => {
     if (!catalog || !schema) { setContainers([]); return; }
     setError(null);
     fetchTimeSeriesContainers(catalog, schema)
-      .then((r) => setContainers(r.containers))
+      .then((r) => {
+        setContainers(r.containers);
+        // Auto-select first container (especially useful for synthetic data)
+        if (r.containers.length === 1) {
+          setSelectedContainer(r.containers[0].container_id);
+        }
+      })
       .catch((e) => {
         setContainers([]);
         const msg = e instanceof Error ? e.message : String(e);
@@ -141,7 +243,6 @@ export default function TimeSeriesView({ onBack, initialCatalog, initialSchema, 
       });
   }, [catalog, schema]);
 
-  // Load signals when container changes
   useEffect(() => {
     if (!catalog || !schema || selectedContainer == null) { setSignals([]); return; }
     fetchTimeSeriesSignals(catalog, schema, selectedContainer)
@@ -158,156 +259,178 @@ export default function TimeSeriesView({ onBack, initialCatalog, initialSchema, 
     });
   };
 
-  // Fetch data for selected signals
-  const fetchDataInner = useCallback(async (xMin?: number, xMax?: number) => {
-    if (!catalog || !schema || selectedContainer == null || selectedSignals.size === 0) return;
-    setLoading(true);
-    setError(null);
+  // ------ Load & Explore ------
 
-    // Convert seconds back to nanoseconds for the API
-    const xMinNs = xMin != null ? Math.round(xMin * 1e9) : undefined;
-    const xMaxNs = xMax != null ? Math.round(xMax * 1e9) : undefined;
+  const doResample = useCallback(async (
+    cacheKeys: string[],
+    xMinNs: number | null,
+    xMaxNs: number | null,
+    norm: boolean,
+  ) => {
+    if (cacheKeys.length === 0) return;
+    try {
+      const resp = await resampleTimeSeries(cacheKeys, xMinNs, xMaxNs, 5000, norm);
+      const newTraces: TraceData[] = resp.traces.map((rt) => {
+        const sig = signals.find((s) => s.channel_id === rt.channel_id);
+        return {
+          cacheKey: rt.cache_key,
+          channelId: rt.channel_id,
+          channelName: sig?.channel_name || `ch_${rt.channel_id}`,
+          unit: sig?.unit || "",
+          data: rt.data,
+          totalPoints: rt.total_points,
+          windowPoints: rt.window_points,
+        };
+      });
+      setTraces(newTraces);
+    } catch (e) {
+      setError(`Resample failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }, [signals]);
+
+  const handleLoadAndExplore = useCallback(async () => {
+    if (!catalog || !schema || selectedContainer == null || selectedSignals.size === 0) return;
+    setError(null);
+    setLoadingPhase("Loading data into memory...");
+    setTraces([]);
+    setWindowNs({ min: null, max: null });
 
     try {
-      const results = await Promise.all(
-        Array.from(selectedSignals).map(async (channelId) => {
-          const sig = signals.find((s) => s.channel_id === channelId);
-          const resp = await fetchTimeSeriesData(catalog, schema, selectedContainer!, channelId, xMinNs, xMaxNs);
-          return {
-            channelId,
-            channelName: sig?.channel_name || `ch_${channelId}`,
-            unit: sig?.unit || "",
-            points: resp.data,
-            totalPoints: resp.total_points,
-          };
-        }),
-      );
-      setTraces(results);
+      const channelIds = Array.from(selectedSignals);
+      const resp = await loadTimeSeriesChannels(catalog, schema, selectedContainer, channelIds);
+
+      const loaded = new Map<number, LoadedChannel>();
+      const cacheKeys: string[] = [];
+      for (const ch of resp.channels) {
+        loaded.set(ch.channel_id, {
+          channelId: ch.channel_id,
+          cacheKey: ch.cache_key,
+          totalPoints: ch.total_points,
+          tMinNs: ch.t_min_ns,
+          tMaxNs: ch.t_max_ns,
+        });
+        cacheKeys.push(ch.cache_key);
+      }
+      setLoadedChannels(loaded);
+
+      setLoadingPhase("Rendering chart...");
+      await doResample(cacheKeys, null, null, normalized);
     } catch (e) {
-      setError(`Failed to load data: ${e instanceof Error ? e.message : String(e)}`);
+      setError(`Load failed: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
-      setLoading(false);
+      setLoadingPhase(null);
     }
-  }, [catalog, schema, selectedContainer, selectedSignals, signals]);
+  }, [catalog, schema, selectedContainer, selectedSignals, normalized, doResample]);
 
-  const handleShow = () => fetchDataInner();
+  // ------ Zoom / Pan ------
 
-  // Handle zoom/pan — debounce refetch (line chart only, box plots don't zoom-refetch)
   const handleRelayout = useCallback((event: Record<string, any>) => {
-    if (viewMode !== "line") return;
-    // When x-axis is type: "date", Plotly sends date strings for ranges
     const xMinRaw = event["xaxis.range[0]"];
     const xMaxRaw = event["xaxis.range[1]"];
+
+    // Double-click reset (autorange)
+    if (event["xaxis.autorange"]) {
+      setWindowNs({ min: null, max: null });
+      const cacheKeys = traces.map((t) => t.cacheKey);
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => {
+        doResample(cacheKeys, null, null, normalized);
+      }, 150);
+      return;
+    }
+
     if (xMinRaw == null || xMaxRaw == null) return;
 
-    // Convert date strings back to epoch seconds for the API
+    // Convert date strings back to nanoseconds
     const xMinSec = (new Date(xMinRaw).getTime() - baseMs) / 1000;
     const xMaxSec = (new Date(xMaxRaw).getTime() - baseMs) / 1000;
     if (isNaN(xMinSec) || isNaN(xMaxSec)) return;
 
+    const xMinNs = xMinSec * 1e9;
+    const xMaxNs = xMaxSec * 1e9;
+    setWindowNs({ min: xMinNs, max: xMaxNs });
+
+    const cacheKeys = traces.map((t) => t.cacheKey);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
-      fetchDataInner(xMinSec, xMaxSec);
-    }, 400);
-  }, [fetchDataInner, viewMode, baseMs]);
+      doResample(cacheKeys, xMinNs, xMaxNs, normalized);
+    }, 200);
+  }, [traces, baseMs, normalized, doResample]);
 
-  // Build Plotly traces
-  const units = new Set(traces.map((t) => t.unit).filter(Boolean));
-  const unitList = Array.from(units);
-  const useDualAxis = unitList.length === 2;
+  // ------ Normalize toggle ------
+
+  const handleNormalizeToggle = useCallback(() => {
+    const next = !normalized;
+    setNormalized(next);
+    const cacheKeys = traces.map((t) => t.cacheKey);
+    if (cacheKeys.length > 0) {
+      doResample(cacheKeys, windowNs.min, windowNs.max, next);
+    }
+  }, [normalized, traces, windowNs, doResample]);
+
+  // ------ Build Plotly traces ------
 
   const plotlyTraces = useMemo(() => {
-    if (viewMode === "line") {
-      return traces.map((trace, i) => {
-        const yAxisIdx = useDualAxis && trace.unit === unitList[1] ? 2 : 1;
-        const xDates = toISOTimestamps(trace.points, baseMs);
-        return {
-          x: xDates,
-          y: trace.points.map((p) => p.v),
-          name: `${trace.channelName}${trace.unit ? ` (${trace.unit})` : ""}`,
-          type: "scattergl" as const,
-          mode: "lines" as const,
-          line: { color: PALETTE[i % PALETTE.length], width: 1.5 },
-          yaxis: yAxisIdx === 2 ? ("y2" as const) : ("y" as const),
-          hovertemplate: `<b>${trace.channelName}</b><br>%{x}<br>%{y:.4f} ${trace.unit}<extra></extra>`,
-        };
-      });
-    }
+    return traces.map((trace, i) => {
+      const side = axisMap.get(trace.channelId) || "left";
+      const yAxisRef = side === "right" && hasDualAxis ? ("y2" as const) : ("y" as const);
+      const xDates = trace.data.map((p) => toISOFromNsOffset(p.t, baseMs));
+      const axisTag = hasDualAxis ? (side === "left" ? " [L]" : " [R]") : "";
+      const displayName = `${trace.channelName}${trace.unit ? ` (${trace.unit})` : ""}${axisTag}`;
 
-    // Box plot mode
-    const boxMode = viewMode as "daily" | "hourly" | "minutely";
-    return traces.flatMap((trace, i) => {
-      const yAxisIdx = useDualAxis && trace.unit === unitList[1] ? 2 : 1;
-      const box = bucketBoxPlots(trace.points, baseMs, boxMode);
-      const color = PALETTE[i % PALETTE.length];
-      const name = `${trace.channelName}${trace.unit ? ` (${trace.unit})` : ""}`;
+      // Progressive hover: rich detail when zoomed in, basic at overview
+      let hovertemplate: string;
+      if (normalized && trace.data[0]?.v_raw != null) {
+        hovertemplate = isDetailLevel
+          ? `<b>${trace.channelName}</b><br>%{x|%Y-%m-%d %H:%M:%S.%3f}<br>%{y:.4f} (${trace.unit}: %{customdata:.4f})<extra></extra>`
+          : `<b>${trace.channelName}</b><br>%{x}<br>%{y:.3f} (${trace.unit}: %{customdata:.2f})<extra></extra>`;
+      } else {
+        hovertemplate = isDetailLevel
+          ? `<b>${trace.channelName}</b><br>%{x|%Y-%m-%d %H:%M:%S.%3f}<br>%{y:.4f} ${trace.unit}<extra></extra>`
+          : `<b>${trace.channelName}</b><br>%{x}<br>%{y:.2f} ${trace.unit}<extra></extra>`;
+      }
 
-      // Use candlestick-like box rendering: median line + q1-q3 filled area + whiskers
-      return [
-        // IQR box (q1 to q3)
-        {
-          x: [...box.x, ...box.x.slice().reverse()],
-          y: [...box.q3, ...box.q1.slice().reverse()],
-          fill: "toself" as const,
-          fillcolor: color + "30",
-          line: { color, width: 1 },
-          name,
-          type: "scatter" as const,
-          mode: "lines" as const,
-          yaxis: yAxisIdx === 2 ? ("y2" as const) : ("y" as const),
-          showlegend: true,
-          hoverinfo: "skip" as const,
-        },
-        // Median line
-        {
-          x: box.x,
-          y: box.median,
-          type: "scatter" as const,
-          mode: "lines+markers" as const,
-          line: { color, width: 2 },
-          marker: { size: 4, color },
-          name: `${name} median`,
-          yaxis: yAxisIdx === 2 ? ("y2" as const) : ("y" as const),
-          showlegend: false,
-          hovertemplate: `<b>${trace.channelName}</b><br>%{x}<br>median: %{y:.4f} ${trace.unit}<extra></extra>`,
-        },
-        // Whiskers (min-max)
-        {
-          x: [...box.x, ...box.x.slice().reverse()],
-          y: [...box.high, ...box.low.slice().reverse()],
-          fill: "toself" as const,
-          fillcolor: color + "10",
-          line: { color, width: 0.5, dash: "dot" as const },
-          name: `${name} range`,
-          type: "scatter" as const,
-          mode: "lines" as const,
-          yaxis: yAxisIdx === 2 ? ("y2" as const) : ("y" as const),
-          showlegend: false,
-          hoverinfo: "skip" as const,
-        },
-      ];
+      return {
+        x: xDates,
+        y: trace.data.map((p) => p.v),
+        customdata: trace.data.map((p) => p.v_raw ?? p.v),
+        name: displayName,
+        type: "scattergl" as const,
+        mode: "lines" as const,
+        line: { color: PALETTE[i % PALETTE.length], width: 1.5 },
+        yaxis: yAxisRef,
+        hovertemplate,
+      };
     });
-  }, [traces, viewMode, baseMs, useDualAxis, unitList]);
+  }, [traces, baseMs, axisMap, hasDualAxis, normalized, isDetailLevel]);
 
-  const layout = mergeLayout({
-    xaxis: {
-      title: "Time",
-      type: "date" as const,
-    },
-    yaxis: { title: useDualAxis ? unitList[0] : (unitList[0] || "value") },
-    ...(useDualAxis ? {
-      yaxis2: {
-        title: unitList[1],
-        overlaying: "y" as const,
-        side: "right" as const,
-        gridcolor: "rgba(128,128,128,0.08)",
-        tickfont: { size: 10 },
+  const layout = useMemo(() => {
+    const yTitle = normalized ? "Normalized [0–1]" : (leftLabel || "value");
+    return mergeLayout({
+      xaxis: {
+        title: "Time",
+        type: "date" as const,
       },
-    } : {}),
-    showlegend: traces.length > 1,
-    legend: { orientation: "h" as const, y: -0.15, font: { size: 10 } },
-    margin: { t: 8, r: useDualAxis ? 56 : 16, b: 56, l: 56 },
-  });
+      yaxis: { title: yTitle },
+      ...(hasDualAxis && !normalized ? {
+        yaxis2: {
+          title: rightLabel,
+          overlaying: "y" as const,
+          side: "right" as const,
+          gridcolor: "rgba(128,128,128,0.08)",
+          tickfont: { size: 10 },
+        },
+      } : {}),
+      hovermode: isDetailLevel ? ("x unified" as const) : ("closest" as const),
+      showlegend: traces.length > 1,
+      legend: { orientation: "h" as const, y: -0.15, font: { size: 10 } },
+      margin: { t: 8, r: hasDualAxis && !normalized ? 56 : 16, b: 56, l: 56 },
+    });
+  }, [leftLabel, rightLabel, hasDualAxis, normalized, isDetailLevel, traces.length]);
+
+  // ------ Render ------
+
+  const isExploring = traces.length > 0;
 
   return (
     <div className="visualize-layout">
@@ -326,7 +449,7 @@ export default function TimeSeriesView({ onBack, initialCatalog, initialSchema, 
             <select
               className="form-input"
               value={catalog}
-              onChange={(e) => { setCatalog(e.target.value); setSchema(""); setContainers([]); setSelectedContainer(null); setSignals([]); setSelectedSignals(new Set()); setTraces([]); }}
+              onChange={(e) => { setCatalog(e.target.value); setSchema(""); setContainers([]); setSelectedContainer(null); setSignals([]); setSelectedSignals(new Set()); setTraces([]); setLoadedChannels(new Map()); }}
             >
               <option value="">Select catalog...</option>
               {catalogs.map((c) => <option key={c} value={c}>{c}</option>)}
@@ -337,7 +460,7 @@ export default function TimeSeriesView({ onBack, initialCatalog, initialSchema, 
             <select
               className="form-input"
               value={schema}
-              onChange={(e) => { setSchema(e.target.value); setSelectedContainer(null); setSignals([]); setSelectedSignals(new Set()); setTraces([]); }}
+              onChange={(e) => { setSchema(e.target.value); setSelectedContainer(null); setSignals([]); setSelectedSignals(new Set()); setTraces([]); setLoadedChannels(new Map()); }}
               disabled={!catalog}
             >
               <option value="">Select schema...</option>
@@ -357,7 +480,7 @@ export default function TimeSeriesView({ onBack, initialCatalog, initialSchema, 
                     type="radio"
                     name="ts-container"
                     checked={selectedContainer === c.container_id}
-                    onChange={() => { setSelectedContainer(c.container_id); setSelectedSignals(new Set()); setTraces([]); }}
+                    onChange={() => { setSelectedContainer(c.container_id); setSelectedSignals(new Set()); setTraces([]); setLoadedChannels(new Map()); }}
                   />
                   <div className="viz-hist-info">
                     <span className="viz-checkbox-label">{c.filename}</span>
@@ -383,36 +506,42 @@ export default function TimeSeriesView({ onBack, initialCatalog, initialSchema, 
               </span>
             </div>
             <div className="viz-checkbox-list" style={{ maxHeight: 240 }}>
-              {signals.map((s) => (
-                <label key={s.channel_id} className="viz-checkbox-row">
-                  <input
-                    type="checkbox"
-                    checked={selectedSignals.has(s.channel_id)}
-                    onChange={() => toggleSignal(s.channel_id)}
-                  />
-                  <div className="viz-hist-info">
-                    <span className="viz-checkbox-label">{s.channel_name}</span>
-                    <span className="viz-hist-desc">
-                      {s.unit && `${s.unit} · `}
-                      {s.sample_count} samples
-                      {s.min_value != null ? ` · ${s.min_value.toFixed(1)}–${s.max_value?.toFixed(1)}` : ""}
-                    </span>
-                  </div>
-                </label>
-              ))}
+              {signals.map((s) => {
+                const side = axisMap.get(s.channel_id);
+                const axisTag = hasDualAxis && side ? (side === "left" ? " [L]" : " [R]") : "";
+                return (
+                  <label key={s.channel_id} className="viz-checkbox-row">
+                    <input
+                      type="checkbox"
+                      checked={selectedSignals.has(s.channel_id)}
+                      onChange={() => toggleSignal(s.channel_id)}
+                    />
+                    <div className="viz-hist-info">
+                      <span className="viz-checkbox-label">
+                        {s.channel_name}{axisTag}
+                      </span>
+                      <span className="viz-hist-desc">
+                        {s.unit && `${s.unit} · `}
+                        {s.sample_count > 0 ? `${formatPointCount(s.sample_count)} samples` : ""}
+                        {s.min_value != null ? ` · ${s.min_value.toFixed(1)}–${s.max_value?.toFixed(1)}` : ""}
+                      </span>
+                    </div>
+                  </label>
+                );
+              })}
             </div>
           </div>
         )}
 
         <button
           className="action-btn primary viz-apply-btn"
-          disabled={selectedSignals.size === 0 || loading}
-          onClick={handleShow}
+          disabled={selectedSignals.size === 0 || !!loadingPhase}
+          onClick={handleLoadAndExplore}
         >
-          {loading ? (
-            <><span className="spinner" style={{ width: 14, height: 14, marginRight: 6 }} />Loading...</>
+          {loadingPhase ? (
+            <><span className="spinner" style={{ width: 14, height: 14, marginRight: 6 }} />{loadingPhase}</>
           ) : (
-            `Show ${selectedSignals.size} Signal${selectedSignals.size !== 1 ? "s" : ""}`
+            `Load & Explore ${selectedSignals.size} Signal${selectedSignals.size !== 1 ? "s" : ""}`
           )}
         </button>
       </div>
@@ -420,7 +549,7 @@ export default function TimeSeriesView({ onBack, initialCatalog, initialSchema, 
       <div className="visualize-main">
         {error && <div className="viz-error-banner">{error}</div>}
 
-        {traces.length === 0 && !loading && (
+        {!isExploring && !loadingPhase && (
           <div className="visualize-empty">
             <div className="visualize-empty-icon">
               <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
@@ -429,51 +558,78 @@ export default function TimeSeriesView({ onBack, initialCatalog, initialSchema, 
               </svg>
             </div>
             <div className="visualize-empty-text">
-              Select a catalog, schema, container, and signals, then click <strong>Show</strong>.
+              Select a catalog, schema, container, and signals, then click <strong>Load &amp; Explore</strong>.
             </div>
           </div>
         )}
 
-        {traces.length > 0 && (
-          <div className="chart-card" style={{ flex: 1, minHeight: 500 }}>
-            <div className="chart-card-header">
-              <span className="chart-card-title">
-                {traces.map((t) => t.channelName).join(", ")}
-              </span>
-              <div style={{ display: "flex", alignItems: "center", gap: 4, marginLeft: "auto", flexShrink: 0 }}>
-                {(["line", "daily", "hourly", "minutely"] as ViewMode[]).map((m) => (
+        {isExploring && (
+          <div className="chart-card" style={{ flex: 1, minHeight: 500, display: "flex", flexDirection: "column" }}>
+            {/* Status bar */}
+            <div className="chart-card-header" style={{ flexDirection: "column", alignItems: "flex-start", gap: 4 }}>
+              {/* Row 1: Currently viewing counter */}
+              <div style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", fontSize: 13 }}>
+                <span style={{ fontWeight: 600 }}>
+                  Currently viewing: {formatPointCount(totalViewingPoints)} data points
+                </span>
+                <span className="viz-hint">
+                  (showing {showingPerTrace.toLocaleString()} per trace)
+                </span>
+                {isDetailLevel && (
+                  <span style={{ marginLeft: 4, color: "var(--success, #22c55e)", fontSize: 11 }}>
+                    ● Detail hover active
+                  </span>
+                )}
+                <div style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
                   <button
-                    key={m}
-                    className={`action-btn${viewMode === m ? " primary" : ""}`}
+                    className={`action-btn${!normalized ? " primary" : ""}`}
                     style={{ padding: "2px 8px", fontSize: 11 }}
-                    onClick={() => setViewMode(m)}
+                    onClick={handleNormalizeToggle}
                   >
-                    {m === "line" ? "Line" : m.charAt(0).toUpperCase() + m.slice(1)}
+                    Absolute
                   </button>
-                ))}
-                {(() => {
-                  const totalRaw = traces.reduce((sum, t) => sum + t.totalPoints, 0);
-                  const totalShown = traces.reduce((sum, t) => sum + t.points.length, 0);
-                  const isDownsampled = totalShown < totalRaw;
-                  return (
-                    <span className="viz-hint" style={{ marginLeft: 8 }} title={isDownsampled ? `Downsampled from ${totalRaw.toLocaleString()} to ${totalShown.toLocaleString()} points via LTTB` : undefined}>
-                      {totalRaw.toLocaleString()} pts
-                      {isDownsampled && (
-                        <span style={{ color: "var(--warning, #f59e0b)", marginLeft: 4 }}>
-                          (showing {totalShown.toLocaleString()})
-                        </span>
-                      )}
+                  <button
+                    className={`action-btn${normalized ? " primary" : ""}`}
+                    style={{ padding: "2px 8px", fontSize: 11 }}
+                    onClick={handleNormalizeToggle}
+                  >
+                    Normalized
+                  </button>
+                </div>
+              </div>
+
+              {/* Row 2: Signal → axis mapping */}
+              <div style={{ display: "flex", alignItems: "center", gap: 6, width: "100%", fontSize: 11, color: "var(--text-secondary)" }}>
+                {hasDualAxis && !normalized ? (
+                  <>
+                    <span>
+                      <strong>L:</strong>{" "}
+                      {traces.filter((t) => axisMap.get(t.channelId) === "left").map((t) => `${t.channelName} (${t.unit})`).join(", ")}
                     </span>
-                  );
-                })()}
+                    <span style={{ margin: "0 4px" }}>|</span>
+                    <span>
+                      <strong>R:</strong>{" "}
+                      {traces.filter((t) => axisMap.get(t.channelId) === "right").map((t) => `${t.channelName} (${t.unit})`).join(", ")}
+                    </span>
+                  </>
+                ) : (
+                  <span>
+                    {traces.map((t) => `${t.channelName}${t.unit ? ` (${t.unit})` : ""}`).join(", ")}
+                  </span>
+                )}
+                <span className="viz-hint" style={{ marginLeft: "auto" }}>
+                  Total loaded: {formatPointCount(totalLoadedPoints)}
+                </span>
               </div>
             </div>
+
+            {/* Chart */}
             <Plot
               data={plotlyTraces}
               layout={layout}
               config={BASE_CONFIG}
               useResizeHandler
-              style={{ width: "100%", height: "100%" }}
+              style={{ width: "100%", flex: 1, minHeight: 0 }}
               onRelayout={handleRelayout}
             />
           </div>

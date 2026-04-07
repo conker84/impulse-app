@@ -1,4 +1,4 @@
-import type { AggregationDefinition, AggregationMeta, AvailableChannel, ChatResponse, Heatmap2DResult, Histogram1DDefinition, HistogramMeta, HistogramResult, ReportState, SavedReportSummary, StatisticsResult, TimeSeriesContainer, TimeSeriesPoint, TimeSeriesSignal, ValidationResults, WizardStep } from "./types";
+import type { AggregationDefinition, AggregationMeta, AvailableChannel, ChatResponse, Heatmap2DResult, Histogram1DDefinition, HistogramMeta, HistogramResult, ReportState, SavedReportSummary, StatisticsResult, TimeSeriesContainer, TimeSeriesLoadResponse, TimeSeriesPoint, TimeSeriesResampleResponse, TimeSeriesSignal, ValidationResults, WizardStep } from "./types";
 
 const BASE = "/api";
 
@@ -572,4 +572,43 @@ export async function fetchTimeSeriesData(
   if (xMin != null) url += `&x_min=${xMin}`;
   if (xMax != null) url += `&x_max=${xMax}`;
   return request(url);
+}
+
+// New load/resample API for large datasets
+export async function loadTimeSeriesChannels(
+  catalog: string,
+  schema: string,
+  containerId: number,
+  channelIds: number[],
+): Promise<TimeSeriesLoadResponse> {
+  return request("/timeseries/load", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      catalog,
+      schema_name: schema,
+      container_id: containerId,
+      channel_ids: channelIds,
+    }),
+  });
+}
+
+export async function resampleTimeSeries(
+  cacheKeys: string[],
+  xMinNs: number | null,
+  xMaxNs: number | null,
+  nPoints: number = 5000,
+  normalize: boolean = false,
+): Promise<TimeSeriesResampleResponse> {
+  return request("/timeseries/resample", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      cache_keys: cacheKeys,
+      x_min_ns: xMinNs,
+      x_max_ns: xMaxNs,
+      n_points: nPoints,
+      normalize,
+    }),
+  });
 }
