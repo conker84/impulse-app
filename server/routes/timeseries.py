@@ -205,14 +205,14 @@ def _background_load(load_id: str, body: LoadRequest, token: str | None):
                     })
                     continue
 
-                job["message"] = f"Fetching channel {channel_id} from warehouse..."
+                job["message"] = "Fetching data from warehouse..."
                 t0 = time.monotonic()
                 table = fetch_channel_arrow(
                     conn, body.catalog, body.schema_name, body.container_id, channel_id
                 )
                 fetch_ms = (time.monotonic() - t0) * 1000
 
-                job["message"] = f"Processing channel {channel_id} ({table.num_rows:,} RLE rows)..."
+                job["message"] = f"Processing {table.num_rows:,} rows..."
                 ch = cache.load_from_arrow(cache_key, channel_id, table)
                 total_ms = (time.monotonic() - t0) * 1000
 
