@@ -268,6 +268,10 @@ def _background_bundle_run(
     """Run `databricks bundle run` in a background thread, streaming output to capture run URL early."""
     state = _get_session_state(session_id)
 
+    # Clear previous run so status endpoint doesn't return stale data
+    state.run_id = None
+    state.run_url = None
+
     try:
         proc = subprocess.Popen(
             ["databricks", "bundle", "run", state_name, "-t", "dev", *(var_args or []), *_profile_args()],
@@ -283,14 +287,13 @@ def _background_bundle_run(
             output_lines.append(line)
             logger.debug("bundle run: %s", line.rstrip())
 
-            if not state.run_url:
-                url_match = _RUN_URL_RE.search(line)
-                if url_match:
-                    state.run_url = url_match.group(0)
-                    rid_match = _RUN_ID_RE.search(state.run_url)
-                    if rid_match:
-                        state.run_id = rid_match.group(1)
-                    logger.info("Captured run URL: %s (run_id=%s)", state.run_url, state.run_id)
+            url_match = _RUN_URL_RE.search(line)
+            if url_match:
+                state.run_url = url_match.group(0)
+                rid_match = _RUN_ID_RE.search(state.run_url)
+                if rid_match:
+                    state.run_id = rid_match.group(1)
+                logger.info("Captured run URL: %s (run_id=%s)", state.run_url, state.run_id)
 
         proc.wait(timeout=86400)
 
