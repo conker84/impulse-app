@@ -37,18 +37,6 @@ The engineer uses Impulse to investigate.
 
 ---
 
-## Pre-Demo Setup
-
-```bash
-# 1. Verify data was generated (one-time, see test/generate_demo_data.py)
-#    DATABRICKS_CONFIG_PROFILE=fe-vm-maximhammer python3 test/generate_demo_data.py
-
-# 2. Start the app (local or deployed)
-python3 -m uvicorn app:app --reload --port 8001
-```
-
----
-
 ## Demo Script
 
 ### Step 1 — Create a New Report (Source Data)
@@ -89,14 +77,14 @@ python3 -m uvicorn app:app --reload --port 8001
 
 ### Step 4 — Add Histograms & Run the Report
 
-1. In the **Aggregations** step, add two 1D histograms:
+1. In the **Aggregations** step, add two **Duration Histograms**:
 
-   **Coolant Temperature histogram:**
+   **Coolant Temperature duration histogram:**
    - Signal: Coolant Temperature
    - Bins: `[40, 60, 70, 80, 85, 90, 95, 100, 105, 110, 115, 120]`
    - Unit: °C
 
-   **Engine Speed histogram:**
+   **Engine Speed duration histogram:**
    - Signal: Engine Speed
    - Bins: `[0, 500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000, 5500, 6000]`
    - Unit: RPM
@@ -122,31 +110,35 @@ python3 -m uvicorn app:app --reload --port 8001
 2. Select catalog `maximhammer_catalog`, schema `impulse_moon`
 3. Select the VW Golf GTI container
 4. **Load these channels** (select all and click Load):
-   - Engine Speed
-   - Vehicle Speed
    - Coolant Temperature
-   - Oil Temperature
    - Engine Load
+   - Engine Speed
+   - Intake Pressure
+   - Oil Temperature
 5. View the full 45-minute overview
 
 > **What the audience sees:** Five signals overlaid with automatic dual y-axis
 > grouping by unit. The mountain section (20–30 min) jumps out immediately:
-> - **Engine Speed** shoots up to 4500+ RPM
-> - **Vehicle Speed** drops to 50–70 km/h (climbing)
-> - **Engine Load** spikes to 85–95% (the smoking gun)
-> - **Coolant Temperature** climbs steeply to 110+ °C
-> - **Oil Temperature** follows ~60 seconds later — confirming thermal stress
+> - **Engine Speed** oscillates wildly between 3500–5500 RPM (the driver is
+>   constantly working through gears on the steep mountain road)
+> - **Engine Load** tracks the same pattern, swinging 60–100%
+> - **Coolant Temperature** climbs relentlessly from 85 → 115+ °C — even though
+>   RPM and load dip between peaks, the cooling system never gets a chance to recover
+> - **Oil Temperature** follows the same upward trend with a visible ~60 s lag
+> - At ~14:30 the descent begins: engine load drops to near zero, and temperatures
+>   finally start falling
 
 6. **Zoom in** to the 20–30 min mountain section by click-dragging on the chart
-7. Point out the **correlation**: high RPM + low speed + high load = the engine is
-   working hard with poor airflow through the radiator
+7. Point out the key pattern: engine load and RPM oscillate peak-to-peak, but
+   coolant temperature only goes up — the cooling system is overwhelmed by the
+   *sustained* heat input, not any single spike
 
-> **Talking point:** *"This is classic sustained high-load, low-airflow overheating.
-> The car is climbing at 4500 RPM but only 60 km/h — not enough ram air to cool the
-> radiator. The oil temperature confirms the thermal stress with its characteristic
-> 60-second lag. The engine load channel proves this wasn't a sensor glitch — the
-> engine was genuinely at 90% load for 10 straight minutes. This is the evidence the
-> cooling system team needs to resize the radiator or recalibrate the fan strategy."*
+> **Talking point:** *"Look at the contrast: engine speed and load are oscillating —
+> the driver is on and off the throttle on every switchback. But coolant temperature
+> doesn't oscillate, it just climbs. That tells you the cooling system can't dissipate
+> heat fast enough between load cycles. Oil temperature confirms it with a ~60 s lag.
+> This is the evidence the cooling system team needs — the radiator and fan strategy
+> can't keep up with 10 minutes of sustained mountain load."*
 
 ---
 
@@ -202,7 +194,7 @@ python3 -m uvicorn app:app --reload --port 8001
 | Feature | What it demonstrates |
 |---------|---------------------|
 | **Silver layer integration** | Zero-copy access to Unity Catalog measurement data |
-| **1D Histograms** | Instant anomaly detection — outlier clusters jump out |
+| **Duration Histograms** | Instant anomaly detection — outlier clusters jump out |
 | **Time Series Explorer** | Interactive drill-down into massive datasets in <50 ms |
 | **Multi-signal overlay** | Correlate cause and effect across 5+ signals with auto-axis grouping |
 | **LLM Chat** | Natural language → formal event definitions, no coding required |
@@ -211,11 +203,3 @@ python3 -m uvicorn app:app --reload --port 8001
 | **Report re-run** | Iterative analysis — add aggregations and re-deploy without starting over |
 | **Fleet scalability** | Same report template can run across hundreds of test drives |
 
----
-
-## Troubleshooting
-
-- **Warehouse stopped:** The demo requires a running SQL warehouse on the FEVM workspace
-- **No data:** Re-run `DATABRICKS_CONFIG_PROFILE=fe-vm-maximhammer python3 test/generate_demo_data.py`
-- **Stale UI:** Hard-refresh (`Cmd+Shift+R`) after redeployment
-- **Chat not responding:** Check the LLM serving endpoint is configured in Settings
