@@ -86,15 +86,20 @@ fi
 
 USER_API_SCOPES='["sql","dashboards.genie","files.files","catalog.connections","catalog.catalogs:read","catalog.schemas:read","catalog.tables:read"]'
 
-# Create app with scopes if it doesn't exist yet; otherwise just deploy
+# Create app if it doesn't exist yet
 if ! databricks apps get "$APP_NAME" --profile "$PROFILE" -o json > /dev/null 2>&1; then
-  echo "==> Creating app '$APP_NAME' with user authorization scopes..."
+  echo "==> Creating app '$APP_NAME'..."
   databricks apps create --profile "$PROFILE" --no-wait \
     --json "{\"name\":\"$APP_NAME\",\"user_api_scopes\":$USER_API_SCOPES}"
   echo "    Waiting for app to be ready..."
   databricks apps get "$APP_NAME" --profile "$PROFILE" > /dev/null 2>&1
   sleep 10
 fi
+
+# Always ensure user authorization scopes are set (they can get wiped by UI/API changes)
+echo "==> Ensuring user authorization scopes..."
+databricks api patch /api/2.0/apps/"$APP_NAME" --profile "$PROFILE" \
+  --json "{\"user_api_scopes\":$USER_API_SCOPES}" > /dev/null
 
 echo "==> Deploying app '$APP_NAME'..."
 databricks apps deploy "$APP_NAME" --source-code-path "$WS_PATH" --profile "$PROFILE" --no-wait
