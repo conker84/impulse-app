@@ -940,6 +940,7 @@ export default function App() {
         onSaveReport={handleSaveReport}
         onBackToLanding={handleBackToLanding}
         onViewResults={handleVisualizeFromEditor}
+        onTimeSeries={() => setView("timeseries")}
         onSetSourceData={handleSetSourceData}
         onUploadFiles={handleUploadFiles}
         onTriggerIngest={handleTriggerIngest}

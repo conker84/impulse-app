@@ -27,6 +27,7 @@ _PERSISTED_KEYS = frozenset({
     "aggregations",
     "vehicles",
     "data_sources",
+    "source_data",
     "use_all_purpose_cluster",
     "run_id",
     "run_url",

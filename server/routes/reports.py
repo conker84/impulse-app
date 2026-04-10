@@ -14,6 +14,8 @@ from server.config import IS_DATABRICKS_APP
 from server.models import (
     DataSourceConfig,
     ReportState,
+    SourceDataConfig,
+    SourceDataMode,
     WizardStep,
 )
 from server.report_store import delete_report, list_reports, load_report, save_report
@@ -72,6 +74,19 @@ async def load_saved_report(report_id: str, request: Request):
     data.pop("_report_name", None)
     data.pop("_user_email", None)
 
+    # Reconstruct source_data; fall back to inferring from data_sources for older reports
+    if data.get("source_data"):
+        source_data = SourceDataConfig(**data["source_data"])
+    elif data.get("data_sources") and data["data_sources"].get("destination_catalog"):
+        ds = data["data_sources"]
+        source_data = SourceDataConfig(
+            mode=SourceDataMode.EXISTING,
+            silver_catalog=ds.get("destination_catalog", ""),
+            silver_schema=ds.get("destination_schema", ""),
+        )
+    else:
+        source_data = SourceDataConfig()
+
     state = ReportState(
         name=data.get("name", ""),
         description=data.get("description", ""),
@@ -81,6 +96,7 @@ async def load_saved_report(report_id: str, request: Request):
         aggregations=data.get("aggregations", data.get("histograms", [])),
         vehicles=data.get("vehicles", []),
         data_sources=DataSourceConfig(**data["data_sources"]) if data.get("data_sources") else DataSourceConfig(),
+        source_data=source_data,
         use_all_purpose_cluster=data.get("use_all_purpose_cluster", False),
         wizard_step=WizardStep.READY,
         run_id=data.get("run_id"),

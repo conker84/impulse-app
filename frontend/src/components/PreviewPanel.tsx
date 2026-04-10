@@ -45,6 +45,7 @@ interface Props {
   onSaveReport: () => void;
   onBackToLanding: () => void;
   onViewResults: () => void;
+  onTimeSeries: () => void;
   onSetSourceData: (mode: "upload" | "existing", opts?: {
     silver_catalog?: string;
     silver_schema?: string;
@@ -117,6 +118,7 @@ export default function PreviewPanel({
   onSaveReport,
   onBackToLanding,
   onViewResults,
+  onTimeSeries,
   onSetSourceData,
   onUploadFiles,
   onTriggerIngest,
@@ -301,6 +303,7 @@ export default function PreviewPanel({
             validating={validating}
             onClusterConfigChange={onClusterConfigChange}
             onViewResults={onViewResults}
+            onTimeSeries={onTimeSeries}
           />
         )}
       </div>
@@ -1807,6 +1810,7 @@ function ReadyPanel({
   validating,
   onClusterConfigChange,
   onViewResults,
+  onTimeSeries,
 }: {
   state: ReportState;
   deploying: boolean;
@@ -1814,6 +1818,7 @@ function ReadyPanel({
   validating: boolean;
   onClusterConfigChange: (useAllPurpose: boolean, clusterId: string) => void;
   onViewResults: () => void;
+  onTimeSeries: () => void;
 }) {
   const isActivelyDeploying = deploying || state.deployment === "scaffolding" || state.deployment === "deploying" || state.deployment === "running";
   const hasActivity = isActivelyDeploying || state.deployment === "completed" || state.deployment === "failed";
@@ -1878,13 +1883,22 @@ function ReadyPanel({
       )}
 
       {state.deployment === "completed" && state.data_sources.destination_catalog && (
-        <button
-          className="action-btn primary"
-          style={{ marginTop: 16, width: "100%" }}
-          onClick={onViewResults}
-        >
-          View Results
-        </button>
+        <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+          <button
+            className="action-btn primary"
+            style={{ flex: 1 }}
+            onClick={onViewResults}
+          >
+            View Results
+          </button>
+          <button
+            className="action-btn"
+            style={{ flex: 1 }}
+            onClick={onTimeSeries}
+          >
+            Explore Time Series
+          </button>
+        </div>
       )}
     </div>
   );
