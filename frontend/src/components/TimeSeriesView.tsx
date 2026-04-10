@@ -433,15 +433,13 @@ export default function TimeSeriesView({ onBack, initialCatalog, initialSchema, 
       hovermode: isDetailLevel ? ("x unified" as const) : ("closest" as const),
       showlegend: traces.length > 1,
       legend: {
-        orientation: "v" as const,
-        x: 0.01, y: 0.99,
-        xanchor: "left" as const, yanchor: "top" as const,
-        bgcolor: "rgba(30,41,59,0.8)",
-        bordercolor: "rgba(128,128,128,0.2)",
-        borderwidth: 1,
-        font: { size: 12, color: "#c8cad4" },
+        orientation: "h" as const,
+        y: -0.25,
+        xanchor: "center" as const, x: 0.5,
+        font: { size: 11, color: "#c8cad4" },
+        traceorder: "normal" as const,
       },
-      margin: { t: 8, r: hasDualAxis && !normalized ? 64 : 24, b: 48, l: 64 },
+      margin: { t: 8, r: hasDualAxis && !normalized ? 64 : 24, b: 100, l: 64 },
     });
   }, [leftLabel, rightLabel, hasDualAxis, normalized, isDetailLevel, traces.length]);
 
