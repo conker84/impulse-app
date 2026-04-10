@@ -771,6 +771,27 @@ async def go_back(session_id: str):
     return {"wizard_step": session.state.wizard_step.value, "report_state": session.state.model_dump()}
 
 
+@router.post("/goto-step/{session_id}/{step}")
+async def goto_step(session_id: str, step: str):
+    session = _sessions.get(session_id)
+    if not session:
+        raise HTTPException(404, "Session not found")
+
+    try:
+        target = WizardStep(step)
+    except ValueError:
+        raise HTTPException(400, f"Invalid step: {step}")
+
+    target_idx = WIZARD_ORDER.index(target)
+    current_idx = WIZARD_ORDER.index(session.state.wizard_step)
+
+    if target_idx > current_idx:
+        raise HTTPException(400, "Cannot jump to a future step.")
+
+    session.state.wizard_step = target
+    return {"wizard_step": session.state.wizard_step.value, "report_state": session.state.model_dump()}
+
+
 def _validate_step_complete(state: ReportState) -> str | None:
     """Return an error message if the current wizard step is incomplete, else None."""
     step = state.wizard_step

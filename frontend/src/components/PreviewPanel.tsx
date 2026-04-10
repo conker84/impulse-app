@@ -24,6 +24,7 @@ interface Props {
   onSaveMetadata: (data: { name: string; description: string; creator: string }) => void;
   onAdvanceStep: () => void;
   onGoBack: () => void;
+  onGoToStep: (step: WizardStep) => void;
   onSelectCandidates: (selected: { alias: string; var_name: string; channel_name: string; description: string }[]) => void;
   onDeleteSignal: (varName: string) => void;
   onUpdateSignal: (varName: string, payload: { var_name: string; expression?: string; eval_type?: string; description?: string; alias?: string }) => void;
@@ -95,6 +96,7 @@ export default function PreviewPanel({
   onSaveMetadata,
   onAdvanceStep,
   onGoBack,
+  onGoToStep,
   onSelectCandidates,
   onDeleteSignal,
   onUpdateSignal,
@@ -167,11 +169,15 @@ export default function PreviewPanel({
         {wizardSteps.map((step, idx) => {
           const isCompleted = idx < currentStepIdx;
           const isCurrent = idx === currentStepIdx;
+          const isClickable = isCompleted || isCurrent;
           const cls = isCompleted ? "completed" : isCurrent ? "current" : "upcoming";
           const connectorCls = isCompleted ? "completed" : isCurrent ? "current" : "upcoming";
           return (
             <React.Fragment key={step.key}>
-              <div className={`wizard-step ${cls}`}>
+              <div
+                className={`wizard-step ${cls}${isClickable ? " clickable" : ""}`}
+                onClick={isClickable && !isCurrent ? () => onGoToStep(step.key) : undefined}
+              >
                 <div className="wizard-step-indicator">
                   {isCompleted ? "\u2713" : idx + 1}
                 </div>

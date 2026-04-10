@@ -487,6 +487,13 @@ export async function goBack(
   return request(`/go-back/${sessionId}`, { method: "POST" });
 }
 
+export async function goToStep(
+  sessionId: string,
+  step: WizardStep
+): Promise<{ wizard_step: WizardStep; report_state: ReportState }> {
+  return request(`/goto-step/${sessionId}/${step}`, { method: "POST" });
+}
+
 export async function setMetadata(
   sessionId: string | null,
   data: { name: string; description: string; creator: string }

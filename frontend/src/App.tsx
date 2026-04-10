@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import type { ChatMessage, Histogram1DDefinition, Histogram2DDefinition, ReportState, StatisticsDefinition, WizardStep } from "./types";
-import { sendChat, scaffoldReport, deployReport, advanceStep, goBack, setMetadata, selectCandidates, fetchVehicleCandidates, selectVehicles, updateVehicleTimestamps, getDeployStatus, cancelRun, getTokenStatus, setClusterConfig, loadReport, saveReport, suggestBins, addHistogram, addHistogram2D, addStatistics, deleteAggregation, updateAggregation, setSourceData, uploadMf4Files, triggerIngest, getIngestStatus, fetchChannelCatalog, fetchDataTimeRange, deleteSignal, updateSignal, addVirtualSignal, deleteVehicle } from "./api";
+import { sendChat, scaffoldReport, deployReport, advanceStep, goBack, goToStep, setMetadata, selectCandidates, fetchVehicleCandidates, selectVehicles, updateVehicleTimestamps, getDeployStatus, cancelRun, getTokenStatus, setClusterConfig, loadReport, saveReport, suggestBins, addHistogram, addHistogram2D, addStatistics, deleteAggregation, updateAggregation, setSourceData, uploadMf4Files, triggerIngest, getIngestStatus, fetchChannelCatalog, fetchDataTimeRange, deleteSignal, updateSignal, addVirtualSignal, deleteVehicle } from "./api";
 import type { DeployStatusResponse, TokenStatusResponse } from "./api";
 import type { DataSourceConfig } from "./types";
 import ChatPanel from "./components/ChatPanel";
@@ -545,6 +545,19 @@ export default function App() {
     }
   }, [sessionId]);
 
+  const handleGoToStep = useCallback(async (step: WizardStep) => {
+    if (!sessionId) return;
+    try {
+      const resp = await goToStep(sessionId, step);
+      setReportState(resp.report_state);
+    } catch (err) {
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: `${err instanceof Error ? err.message : String(err)}` },
+      ]);
+    }
+  }, [sessionId]);
+
   const handleFetchVehicleCandidates = useCallback(async () => {
     if (!sessionId) return;
     try {
@@ -910,6 +923,7 @@ export default function App() {
         onSaveMetadata={handleSaveMetadata}
         onAdvanceStep={handleAdvanceStep}
         onGoBack={handleGoBack}
+        onGoToStep={handleGoToStep}
         onSelectCandidates={handleSelectCandidates}
         onDeleteSignal={handleDeleteSignal}
         onUpdateSignal={handleUpdateSignal}
