@@ -2,9 +2,6 @@
 name: configure-report
 description: Configure an Impulse framework report by walking through the JSON config file sections (metadata, data sources, destination, query solver, vehicles, session metrics). Use when the user wants to set up, update, or review report configuration.
 compatibility: Requires a scaffolded Impulse report folder in the repository.
-metadata:
-  author: BDC-usecases
-  version: "1.0"
 allowed-tools: Bash Read Edit
 ---
 
@@ -37,7 +34,7 @@ Examples:
 **Always start by asking the user which vehicles to include in the report.** This is the most important configuration step because the vehicle IDs determine which source tables need to be configured.
 
 Collect for each vehicle:
-- Vehicle ID (e.g. `167-5568`)
+- Vehicle ID (e.g. `VH-001`)
 - Start timestamp (format: `YYYY-MM-DD HH:MM:SS`)
 - Optionally: stop timestamp, max duration
 
@@ -45,13 +42,13 @@ Collect for each vehicle:
 
 After the user provides vehicle IDs, **automatically look up all source tables** by querying the mapping table in Unity Catalog:
 
-**Mapping table:** `<destination_catalog>.2022012_mdm_out.vw_test_object_catalog_stnd`
+**Mapping table:** `<catalog>.<schema>.<vehicle_mapping_table>`
 
 Query the mapping table for the given vehicle IDs to resolve all source table paths:
 
 ```sql
 SELECT DISTINCT test_object_name, datapoint_location, measurement_session_metric, signal_metric_location
-FROM <destination_catalog>.2022012_mdm_out.vw_test_object_catalog_stnd
+FROM <catalog>.<schema>.<vehicle_mapping_table>
 WHERE test_object_name IN ('<vehicle_id_1>', '<vehicle_id_2>', ...)
 ```
 
@@ -63,10 +60,10 @@ From the results, extract:
 Present the complete vehicle-to-table mapping to the user for confirmation before applying:
 
 > "Based on the vehicle IDs, I found the following source tables:
-> - Vehicle `167-5568` → channels: `...t_100000151_signal_data_point`
-> - Vehicle `178-223` → channels: `...t_100000002_signal_data_point`
-> - Container metrics: `...t_measurement_session_metric`
-> - Channel metrics: `...t_signal_metric`
+> - Vehicle `VH-001` → channels: `<signal_data_table_1>`
+> - Vehicle `VH-002` → channels: `<signal_data_table_2>`
+> - Container metrics: `<container_metrics_table>`
+> - Channel metrics: `<channel_metrics_table>`
 >
 > I'll configure the data sources accordingly. Does this look correct?"
 

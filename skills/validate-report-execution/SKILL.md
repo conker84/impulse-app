@@ -2,9 +2,6 @@
 name: validate-report-execution
 description: Feedback loop for Impulse framework reports executed as Databricks Jobs. Deploy, run, collect results, parse errors and fix the report, or validate gold layer output tables for meaningful histogram results. Use when the user wants to run a report, check job results, debug a failed report run, or verify report output.
 compatibility: Requires Databricks CLI with a configured profile, and a scaffolded Impulse report.
-metadata:
-  author: BDC-usecases
-  version: "1.0"
 allowed-tools: Bash Read Edit
 ---
 
@@ -137,7 +134,7 @@ Read [references/error-patterns.md](references/error-patterns.md) for the full c
 
 | Category | Typical Error Pattern | Likely Fix |
 |---|---|---|
-| **Signal not found** | `ChannelAliasName_withScope ... not found` | Wrong alias name in `01_signal_definitions.py` — look up correct alias |
+| **Signal not found** | `Signal alias ... not found` | Wrong alias name in `01_signal_definitions.py` — look up correct alias |
 | **Table not found** | `TABLE_OR_VIEW_NOT_FOUND` | Wrong table path in `dev_config.json` |
 | **Permission denied** | `PERMISSION_DENIED`, `ACCESS_DENIED` | Missing grants on source or destination tables |
 | **Type mismatch** | `Cannot apply ... to Intervals/SampleSeries` | Expression type wrong for histogram type — check signal definitions |
@@ -286,9 +283,9 @@ Present a summary table:
 
 | Histogram | Expected Total | Actual Total | Deviation | Sessions (E/A) | Verdict |
 |---|---|---|---|---|---|
-| `class1d_drehzahl_p1` | 12,456.3 | 12,456.3 | 0.0% | 42/42 | MATCH |
-| `class1d_ansaugluft_p1` | 892.1 | 845.7 | 5.2% | 42/40 | INVESTIGATE |
-| `class1d_lambda_p1` | 334.8 | 0.0 | 100% | 42/0 | FAIL |
+| `engine_speed_hist_p1` | 12,456.3 | 12,456.3 | 0.0% | 42/42 | MATCH |
+| `intake_air_temp_hist_p1` | 892.1 | 845.7 | 5.2% | 42/40 | INVESTIGATE |
+| `lambda_hist_p1` | 334.8 | 0.0 | 100% | 42/0 | FAIL |
 
 **Deviation thresholds:**
 
@@ -317,8 +314,8 @@ After validation, present a structured summary and ask for the user's assessment
 >
 > | Histogram | Sessions | Total Value | Bins with Data | Status |
 > |---|---|---|---|---|
-> | `class1d_12v_batteriespannung_p1` | 42 | 1,245.3 | 18/20 | OK |
-> | `class1d_ansaugluft_p1` | 42 | 892.1 | 12/14 | OK |
+> | `battery_voltage_hist_p1` | 42 | 1,245.3 | 18/20 | OK |
+> | `intake_air_temp_hist_p1` | 42 | 892.1 | 12/14 | OK |
 > | ... | ... | ... | ... | ... |
 >
 > *Do these results look reasonable? Should I investigate any histogram in more detail?*
@@ -328,7 +325,7 @@ After validation, present a structured summary and ask for the user's assessment
 >
 > | Histogram | Status | Possible Cause |
 > |---|---|---|
-> | `class1d_abweichunglambda_p1` | All zeros | Enable condition may be too restrictive |
+> | `lambda_deviation_hist_p1` | All zeros | Enable condition may be too restrictive |
 >
 > *Should I investigate why these histograms are empty, or are these expected to have no data for this vehicle?*
 
@@ -336,7 +333,7 @@ After validation, present a structured summary and ask for the user's assessment
 > The job completed successfully, but the gold layer tables are empty. This typically means no measurement sessions matched your vehicle/time filter.
 >
 > *Possible causes:*
-> 1. Vehicle ID "167-5568" has no data after 2025-08-01
+> 1. Vehicle ID "VH-001" has no data after 2025-08-01
 > 2. Channel table doesn't contain signals for this vehicle
 >
 > *Should I run diagnostic queries to pinpoint the issue, or would you like to adjust the config?*
@@ -346,9 +343,9 @@ After validation, present a structured summary and ask for the user's assessment
 >
 > | Histogram | Deviation | Verdict |
 > |---|---|---|
-> | `class1d_12v_batteriespannung_p1` | 0.0% | MATCH |
-> | `class1d_ansaugluft_p1` | 3.2% | CLOSE (2 fewer sessions) |
-> | `class1d_abweichunglambda_p1` | 100% | FAIL (no actual data) |
+> | `battery_voltage_hist_p1` | 0.0% | MATCH |
+> | `intake_air_temp_hist_p1` | 3.2% | CLOSE (2 fewer sessions) |
+> | `lambda_deviation_hist_p1` | 100% | FAIL (no actual data) |
 >
 > *Should I drill down on the deviations, or are the CLOSE results acceptable?*
 

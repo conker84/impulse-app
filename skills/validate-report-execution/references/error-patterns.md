@@ -8,7 +8,7 @@ Common errors when running Impulse framework reports, how to identify them, and 
 
 **Pattern:**
 ```
-ChannelAliasName_withScope 'AL_OTTO_Drehzahl' not found
+Signal alias 'EngineSpeed' not found
 ```
 or
 ```
@@ -20,10 +20,10 @@ No channel alias matching ... was found
 **Fix:**
 1. Query the aliases table to find the correct name:
    ```sql
-   SELECT DISTINCT ChannelAliasName_withScope
+   SELECT DISTINCT channel_alias_name
    FROM <aliases_table>
-   WHERE ChannelAliasName_withScope LIKE '%<keyword>%'
-   ORDER BY ChannelAliasName_withScope
+   WHERE channel_alias_name LIKE '%<keyword>%'
+   ORDER BY channel_alias_name
    LIMIT 20
    ```
 2. Update the `query.channel(...)` call with the correct tag value.

@@ -2,9 +2,6 @@
 name: define-channels
 description: Define physical and virtual channels for an Impulse framework report. Includes automotive domain knowledge (EN/DE) for mapping problem descriptions to signal families. Use when the user wants to add signals or describes an analysis goal.
 compatibility: Part of the Impulse app. Loaded on-demand during the Channels wizard step.
-metadata:
-  author: BDC-usecases
-  version: "2.0"
 allowed-tools: add_physical_signal add_virtual_signal suggest_signal_candidates mcp_execute_sql load_skill
 ---
 
@@ -85,58 +82,54 @@ signal = query.channel(channel_name="Eng_Spd", device_name="CAN")
 # By channel tag (any tag key-value pair from channel_tags table)
 signal = query.channel(channel_alias_name="AL_EngineSpeed")
 
-# By tag with scope (uses any configured tag column as keyword)
-signal = query.channel(ChannelAliasName_withScope="AL_OTTO_Drehzahl")
+# By channel alias (alias-based lookup)
+signal = query.channel(channel_alias_name="EngineSpeed")
 ```
 
 The keywords passed to `channel()` depend on the configured query solver and how signals are identified in the measurement database. Common patterns:
 - `channel_name` + `device_name`
 - `signal_name` + `link_name`
 - `channel_alias_name` (for alias-based lookup)
-- `ChannelAliasName_withScope` (for scoped alias lookup — preferred)
 
 ### 3a. Channel Alias Lookup
 
-When the user provides a descriptive name (e.g. "Drehzahl", "temperature", "speed") but doesn't know the exact alias, look up matching channels in the aliases table in Unity Catalog.
+When the user provides a descriptive name (e.g. "temperature", "speed", "torque") but doesn't know the exact alias, look up matching channels in the aliases table in Unity Catalog.
 
 **Lookup table:** `<aliases_table>`
 
 **Procedure:**
 
-1. Query for matching aliases using a `LIKE` filter on column `ChannelAliasName_withScope` (default lookup column):
+1. Query for matching aliases using a `LIKE` filter on the alias column:
    ```sql
-   SELECT DISTINCT ChannelAliasName_withScope
+   SELECT DISTINCT channel_alias_name
    FROM <aliases_table>
-   WHERE ChannelAliasName_withScope LIKE '%<user_keyword>%'
-      OR ChannelAliasName LIKE '%<user_keyword>%'
-   ORDER BY ChannelAliasName_withScope
+   WHERE channel_alias_name LIKE '%<user_keyword>%'
+      OR channel_name LIKE '%<user_keyword>%'
+   ORDER BY channel_alias_name
    LIMIT 50
    ```
 
-2. Call `suggest_signal_candidates` with all result rows as `[{alias: "<ChannelAliasName_withScope>"}]`. This renders interactive checkboxes in the right panel.
+2. Call `suggest_signal_candidates` with all result rows as `[{alias: "<channel_alias_name>"}]`. This renders interactive checkboxes in the right panel.
 
 3. The user selects aliases from the checkbox UI and clicks "Add Selected". The app registers them as physical signals automatically.
 
 4. The generated code will use the selected alias:
    ```python
-   signal = query.channel(ChannelAliasName_withScope="<selected_alias>")
+   signal = query.channel(channel_alias_name="<selected_alias>")
    ```
 
 **Available columns in the aliases table:**
 
 | Column | Description |
 |---|---|
-| `ChannelAliasName_withScope` | Full alias name with scope prefix (e.g. `AL_OTTO_Drehzahl`) — **default lookup column** |
-| `ChannelAliasName` | Alias name without scope (e.g. `Drehzahl`) |
-| `ChannelName` | Physical channel name (e.g. `nmot`) |
-| `DeviceName` | Device/ECU name (e.g. `MRG3EVO`) |
-| `Scope` | Scope identifier (e.g. `OTTO`, `EATS`) |
-| `Client` | Client identifier |
+| `channel_alias_name` | Alias name (e.g. `EngineSpeed`) — **default lookup column** |
+| `channel_name` | Physical channel name (e.g. `Eng_Spd`) |
+| `device_name` | Device/ECU name (e.g. `CAN1`) |
 
 **Tips:**
-- If the initial search returns too many results, narrow with additional terms or filter by `Scope`.
-- If no results are found, try a broader keyword or search on `ChannelAliasName` or `ChannelName` instead.
-- One `ChannelAliasName_withScope` may map to multiple `DeviceName` entries — the alias layer resolves this automatically at query time.
+- If the initial search returns too many results, narrow with additional terms.
+- If no results are found, try a broader keyword or search on `channel_name` instead.
+- One `channel_alias_name` may map to multiple `device_name` entries — the alias layer resolves this automatically at query time.
 
 ### 4. Add virtual signals
 

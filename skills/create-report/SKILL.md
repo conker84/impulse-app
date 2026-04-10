@@ -2,9 +2,6 @@
 name: create-report
 description: Scaffold a new Impulse framework report in this repository. Use when the user wants to create, initialize, or add a new report to the project.
 compatibility: Requires databricks CLI with a configured profile, and make.
-metadata:
-  author: BDC-usecases
-  version: "1.1"
 allowed-tools: Bash Read
 ---
 

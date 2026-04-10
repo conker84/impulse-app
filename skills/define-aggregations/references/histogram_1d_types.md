@@ -56,9 +56,9 @@ hist = Histogram(
 # Temperature histogram with catch-all bins
 hist = Histogram(
     name="water_temp_hist_p2",
-    base_expr=signals["F_OF_EA_Wasserpumpe_masked"],
+    base_expr=signals["coolant_temp"],
     bins=[-9999.0] + [float(i) for i in range(150, 360, 10)] + [9999.0],
-    desc="Water pump temperature distribution",
+    desc="Coolant temperature distribution",
     agg_type="duration",
     values_unit="nanoseconds",
     bins_unit="°C"
@@ -121,10 +121,10 @@ Counts how many **events** (intervals) fall into different **duration** bins. An
 
 ```python
 Histogram(
-    name="kaltstart_hist_p2",
-    base_expr=signals["V_Katheizen_MotorGestartet_Drehzahl"],
+    name="warmup_duration_hist_p2",
+    base_expr=signals["engine_warmup_intervals"],
     bins=[float(i) for i in np.arange(0, 210 * 1e9, 10 * 1e9)],
-    desc="Distribution of catalyst heating event durations",
+    desc="Distribution of engine warm-up event durations",
     agg_type="duration_count",
     values_unit="duration count",
     bins_unit="Duration [nanoseconds]"
@@ -143,15 +143,15 @@ Histogram(
 ### Examples
 
 ```python
-# Duration of catalyst heating events
-V_Katheizen = (B_kh > 0.5) & (B_stend > 0.5) & (Eng_Spd_masked > 500)
-signals["V_Katheizen"] = V_Katheizen
+# Duration of engine warm-up events
+engine_warmup = (coolant_temp < 80) & (engine_running > 0.5) & (engine_speed > 500)
+signals["engine_warmup"] = engine_warmup
 
 hist = Histogram(
-    name="kaltstart_hist_p2",
-    base_expr=signals["V_Katheizen"],
+    name="warmup_duration_hist_p2",
+    base_expr=signals["engine_warmup"],
     bins=[float(i) for i in np.arange(0, 210 * 1e9, 10 * 1e9)],
-    desc="Distribution of catalyst heating event durations",
+    desc="Distribution of engine warm-up event durations",
     agg_type="duration_count",
     values_unit="duration count",
     bins_unit="Duration [nanoseconds]"

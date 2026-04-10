@@ -2,9 +2,6 @@
 name: define-aggregations
 description: Define aggregations (1D/2D histograms, statistics) and visualize results from gold layer tables. Use when the user wants to create aggregations during the wizard or query deployed report results.
 compatibility: Part of the Impulse app. Used during the Aggregations wizard step and for post-deployment result analysis.
-metadata:
-  author: BDC-usecases
-  version: "1.0"
 allowed-tools: add_histogram add_histogram_2d add_statistics remove_aggregation preview_code mcp_execute_sql load_skill
 ---
 

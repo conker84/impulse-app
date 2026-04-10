@@ -2,9 +2,6 @@
 name: select-vehicles
 description: Select test vehicles and configure data sources for an Impulse report. Use when the user needs help with vehicle selection, timestamp filtering, or data source configuration during the Vehicles wizard step.
 compatibility: Part of the Impulse app. Loaded on-demand during the Vehicles wizard step.
-metadata:
-  author: BDC-usecases
-  version: "1.0"
 allowed-tools: set_vehicle set_data_sources mcp_execute_sql load_skill
 ---
 
