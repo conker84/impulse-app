@@ -1,14 +1,5 @@
 from pyspark.sql.types import *
 
-STATUS_TABLE_SCHEMA = StructType([
-    StructField("run_id", IntegerType(), False),
-    StructField("start_date", TimestampType(), False),
-    StructField("stop_date", TimestampType(), True),
-    StructField("processing_status", StringType(), False),
-    StructField("rollback_status", StringType(), True),
-    StructField("delta_versions", MapType(StringType(), IntegerType()), False)
-])
-
 GLOBAL_REPORT_TABLE_SCHEMA = StructType([
     StructField("report_id", IntegerType(), True),
     StructField("name", StringType(), False),

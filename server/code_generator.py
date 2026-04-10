@@ -69,30 +69,16 @@ def generate_report_notebook(state: ReportState) -> str:
         "from mda_reporting.events.container_event import ContainerEvent",
         "from mda_reporting.events.event_types import EventType",
         "",
-        "from utils.report_utils import (",
-        "    create_table_if_not_exists,",
-        "    capture_table_versions,",
-        "    add_new_run_entry,",
-        "    get_latest_problematic_run,",
-        "    wipe_new_tables_from_last_run,",
-        "    attempt_rollback_from_run,",
-        "    update_run_success,",
-        "    update_run_failure,",
-        "    get_full_table_uri,",
-        "    drop_all_report_tables,",
-        ")",
-        "from utils.schemas import STATUS_TABLE_SCHEMA",
+        "from utils.report_utils import drop_all_report_tables",
     ]))
 
     # ---- Initialize Report ----
     cells.append("\n".join([
         'dbutils.widgets.text("config_path", "./config/dev_config.json")',
         'dbutils.widgets.dropdown("reset_report", "False", ["True", "False"])',
-        'dbutils.widgets.text("status_table_name", "status")',
         "",
         'config_path = dbutils.widgets.get("config_path")',
         'reset_report = dbutils.widgets.get("reset_report").lower() == "true"',
-        'status_table_name = dbutils.widgets.get("status_table_name")',
         "",
         'my_report = Report(name="report", spark=spark, config_path=config_path)',
         "query = my_report.query",
@@ -101,24 +87,9 @@ def generate_report_notebook(state: ReportState) -> str:
         "schema_ = my_report.config.unity_sink.schema",
         "table_prefix = my_report.config.unity_sink.table_prefix",
         'print(f"Report: {catalog}.{schema_}.{table_prefix}")',
-    ]))
-
-    # ---- Pre-processing ----
-    cells.append("\n".join([
+        "",
         "if reset_report:",
         "    drop_all_report_tables(catalog, schema_, table_prefix)",
-        "",
-        "status_table_full_name = get_full_table_uri(catalog, schema_, table_prefix, status_table_name)",
-        "create_table_if_not_exists(status_table_full_name, STATUS_TABLE_SCHEMA)",
-        "",
-        "last_problematic_run = get_latest_problematic_run(catalog, schema_, table_prefix, status_table_name)",
-        "if last_problematic_run:",
-        "    if last_problematic_run.processing_status != 'success' and last_problematic_run.rollback_status != 'success':",
-        "        wipe_new_tables_from_last_run(catalog, schema_, table_prefix, last_problematic_run.delta_versions, status_table_name)",
-        "        attempt_rollback_from_run(catalog, schema_, table_prefix, last_problematic_run, status_table_name)",
-        "",
-        "current_delta_versions = capture_table_versions(catalog, schema_, table_prefix, exclude_tables=[status_table_name])",
-        "current_run_id = add_new_run_entry(catalog, schema_, table_prefix, status_table_name, current_delta_versions)",
     ]))
 
     # ---- Signal Definitions ----
@@ -231,25 +202,19 @@ def generate_report_notebook(state: ReportState) -> str:
 
     cells.append("\n".join(event_lines + agg_lines))
 
-    # ---- Execute (with failure handling) ----
+    # ---- Execute ----
     cells.append("\n".join([
-        "try:",
-        '    print(f"[{datetime.now().isoformat()}] Running determine_report()...")',
-        "    my_report.determine_report()",
-        '    print(f"[{datetime.now().isoformat()}] determine_report() complete.")',
+        'print(f"[{datetime.now().isoformat()}] Running determine_report()...")',
+        "my_report.determine_report()",
+        'print(f"[{datetime.now().isoformat()}] determine_report() complete.")',
         "",
-        '    print(f"[{datetime.now().isoformat()}] Running persist_results()...")',
-        "    my_report.persist_results()",
-        '    print(f"[{datetime.now().isoformat()}] Done. Report results persisted.")',
-        "except Exception:",
-        "    update_run_failure(catalog, schema_, table_prefix, status_table_name, current_run_id)",
-        "    raise",
+        'print(f"[{datetime.now().isoformat()}] Running persist_results()...")',
+        "my_report.persist_results()",
+        'print(f"[{datetime.now().isoformat()}] Done. Report results persisted.")',
     ]))
 
     # ---- Post-processing ----
     cells.append("\n".join([
-        "update_run_success(catalog, schema_, table_prefix, status_table_name, current_run_id)",
-        "",
         "table_names = []",
         "for agg_type in AggregationType:",
         "    table_names.append(agg_type.get_fact_table_name())",

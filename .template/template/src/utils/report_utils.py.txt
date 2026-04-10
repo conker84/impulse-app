@@ -1,12 +1,7 @@
 from datetime import datetime
 from pyspark.sql import Column
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import current_timestamp
 import pyspark.sql.functions as F
-from pyspark.sql.types import *
-import uuid
-from .schemas import STATUS_TABLE_SCHEMA
-from delta.tables import DeltaTable
 
 
 def get_full_table_uri(catalog: str, schema: str, table_prefix: str, table_name: str) -> str:
@@ -20,22 +15,6 @@ def list_report_tables(catalog: str, schema: str, table_prefix: str) -> list[str
     return [t.name.removeprefix(prefix) for t in tables if t.name.startswith(prefix)]
 
 
-def get_table_version(catalog: str, schema: str, table_prefix: str, table_name: str) -> int:
-    spark = SparkSession.getActiveSession()
-    full_path = get_full_table_uri(catalog, schema, table_prefix, table_name)
-    try:
-        history = spark.sql(f"DESCRIBE HISTORY {full_path} LIMIT 1").collect()
-        return history[0].version if history else -1
-    except Exception:
-        return -1
-
-
-def restore_table_version(catalog: str, schema: str, table_prefix: str, table_name: str, version: int):
-    spark = SparkSession.getActiveSession()
-    full_path = get_full_table_uri(catalog, schema, table_prefix, table_name)
-    spark.sql(f"RESTORE TABLE {full_path} TO VERSION AS OF {version}")
-
-
 def drop_all_report_tables(catalog: str, schema: str, table_prefix: str):
     spark = SparkSession.getActiveSession()
     tables = list_report_tables(catalog, schema, table_prefix)
@@ -45,7 +24,7 @@ def drop_all_report_tables(catalog: str, schema: str, table_prefix: str):
         print(f"Dropped table: {full_path}")
 
 
-def create_table_if_not_exists(full_table_name: str, schema: StructType):
+def create_table_if_not_exists(full_table_name: str, schema):
     spark = SparkSession.getActiveSession()
     if not spark.catalog.tableExists(full_table_name):
         spark.createDataFrame([], schema) \
@@ -53,179 +32,6 @@ def create_table_if_not_exists(full_table_name: str, schema: StructType):
             .format("delta") \
             .saveAsTable(full_table_name)
         print(f"Created new table: {full_table_name}")
-
-
-def capture_table_versions(catalog: str, schema: str, table_prefix: str, exclude_tables=[]):
-    report_tables = list_report_tables(catalog, schema, table_prefix)
-    versions = {}
-    for table in report_tables:
-        if table not in exclude_tables:
-            version = get_table_version(catalog, schema, table_prefix, table)
-            versions[table] = version
-    return versions
-
-
-def get_latest_problematic_run(catalog: str, schema: str, table_prefix: str, status_table_name: str):
-    spark = SparkSession.getActiveSession()
-    full_table_path = get_full_table_uri(catalog, schema, table_prefix, status_table_name)
-    query = f"""
-        SELECT run_id, processing_status, rollback_status, delta_versions
-        FROM {full_table_path}
-        WHERE (processing_status = 'in_progress' OR
-              (processing_status = 'failed' AND rollback_status != 'success'))
-        ORDER BY start_date DESC
-        LIMIT 1
-    """
-    results = spark.sql(query).collect()
-    return results[0] if results else None
-
-
-def add_new_run_entry(catalog: str, schema: str, table_prefix: str, status_table_name: str, delta_versions: dict):
-    spark = SparkSession.getActiveSession()
-    full_table_path = get_full_table_uri(catalog, schema, table_prefix, status_table_name)
-    run_id = uuid.uuid4().int % (10 ** 8)
-    start_date = datetime.now()
-
-    new_entry = spark.createDataFrame(
-        [
-            (
-                run_id,
-                start_date,
-                None,
-                "in_progress",
-                "not_executed",
-                delta_versions
-            )
-        ],
-        STATUS_TABLE_SCHEMA
-    )
-    new_entry.write.format("delta").mode("append").saveAsTable(full_table_path)
-    print(f"New run initialized with ID: {run_id}")
-
-    return run_id
-
-
-def update_delta_versions(catalog: str, schema: str, table_prefix: str, status_table_name: str, run_id: int, delta_versions: dict):
-    spark = SparkSession.getActiveSession()
-    status_table_uri = get_full_table_uri(catalog, schema, table_prefix, status_table_name)
-    delta_table = DeltaTable.forName(spark, status_table_uri)
-    delta_v_map = F.create_map(*[F.lit(x) for kv in delta_versions.items() for x in kv])
-    delta_table.update(
-        condition=f"run_id = {run_id}",
-        set={"delta_versions": delta_v_map}
-    )
-
-
-def wipe_new_tables_from_last_run(catalog: str, schema: str, table_prefix: str, last_run_versions: dict, status_table_name: str):
-    spark = SparkSession.getActiveSession()
-    current_tables = set(list_report_tables(catalog, schema, table_prefix))
-    previous_tables = set(last_run_versions.keys())
-    new_tables = current_tables - previous_tables
-
-    for table in new_tables:
-        if table == status_table_name:
-            continue
-        full_table_name = get_full_table_uri(catalog, schema, table_prefix, table)
-        try:
-            print(f"Detected new table since last failed run: {full_table_name}. Wiping it out")
-            spark.sql(f"""
-                CREATE OR REPLACE TABLE {full_table_name} AS
-                (SELECT * FROM {full_table_name} WHERE FALSE)
-            """)
-        except Exception as e:
-            print(f"Failed to wipe out table {table}: {e}")
-
-
-def attempt_rollback_from_run(catalog: str, schema: str, table_prefix: str, run, status_table_name: str):
-    spark = SparkSession.getActiveSession()
-    full_table_path = get_full_table_uri(catalog, schema, table_prefix, status_table_name)
-
-    rollback_success = True
-    for table_name, version in run.delta_versions.items():
-        try:
-            if table_name != status_table_name and version != -1:
-                restore_table_version(catalog, schema, table_prefix, table_name, version)
-                print(f"Restored {table_name} to version {version}")
-        except Exception as e:
-            rollback_success = False
-            print(e)
-
-    rollback_status = 'success' if rollback_success else 'failed'
-
-    spark.sql(f"""
-        UPDATE {full_table_path}
-        SET
-            stop_date = current_timestamp(),
-            rollback_status = '{rollback_status}',
-            processing_status = CASE
-                WHEN processing_status = 'in_progress' THEN 'failed'
-                ELSE processing_status
-            END
-        WHERE run_id = {run.run_id}
-    """)
-
-    if not rollback_success:
-        raise Exception(f"Failed to rollback tables from previous failed run {run.run_id}. Manual action required.")
-
-
-def update_run_success(catalog: str, schema: str, table_prefix: str, status_table_name: str, current_run_id: int):
-    spark = SparkSession.getActiveSession()
-    full_table_path = get_full_table_uri(catalog, schema, table_prefix, status_table_name)
-
-    spark.sql(f"""
-        UPDATE {full_table_path}
-        SET
-            stop_date = current_timestamp(),
-            processing_status = 'success',
-            rollback_status = 'not_executed'
-        WHERE run_id = {current_run_id}
-    """)
-
-    print(f"run_id {current_run_id} has been set as 'success'")
-
-
-def update_run_failure(catalog: str, schema: str, table_prefix: str, status_table_name: str, current_run_id: int):
-    spark = SparkSession.getActiveSession()
-    full_table_path = get_full_table_uri(catalog, schema, table_prefix, status_table_name)
-
-    run_data = spark.sql(f"""
-        SELECT delta_versions
-        FROM {full_table_path}
-        WHERE run_id = {current_run_id}
-    """).collect()
-
-    if not run_data:
-        raise ValueError(f"Could not find run_id {current_run_id} in the {status_table_name} table")
-
-    delta_versions = run_data[0].delta_versions
-
-    spark.sql(f"""
-        UPDATE {full_table_path}
-        SET
-            stop_date = current_timestamp(),
-            processing_status = 'failed',
-            rollback_status = 'pending'
-        WHERE run_id  = {current_run_id}
-    """)
-
-    print(f"Run {current_run_id} set as 'failed'. Restoring tables")
-
-    rollback_success = True
-    for table, version in delta_versions.items():
-        if table != status_table_name and version != -1:
-            try:
-                restore_table_version(catalog, schema, table_prefix, table, version)
-                print(f"Restored {table} to version {version}")
-            except Exception as e:
-                rollback_success = False
-                print(e)
-
-    status = 'success' if rollback_success else 'failed'
-    spark.sql(f"""
-        UPDATE {full_table_path}
-        SET rollback_status = '{status}'
-        WHERE run_id = {current_run_id}
-    """)
 
 
 def update_global_report_table(target_table, source_table, attr_list):
