@@ -18,7 +18,7 @@ export default function Heatmap2DChart({ name, result }: Props) {
       colorscale: HEATMAP_COLORSCALE,
       colorbar: {
         title: { text: result.values_unit || "value", side: "right" as const },
-        tickfont: { size: 10 },
+        tickfont: { size: 12, color: "#c8cad4" },
       },
       hoverongaps: false,
       hovertemplate:

@@ -412,7 +412,7 @@ export default function TimeSeriesView({ onBack, initialCatalog, initialSchema, 
 
   const layout = useMemo(() => {
     const yTitle = normalized ? "Normalized [0–1]" : (leftLabel || "value");
-    const axisTitleFont = { size: 12, color: "rgba(200,200,200,0.9)" };
+    const axisTitleFont = { size: 14, color: "#c8cad4" };
     return mergeLayout({
       xaxis: {
         title: { text: "Time", font: axisTitleFont },
@@ -427,12 +427,12 @@ export default function TimeSeriesView({ onBack, initialCatalog, initialSchema, 
           overlaying: "y" as const,
           side: "right" as const,
           gridcolor: "rgba(128,128,128,0.08)",
-          tickfont: { size: 10 },
+          tickfont: { size: 12, color: "#c8cad4" },
         },
       } : {}),
       hovermode: isDetailLevel ? ("x unified" as const) : ("closest" as const),
       showlegend: traces.length > 1,
-      legend: { orientation: "h" as const, y: -0.15, font: { size: 10 } },
+      legend: { orientation: "h" as const, y: -0.15, font: { size: 12, color: "#c8cad4" } },
       margin: { t: 8, r: hasDualAxis && !normalized ? 64 : 24, b: 64, l: 64 },
     });
   }, [leftLabel, rightLabel, hasDualAxis, normalized, isDetailLevel, traces.length]);

@@ -99,7 +99,7 @@ export default function HistogramChart({ name, result }: Props) {
           yaxis: { title: { text: yLabel, standoff: 10 }, automargin: true },
           barmode: barmode as any,
           showlegend: isMulti,
-          legend: { orientation: "h", y: -0.3, font: { size: 10 } },
+          legend: { orientation: "h", y: -0.3, font: { size: 12, color: "#c8cad4" } },
         })}
         config={BASE_CONFIG}
         useResizeHandler

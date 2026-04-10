@@ -26,17 +26,17 @@ export const BASE_LAYOUT: Record<string, any> = {
   autosize: true,
   paper_bgcolor: "transparent",
   plot_bgcolor: "transparent",
-  font: { color: "var(--text-primary)", size: 11, family: "inherit" },
+  font: { color: "#e4e6f0", size: 13, family: "inherit" },
   margin: { t: 8, r: 16, b: 56, l: 56 },
   xaxis: {
     gridcolor: "rgba(128,128,128,0.15)",
     zerolinecolor: "rgba(128,128,128,0.25)",
-    tickfont: { size: 10 },
+    tickfont: { size: 12, color: "#c8cad4" },
   },
   yaxis: {
     gridcolor: "rgba(128,128,128,0.15)",
     zerolinecolor: "rgba(128,128,128,0.25)",
-    tickfont: { size: 10 },
+    tickfont: { size: 12, color: "#c8cad4" },
   },
   hoverlabel: {
     bgcolor: "#1e293b",
