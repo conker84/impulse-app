@@ -49,11 +49,13 @@ function containerInTimeframe(c: TimeSeriesContainer, vehicles: VehicleConfig[])
 }
 
 const EVENT_TYPES: { value: EventType; label: string; output: string }[] = [
-  { value: "interval", label: "Interval (threshold)", output: "Intervals" },
+  { value: "interval", label: "Interval", output: "Intervals" },
   { value: "rising_edges", label: "Rising Edges", output: "PointsInTime" },
   { value: "falling_edges", label: "Falling Edges", output: "PointsInTime" },
   { value: "change_points", label: "Change Points", output: "PointsInTime" },
 ];
+
+const COL_WIDTHS = { name: "22%", type: "12%", expr: "40%", meta: "16%", actions: 80 };
 
 const OPERATORS = [">", "<", ">=", "<=", "==", "!="] as const;
 
@@ -280,11 +282,11 @@ export default function SignalsTab({ signals, events, sessionId, silverCatalog, 
         <table className="data-table">
           <thead>
             <tr>
-              <th>Variable</th>
-              <th>Type</th>
-              <th>Alias / Expression</th>
-              <th>Eval Type</th>
-              <th style={{ width: 80 }}></th>
+              <th style={{ width: COL_WIDTHS.name }}>Variable</th>
+              <th style={{ width: COL_WIDTHS.type }}>Type</th>
+              <th style={{ width: COL_WIDTHS.expr }}>Alias / Expression</th>
+              <th style={{ width: COL_WIDTHS.meta }}>Eval Type</th>
+              <th style={{ width: COL_WIDTHS.actions }}></th>
             </tr>
           </thead>
           <tbody>
@@ -471,25 +473,25 @@ export default function SignalsTab({ signals, events, sessionId, silverCatalog, 
           <table className="data-table" style={{ marginBottom: 8 }}>
             <thead>
               <tr>
-                <th>Name</th>
-                <th>Type</th>
-                <th>Expression</th>
-                <th>Output</th>
-                {onStateUpdate && <th style={{ width: 60 }}></th>}
+                <th style={{ width: COL_WIDTHS.name }}>Name</th>
+                <th style={{ width: COL_WIDTHS.type }}>Type</th>
+                <th style={{ width: COL_WIDTHS.expr }}>Expression</th>
+                <th style={{ width: COL_WIDTHS.meta }}>Output</th>
+                {onStateUpdate && <th style={{ width: COL_WIDTHS.actions }}></th>}
               </tr>
             </thead>
             <tbody>
               {events.map((evt) => (
                 <tr key={evt.name}>
                   <td><code>{evt.name}</code></td>
-                  <td style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-                    {EVENT_TYPES.find((t) => t.value === evt.event_type)?.label || evt.event_type}
+                  <td>
+                    <span className="badge running">
+                      {EVENT_TYPES.find((t) => t.value === evt.event_type)?.label || evt.event_type}
+                    </span>
                   </td>
                   <td><code style={{ fontSize: 11 }}>{eventSummary(evt)}</code></td>
-                  <td>
-                    <span className={`badge ${evt.event_type === "interval" ? "ok" : "duration"}`}>
-                      {evt.event_type === "interval" ? "Intervals" : "PointsInTime"}
-                    </span>
+                  <td style={{ color: "var(--text-secondary)", fontSize: 12 }}>
+                    {evt.event_type === "interval" ? "Intervals" : "PointsInTime"}
                   </td>
                   {onStateUpdate && (
                   <td>
