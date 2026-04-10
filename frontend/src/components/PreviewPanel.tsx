@@ -71,8 +71,7 @@ interface Props {
   saving: boolean;
 }
 
-function canAdvance(state: ReportState): boolean {
-  const step = state.wizard_step;
+function isStepFilled(state: ReportState, step: WizardStep): boolean {
   if (step === "source_data") {
     if (state.source_data.mode === "existing")
       return !!state.source_data.silver_catalog && !!state.source_data.silver_schema;
@@ -86,7 +85,12 @@ function canAdvance(state: ReportState): boolean {
     return state.vehicles.length > 0 && state.vehicles.every((v) => !!v.start_ts);
   if (step === "channels") return state.signals.length > 0;
   if (step === "aggregations") return state.aggregations.length > 0;
+  if (step === "ready") return false;
   return false;
+}
+
+function canAdvance(state: ReportState): boolean {
+  return isStepFilled(state, state.wizard_step);
 }
 
 export default function PreviewPanel({
@@ -167,19 +171,20 @@ export default function PreviewPanel({
     <div className="preview-panel">
       <div className="wizard-stepper">
         {wizardSteps.map((step, idx) => {
-          const isCompleted = idx < currentStepIdx;
           const isCurrent = idx === currentStepIdx;
-          const isClickable = isCompleted || isCurrent;
-          const cls = isCompleted ? "completed" : isCurrent ? "current" : "upcoming";
-          const connectorCls = isCompleted ? "completed" : isCurrent ? "current" : "upcoming";
+          const filled = !isCurrent && isStepFilled(state, step.key);
+          const allPriorFilled = wizardSteps.slice(0, idx).every((s) => isStepFilled(state, s.key));
+          const isClickable = !isCurrent && (filled || allPriorFilled);
+          const cls = filled ? "completed" : isCurrent ? "current" : "upcoming";
+          const connectorCls = filled ? "completed" : isCurrent ? "current" : "upcoming";
           return (
             <React.Fragment key={step.key}>
               <div
                 className={`wizard-step ${cls}${isClickable ? " clickable" : ""}`}
-                onClick={isClickable && !isCurrent ? () => onGoToStep(step.key) : undefined}
+                onClick={isClickable ? () => onGoToStep(step.key) : undefined}
               >
                 <div className="wizard-step-indicator">
-                  {isCompleted ? "\u2713" : idx + 1}
+                  {filled ? "\u2713" : idx + 1}
                 </div>
                 <span className="wizard-step-label">
                   {step.label}

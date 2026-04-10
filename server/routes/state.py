@@ -783,18 +783,18 @@ async def goto_step(session_id: str, step: str):
         raise HTTPException(400, f"Invalid step: {step}")
 
     target_idx = WIZARD_ORDER.index(target)
-    current_idx = WIZARD_ORDER.index(session.state.wizard_step)
 
-    if target_idx > current_idx:
-        raise HTTPException(400, "Cannot jump to a future step.")
+    # Allow jumping to any step where all prior steps have data filled
+    for prior in WIZARD_ORDER[:target_idx]:
+        if _check_step_filled(session.state, prior) is not None:
+            raise HTTPException(400, f"Cannot jump to {step}: prior step {prior.value} is not complete.")
 
     session.state.wizard_step = target
     return {"wizard_step": session.state.wizard_step.value, "report_state": session.state.model_dump()}
 
 
-def _validate_step_complete(state: ReportState) -> str | None:
-    """Return an error message if the current wizard step is incomplete, else None."""
-    step = state.wizard_step
+def _check_step_filled(state: ReportState, step: WizardStep) -> str | None:
+    """Return an error message if the given step is incomplete, else None."""
     if step == WizardStep.SOURCE_DATA:
         if state.source_data.mode == SourceDataMode.NONE:
             return "Please choose a data source: upload raw files or point to existing Silver layer tables."
@@ -819,6 +819,11 @@ def _validate_step_complete(state: ReportState) -> str | None:
         if len(state.aggregations) == 0:
             return "Please add at least one aggregation before continuing."
     return None
+
+
+def _validate_step_complete(state: ReportState) -> str | None:
+    """Return an error message if the current wizard step is incomplete, else None."""
+    return _check_step_filled(state, state.wizard_step)
 
 
 class ClusterConfigPayload(BaseModel):
