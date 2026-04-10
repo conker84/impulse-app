@@ -434,13 +434,13 @@ export default function TimeSeriesView({ onBack, initialCatalog, initialSchema, 
       showlegend: traces.length > 1,
       legend: {
         orientation: "h" as const,
-        y: -0.18,
+        y: -0.12,
         xanchor: "center" as const, x: 0.5,
         font: { size: 11, color: "#c8cad4" },
         entrywidth: 250,
         entrywidthmode: "pixels" as const,
       },
-      margin: { t: 8, r: hasDualAxis && !normalized ? 64 : 24, b: 90, l: 64 },
+      margin: { t: 8, r: hasDualAxis && !normalized ? 64 : 24, b: 48 + Math.ceil(traces.length / 3) * 20, l: 64 },
     });
   }, [leftLabel, rightLabel, hasDualAxis, normalized, isDetailLevel, traces.length]);
 
