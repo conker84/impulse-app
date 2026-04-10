@@ -55,7 +55,8 @@ const EVENT_TYPES: { value: EventType; label: string; output: string }[] = [
   { value: "change_points", label: "Change Points", output: "PointsInTime" },
 ];
 
-const COL_WIDTHS = { name: "22%", type: "12%", expr: "40%", meta: "16%", actions: 80 };
+const COL_WIDTHS = { name: "20%", type: "10%", expr: "34%", meta: "22%", actions: "14%" };
+const TRUNCATE: React.CSSProperties = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const };
 
 const OPERATORS = [">", "<", ">=", "<=", "==", "!="] as const;
 
@@ -293,7 +294,7 @@ export default function SignalsTab({ signals, events, sessionId, silverCatalog, 
             {signals.map((s) => (
               editingVar === s.var_name ? (
                 <tr key={s.var_name}>
-                  <td><code>{s.var_name}</code></td>
+                  <td style={TRUNCATE} title={s.var_name}><code>{s.var_name}</code></td>
                   <td>
                     <span className={`badge ${s.signal_type === "physical" ? "ok" : "duration"}`}>
                       {s.signal_type}
@@ -343,13 +344,13 @@ export default function SignalsTab({ signals, events, sessionId, silverCatalog, 
                 </tr>
               ) : (
                 <tr key={s.var_name}>
-                  <td><code>{s.var_name}</code></td>
+                  <td style={TRUNCATE} title={s.var_name}><code>{s.var_name}</code></td>
                   <td>
                     <span className={`badge ${s.signal_type === "physical" ? "ok" : "duration"}`}>
                       {s.signal_type}
                     </span>
                   </td>
-                  <td>
+                  <td style={TRUNCATE}>
                     {s.signal_type === "physical" ? (
                       <code>{s.alias}</code>
                     ) : (
@@ -467,7 +468,10 @@ export default function SignalsTab({ signals, events, sessionId, silverCatalog, 
 
       {/* Events section */}
       <div style={{ marginTop: 16 }}>
-        <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 6, color: "var(--text-primary)" }}>Events</div>
+        <div className="step-header">
+          <div className="step-title">Events</div>
+          <div className="step-subtitle">{events.length} event(s) defined</div>
+        </div>
 
         {events.length > 0 && (
           <table className="data-table" style={{ tableLayout: "fixed", marginBottom: 8 }}>
@@ -483,13 +487,13 @@ export default function SignalsTab({ signals, events, sessionId, silverCatalog, 
             <tbody>
               {events.map((evt) => (
                 <tr key={evt.name}>
-                  <td><code>{evt.name}</code></td>
+                  <td style={TRUNCATE} title={evt.name}><code>{evt.name}</code></td>
                   <td>
                     <span className="badge running">
                       {EVENT_TYPES.find((t) => t.value === evt.event_type)?.label || evt.event_type}
                     </span>
                   </td>
-                  <td><code style={{ fontSize: 11 }}>{eventSummary(evt)}</code></td>
+                  <td style={TRUNCATE}><code style={{ fontSize: 11 }}>{eventSummary(evt)}</code></td>
                   <td style={{ color: "var(--text-secondary)", fontSize: 12 }}>
                     {evt.event_type === "interval" ? "Intervals" : "PointsInTime"}
                   </td>
