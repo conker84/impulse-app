@@ -279,7 +279,7 @@ export default function SignalsTab({ signals, events, sessionId, silverCatalog, 
       )}
 
       {signals.length > 0 && (
-        <table className="data-table">
+        <table className="data-table" style={{ tableLayout: "fixed" }}>
           <thead>
             <tr>
               <th style={{ width: COL_WIDTHS.name }}>Variable</th>
@@ -470,7 +470,7 @@ export default function SignalsTab({ signals, events, sessionId, silverCatalog, 
         <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 6, color: "var(--text-primary)" }}>Events</div>
 
         {events.length > 0 && (
-          <table className="data-table" style={{ marginBottom: 8 }}>
+          <table className="data-table" style={{ tableLayout: "fixed", marginBottom: 8 }}>
             <thead>
               <tr>
                 <th style={{ width: COL_WIDTHS.name }}>Name</th>
