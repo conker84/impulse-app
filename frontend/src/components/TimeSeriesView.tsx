@@ -348,10 +348,16 @@ export default function TimeSeriesView({ onBack, initialCatalog, initialSchema, 
 
     if (xMinRaw == null || xMaxRaw == null) return;
 
-    // With numeric x values (epoch ms), Plotly sends range as numbers.
-    // Convert back to nanoseconds: raw_ns = (epoch_ms - baseMs) * 1e6
-    const xMinMs = typeof xMinRaw === "number" ? xMinRaw : new Date(xMinRaw).getTime();
-    const xMaxMs = typeof xMaxRaw === "number" ? xMaxRaw : new Date(xMaxRaw).getTime();
+    // Plotly returns date strings without timezone info (e.g. "2025-07-22 12:20:00.1234").
+    // Parse as UTC to stay consistent with baseMs which is also UTC.
+    const toMs = (raw: string | number): number => {
+      if (typeof raw === "number") return raw;
+      let s = String(raw).replace(" ", "T");
+      if (!/[Zz]/.test(s) && !/[+-]\d{2}:?\d{2}$/.test(s)) s += "Z";
+      return new Date(s).getTime();
+    };
+    const xMinMs = toMs(xMinRaw);
+    const xMaxMs = toMs(xMaxRaw);
     if (isNaN(xMinMs) || isNaN(xMaxMs)) return;
 
     const xMinNs = (xMinMs - baseMs) * 1e6;
