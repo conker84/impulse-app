@@ -176,10 +176,12 @@ export default function TimeSeriesView({ onBack, initialCatalog, initialSchema, 
     () => containers.find((c) => c.container_id === selectedContainer),
     [containers, selectedContainer],
   );
-  const baseMs = useMemo(
-    () => (activeContainer?.start_dt ? new Date(activeContainer.start_dt).getTime() : 0),
-    [activeContainer],
-  );
+  const baseMs = useMemo(() => {
+    if (!activeContainer?.start_dt) return 0;
+    let s = activeContainer.start_dt.replace(" ", "T");
+    if (!/[Zz]/.test(s) && !/[+-]\d{2}:?\d{2}$/.test(s)) s += "Z";
+    return new Date(s).getTime();
+  }, [activeContainer]);
 
   // Aggregate stats for the status bar
   const totalViewingPoints = useMemo(

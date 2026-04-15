@@ -19,6 +19,16 @@ interface Props {
 
 const EVAL_TYPES = ["SampleSeries", "Intervals", "PointsInTime", "PitSeries"];
 
+/** Parse a timestamp string as UTC epoch ms.
+ *  Naive strings (no Z / offset) are treated as UTC to stay consistent
+ *  with how Databricks stores and returns TimestampType values. */
+function parseUTCms(ts: string): number {
+  if (!ts) return NaN;
+  let s = ts.replace(" ", "T");
+  if (!/[Zz]/.test(s) && !/[+-]\d{2}:?\d{2}$/.test(s)) s += "Z";
+  return new Date(s).getTime();
+}
+
 /** Check if a container overlaps with the analysis timeframe from any vehicle. */
 function containerInTimeframe(c: TimeSeriesContainer, vehicles: VehicleConfig[]): boolean {
   if (!vehicles.length) return true;
@@ -27,19 +37,19 @@ function containerInTimeframe(c: TimeSeriesContainer, vehicles: VehicleConfig[])
   let latest: number | null = null;
   for (const v of vehicles) {
     if (v.start_ts) {
-      const ms = new Date(v.start_ts.replace(" ", "T")).getTime();
+      const ms = parseUTCms(v.start_ts);
       if (!isNaN(ms) && (earliest === null || ms < earliest)) earliest = ms;
     }
     if (v.stop_ts) {
-      const ms = new Date(v.stop_ts.replace(" ", "T")).getTime();
+      const ms = parseUTCms(v.stop_ts);
       if (!isNaN(ms) && (latest === null || ms > latest)) latest = ms;
     }
   }
   // If no timestamps set on vehicles, don't filter
   if (earliest === null && latest === null) return true;
 
-  const cStart = c.start_dt ? new Date(c.start_dt).getTime() : null;
-  const cStop = c.stop_dt ? new Date(c.stop_dt).getTime() : null;
+  const cStart = c.start_dt ? parseUTCms(c.start_dt) : null;
+  const cStop = c.stop_dt ? parseUTCms(c.stop_dt) : null;
 
   // Check overlap: container must not end before the timeframe starts
   // and must not start after the timeframe ends
@@ -213,7 +223,7 @@ export default function SignalsTab({ signals, events, sessionId, silverCatalog, 
       const container = inRange[0];
       const containerId = container.container_id;
       // start_dt is the absolute timestamp for the container — t values are relative offsets in seconds
-      const baseMs = container.start_dt ? new Date(container.start_dt).getTime() : 0;
+      const baseMs = container.start_dt ? parseUTCms(container.start_dt) : 0;
       setPreviewBaseMs(baseMs);
 
       const sRes = await fetchTimeSeriesSignals(silverCatalog, silverSchema, containerId);
@@ -232,7 +242,7 @@ export default function SignalsTab({ signals, events, sessionId, silverCatalog, 
     } finally {
       setPreviewLoading(false);
     }
-  }, [silverCatalog, silverSchema, previewSignal]);
+  }, [silverCatalog, silverSchema, previewSignal, vehicles]);
 
   const startEdit = (s: SignalDefinition) => {
     setEditingVar(s.var_name);
