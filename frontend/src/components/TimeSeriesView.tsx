@@ -382,7 +382,7 @@ export default function TimeSeriesView({ onBack, initialCatalog, initialSchema, 
     return traces.map((trace, i) => {
       const side = axisMap.get(trace.channelId) || "left";
       const yAxisRef = side === "right" && hasDualAxis ? ("y2" as const) : ("y" as const);
-      const xDates = trace.data.map((p) => toEpochMs(p.t, baseMs));
+      const xDates = trace.data.map((p) => new Date(toEpochMs(p.t, baseMs)).toISOString());
       const axisTag = useAxisTags && hasDualAxis ? (side === "left" ? " [L]" : " [R]") : "";
       const displayName = `${trace.channelName}${trace.unit ? ` (${trace.unit})` : ""}${axisTag}`;
 
