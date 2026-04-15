@@ -67,14 +67,16 @@ TOOLS = [
         "function": {
             "name": "add_physical_signal",
             "description": (
-                "Add a physical signal using a channel alias. "
-                "From define-channels skill step 3."
+                "Add a physical signal directly. Use when the user explicitly asks to add channels "
+                "(not just browse). Set channel_name to the exact channel name from the Available "
+                "Channels table for silver layer data."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "var_name": {"type": "string", "description": "Python variable name"},
-                    "alias": {"type": "string", "description": "ChannelAliasName_withScope value"},
+                    "var_name": {"type": "string", "description": "Python variable name (lowercase, underscores)"},
+                    "alias": {"type": "string", "description": "Channel alias or channel_name"},
+                    "channel_name": {"type": "string", "description": "Exact channel name from the data (same as alias for silver layer)"},
                     "description": {"type": "string", "description": "Human-readable description"},
                 },
                 "required": ["var_name", "alias"],
@@ -470,13 +472,19 @@ def _get_all_tools(user_token: str | None = None) -> tuple[list[dict], dict[str,
 # ---------------------------------------------------------------------------
 
 
-def _exec_add_physical_signal(state: ReportState, var_name: str, alias: str, description: str = "") -> str:
+def _exec_add_physical_signal(state: ReportState, var_name: str, alias: str, channel_name: str = "", description: str = "") -> str:
     if any(s.var_name == var_name for s in state.signals):
         return f"Signal '{var_name}' already exists. Use a different name or remove it first."
     state.signals.append(
-        SignalDefinition(var_name=var_name, signal_type="physical", alias=alias, description=description)
+        SignalDefinition(
+            var_name=var_name,
+            signal_type="physical",
+            alias=alias,
+            channel_name=channel_name or alias,
+            description=description,
+        )
     )
-    return f"Added physical signal '{var_name}' with alias '{alias}'."
+    return f"Added physical signal '{var_name}' (channel: '{channel_name or alias}')."
 
 
 def _exec_add_virtual_signal(
@@ -708,7 +716,7 @@ def _dispatch_tool(
         )
 
     if name == "add_physical_signal":
-        return _exec_add_physical_signal(state, args["var_name"], args["alias"], args.get("description", ""))
+        return _exec_add_physical_signal(state, args["var_name"], args["alias"], args.get("channel_name", ""), args.get("description", ""))
     if name == "add_virtual_signal":
         return _exec_add_virtual_signal(state, args["var_name"], args["expression"], args["eval_type"], args.get("description", ""))
     if name == "suggest_signal_candidates":
