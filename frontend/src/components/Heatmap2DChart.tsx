@@ -45,9 +45,9 @@ export default function Heatmap2DChart({ name, result }: Props) {
       <Plot
         data={[trace]}
         layout={mergeLayout({
-          margin: { t: 8, r: 16, b: 64, l: 64 },
-          xaxis: { title: xTitle, tickangle: -45 },
-          yaxis: { title: yTitle },
+          margin: { t: 8, r: 16, b: 120, l: 120 },
+          xaxis: { title: xTitle, tickangle: -45, automargin: true },
+          yaxis: { title: yTitle, automargin: true },
         })}
         config={BASE_CONFIG}
         useResizeHandler
