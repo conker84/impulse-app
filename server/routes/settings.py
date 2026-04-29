@@ -12,7 +12,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from server.config import IS_DATABRICKS_APP
-from server.config import AVAILABLE_MODELS, SERVING_ENDPOINT
+from server.config import SERVING_ENDPOINT, get_available_models
 from server.token_store import (
     delete_pat, get_cluster_id, get_serving_endpoint,
     has_pat, store_cluster_id, store_pat, store_serving_endpoint,
@@ -36,13 +36,14 @@ def _resolve_user_email(request: Request) -> str:
 @router.get("/token-status")
 async def token_status(request: Request):
     """Check whether the user has a stored PAT, cluster config, and model preference."""
+    available_models = get_available_models()
     if not IS_DATABRICKS_APP:
         return {
             "local_mode": True,
             "has_token": True,
             "cluster_id": "",
             "serving_endpoint": SERVING_ENDPOINT,
-            "available_models": AVAILABLE_MODELS,
+            "available_models": available_models,
         }
 
     email = _resolve_user_email(request)
@@ -52,7 +53,7 @@ async def token_status(request: Request):
         "user_email": email,
         "cluster_id": get_cluster_id(email),
         "serving_endpoint": get_serving_endpoint(email) or SERVING_ENDPOINT,
-        "available_models": AVAILABLE_MODELS,
+        "available_models": available_models,
     }
 
 
@@ -109,7 +110,7 @@ class ModelRequest(BaseModel):
 @router.post("/model")
 async def save_model(request: Request, body: ModelRequest):
     """Store the preferred serving endpoint for the calling user."""
-    valid_ids = {m["id"] for m in AVAILABLE_MODELS}
+    valid_ids = {m["id"] for m in get_available_models()}
     if body.serving_endpoint and body.serving_endpoint not in valid_ids:
         raise HTTPException(400, f"Invalid model. Choose from: {', '.join(sorted(valid_ids))}")
 

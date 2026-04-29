@@ -1,24 +1,44 @@
 #!/usr/bin/env bash
-# Sync local code to FEVM workspace and deploy the Impulse app.
+# Sync local code to a Databricks workspace and deploy the Impulse app.
 #
 # Usage:
-#   test/deploy-fevm.sh                        # full: build + sync + deploy
-#   test/deploy-fevm.sh --instance feat-a       # deploy as separate app "impulse-feat-a"
-#   test/deploy-fevm.sh --sync-only             # just sync files (no redeploy, no build)
-#   test/deploy-fevm.sh --skip-build            # sync + deploy, skip frontend build
+#   test/deploy.sh                # full: build + sync + deploy
+#   test/deploy.sh --sync-only    # just sync files (no redeploy, no build)
+#   test/deploy.sh --skip-build   # sync + deploy, skip frontend build
 #
-# Set DATABRICKS_PROFILE to target a specific workspace profile.
-# Falls back to [DEFAULT] profile in ~/.databrickscfg.
+# app.yaml is the single source of truth: `name:` -> deployed app name,
+# `profile:` -> Databricks CLI profile to deploy with. The shell env var
+# DATABRICKS_PROFILE is honored only as an explicit override (with a warning).
 set -euo pipefail
 
-PROFILE="${DATABRICKS_PROFILE:-}"
-if [ -z "$PROFILE" ]; then
-  # Fall back to [DEFAULT] profile in ~/.databrickscfg
-  PROFILE=$(awk -F'[][]' '/^\[/{p=$2} /^host/{if(p=="DEFAULT"){print p; exit}}' ~/.databrickscfg 2>/dev/null || true)
-  if [ -z "$PROFILE" ]; then
-    echo "ERROR: Set DATABRICKS_PROFILE or configure a [DEFAULT] profile in ~/.databrickscfg" >&2
-    exit 1
-  fi
+# Resolve repo root and read app.yaml — single source of truth
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+APP_YAML="$REPO_ROOT/app.yaml"
+if [ ! -f "$APP_YAML" ]; then
+  echo "ERROR: $APP_YAML not found" >&2
+  exit 1
+fi
+
+read -r APP_NAME APP_YAML_PROFILE <<< "$(python3 -c "
+import sys, yaml
+y = yaml.safe_load(open('$APP_YAML')) or {}
+print(y.get('name', ''), y.get('profile', ''))
+")"
+
+if [ -z "$APP_NAME" ]; then
+  echo "ERROR: app.yaml is missing a top-level 'name:' field. Add e.g. 'name: impulse-stla'." >&2
+  exit 1
+fi
+if [ -z "$APP_YAML_PROFILE" ]; then
+  echo "ERROR: app.yaml is missing a top-level 'profile:' field. Add e.g. 'profile: fevm-demo-stla'." >&2
+  exit 1
+fi
+
+if [ -n "${DATABRICKS_PROFILE:-}" ] && [ "$DATABRICKS_PROFILE" != "$APP_YAML_PROFILE" ]; then
+  echo "WARNING: shell DATABRICKS_PROFILE='$DATABRICKS_PROFILE' overrides app.yaml profile='$APP_YAML_PROFILE'" >&2
+  PROFILE="$DATABRICKS_PROFILE"
+else
+  PROFILE="$APP_YAML_PROFILE"
 fi
 
 # Resolve current user email from the CLI profile
@@ -29,51 +49,36 @@ if [ -z "$USER_EMAIL" ]; then
   exit 1
 fi
 
-BASE_APP_NAME="impulse"
-BASE_WS_PATH="/Workspace/Users/${USER_EMAIL}/impulse-app"
+WS_PATH="/Workspace/Users/${USER_EMAIL}/${APP_NAME}-app"
 
 SYNC_ONLY=false
 SKIP_BUILD=false
-INSTANCE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --sync-only)  SYNC_ONLY=true; SKIP_BUILD=true; shift ;;
     --skip-build) SKIP_BUILD=true; shift ;;
-    --instance)   INSTANCE="$2"; shift 2 ;;
     *)            shift ;;
   esac
 done
 
-# Derive app name and workspace path from instance
-if [ -n "$INSTANCE" ]; then
-  APP_NAME="${BASE_APP_NAME}-${INSTANCE}"
-  WS_PATH="${BASE_WS_PATH}-${INSTANCE}"
-else
-  APP_NAME="$BASE_APP_NAME"
-  WS_PATH="$BASE_WS_PATH"
-fi
-
 echo "==> Profile: $PROFILE (user: $USER_EMAIL)"
-echo "    App: $APP_NAME"
+echo "    App: $APP_NAME (from app.yaml)"
 echo "    Workspace path: $WS_PATH"
 
 if [ "$SKIP_BUILD" = false ]; then
   echo "==> Building frontend..."
-  cd "$(dirname "$0")/../frontend"
+  cd "$REPO_ROOT/frontend"
   npx tsc -b && npx vite build
-  cd ..
+  cd "$REPO_ROOT"
 fi
 
 echo "==> Syncing to workspace..."
-cd "$(dirname "$0")/.."
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-EXCLUDE_FILE="$SCRIPT_DIR/../.databricksignore"
-if [ -f "$EXCLUDE_FILE" ]; then
-  databricks sync . "$WS_PATH" --profile "$PROFILE" --watch=false --exclude-from "$EXCLUDE_FILE"
-else
-  databricks sync . "$WS_PATH" --profile "$PROFILE" --watch=false
-fi
+cd "$REPO_ROOT"
+# app.yaml and profiles.yaml are gitignored (customer-specific) but required at runtime —
+# force-include them so databricks sync ships them despite the gitignore match.
+databricks sync . "$WS_PATH" --profile "$PROFILE" --watch=false \
+  --include "app.yaml" --include "profiles.yaml"
 
 # frontend/dist/ is gitignored (gitleaks false positive), so databricks sync skips it. Upload separately.
 [ -d "frontend/dist" ] && databricks workspace import-dir frontend/dist "$WS_PATH/frontend/dist" --overwrite --profile "$PROFILE"
@@ -91,9 +96,13 @@ if ! databricks apps get "$APP_NAME" --profile "$PROFILE" -o json > /dev/null 2>
   echo "==> Creating app '$APP_NAME'..."
   databricks apps create --profile "$PROFILE" --no-wait \
     --json "{\"name\":\"$APP_NAME\",\"user_api_scopes\":$USER_API_SCOPES}"
-  echo "    Waiting for app to be ready..."
-  databricks apps get "$APP_NAME" --profile "$PROFILE" > /dev/null 2>&1
-  sleep 10
+  echo "    Waiting for app compute to leave STARTING..."
+  while :; do
+    state=$(databricks apps get "$APP_NAME" --profile "$PROFILE" -o json 2>/dev/null \
+      | python3 -c "import sys,json; print(json.load(sys.stdin).get('compute_status',{}).get('state',''))" 2>/dev/null || true)
+    [ "$state" != "STARTING" ] && break
+    sleep 15
+  done
 fi
 
 # Always ensure user authorization scopes are set (they can get wiped by UI/API changes)

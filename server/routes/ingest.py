@@ -28,11 +28,17 @@ def _get_ingest_notebook_root() -> str:
 
     The app SP needs CAN_READ on this workspace folder — granted once during
     setup via ``permissions.set('directories', ...)``.
+
+    Resolution order: explicit ``INGEST_NOTEBOOK_ROOT`` env var, otherwise
+    derived from the deploying user's workspace folder + the active app name.
     """
-    return os.environ.get(
-        "INGEST_NOTEBOOK_ROOT",
-        "/Workspace/Users/maxim.hammer@databricks.com/impulse-app/ingest",
-    )
+    env_path = os.environ.get("INGEST_NOTEBOOK_ROOT")
+    if env_path:
+        return env_path
+
+    app_name = os.environ.get("DATABRICKS_APP_NAME", "impulse")
+    user = get_workspace_client().current_user.me().userName
+    return f"/Workspace/Users/{user}/{app_name}-app/ingest"
 
 
 def _get_client(request: Request):

@@ -105,8 +105,9 @@ async def get_histogram_data(body: HistogramDataRequest, request: Request):
         if not meta:
             continue
 
-        is_duration = meta["type"] == "duration"
-        value_expr = "SUM(f.hist_value) / 1e9" if is_duration else "SUM(f.hist_value)"
+        is_duration = meta["type"] == "histogram_duration"
+        is_distance = meta["type"] == "histogram_distance"
+        value_expr = "SUM(f.hist_value)"
         value_alias = "hist_value"
 
         sql = (
@@ -145,10 +146,17 @@ async def get_histogram_data(body: HistogramDataRequest, request: Request):
                 "relative_pct": float(row[5]) if row[5] else 0,
             })
 
+        if is_duration:
+            values_unit = "seconds"
+        elif is_distance:
+            values_unit = meta["values_unit"] or "distance"
+        else:
+            values_unit = meta["values_unit"] or ""
+
         histograms[hist_name] = {
             "type": meta["type"],
             "bins_unit": meta["bins_unit"],
-            "values_unit": "seconds" if is_duration else (meta["values_unit"] or "distance"),
+            "values_unit": values_unit,
             "description": meta["description"],
             "series": {"_all": bins},
         }
@@ -247,7 +255,7 @@ async def list_aggregations(
 
     # Statistics
     try:
-        tbl = _table(catalog, schema, prefix, "stats_dimension")
+        tbl = _table(catalog, schema, prefix, "stats_aggregator_dimension")
         result = execute_sql(
             f"SELECT visual_id, name, description "
             f"FROM {tbl} ORDER BY visual_id",
@@ -269,7 +277,7 @@ async def list_aggregations(
         msg = str(e)
         if "TABLE_OR_VIEW_NOT_FOUND" not in msg and "does not exist" not in msg.lower():
             raise
-        logger.debug("stats_dimension table not found, skipping statistics")
+        logger.debug("stats_aggregator_dimension table not found, skipping statistics")
 
     if not aggregations:
         raise HTTPException(
@@ -319,12 +327,13 @@ async def get_histogram2d_data(body: Histogram2DDataRequest, request: Request):
             raise
         dim_row = dim_res["rows"][0] if dim_res.get("rows") else [None, None, None]
 
-        # Try to fetch signal expressions for axis labels (may not exist in older reports)
+        # Fetch human-friendly channel names for axis labels.
+        # Schema columns are x_channel_name / y_channel_name in the upstream wheel.
         x_signal_label = ""
         y_signal_label = ""
         try:
             expr_res = execute_sql(
-                f"SELECT x_expression, y_expression FROM {dim_tbl} WHERE name = '{hist_name}'",
+                f"SELECT x_channel_name, y_channel_name FROM {dim_tbl} WHERE name = '{hist_name}'",
                 user_token=token,
             )
             if expr_res.get("rows"):
@@ -336,7 +345,7 @@ async def get_histogram2d_data(body: Histogram2DDataRequest, request: Request):
         sql = (
             f"SELECT f.x_bin_id, f.y_bin_id, "
             f"  f.x_bin_name, f.y_bin_name, "
-            f"  SUM(f.hist_value) / 1e9 AS hist_value "
+            f"  SUM(f.hist_value) AS hist_value "
             f"FROM {fact_tbl} f "
             f"INNER JOIN {dim_tbl} d ON f.visual_id = d.visual_id "
             f"WHERE d.name = '{hist_name}' "
@@ -416,14 +425,15 @@ async def get_statistics_data(body: StatisticsDataRequest, request: Request):
         _validate_id(name, "statistics_name")
     token = _get_user_token(request)
 
-    fact_tbl = _table(body.catalog, body.schema_name, body.prefix, "stats_fact")
-    dim_tbl = _table(body.catalog, body.schema_name, body.prefix, "stats_dimension")
+    fact_tbl = _table(body.catalog, body.schema_name, body.prefix, "stats_aggregator_fact")
+    dim_tbl = _table(body.catalog, body.schema_name, body.prefix, "stats_aggregator_dimension")
 
     statistics: dict[str, Any] = {}
     for stat_name in body.statistics_names:
         try:
             dim_res = execute_sql(
-                f"SELECT description FROM {dim_tbl} WHERE name = '{stat_name}'",
+                f"SELECT description, channel_names, statistics "
+                f"FROM {dim_tbl} WHERE name = '{stat_name}'",
                 user_token=token,
             )
         except Exception as e:
@@ -431,21 +441,17 @@ async def get_statistics_data(body: StatisticsDataRequest, request: Request):
             if "TABLE_OR_VIEW_NOT_FOUND" in msg or "does not exist" in msg.lower():
                 raise HTTPException(404, "Statistics results not found.")
             raise
-        dim_row = dim_res["rows"][0] if dim_res.get("rows") else [None]
+        dim_row = dim_res["rows"][0] if dim_res.get("rows") else [None, None, None]
+        # channel_names and statistics come back as JSON-encoded arrays from the SQL connector
+        dim_channel_names = _parse_array(dim_row[1])
+        dim_stat_labels = _parse_array(dim_row[2])
 
         sql = (
-            f"SELECT f.signal_name, f.aggregation_label, "
-            f"  CASE "
-            f"    WHEN f.aggregation_label IN ('min') THEN MIN(f.value) "
-            f"    WHEN f.aggregation_label IN ('max') THEN MAX(f.value) "
-            f"    WHEN f.aggregation_label IN ('count') THEN SUM(f.value) "
-            f"    ELSE AVG(f.value) "
-            f"  END AS value "
+            f"SELECT f.event_instance_id, f.channel_name, f.aggregation_label, f.statistic_value "
             f"FROM {fact_tbl} f "
             f"INNER JOIN {dim_tbl} d ON f.visual_id = d.visual_id "
             f"WHERE d.name = '{stat_name}' "
-            f"GROUP BY f.signal_name, f.aggregation_label "
-            f"ORDER BY f.signal_name, f.aggregation_label"
+            f"ORDER BY f.event_instance_id, f.channel_name, f.aggregation_label"
         )
 
         try:
@@ -458,26 +464,55 @@ async def get_statistics_data(body: StatisticsDataRequest, request: Request):
             raise
 
         rows = []
-        signal_names_set: set[str] = set()
+        channel_names_set: set[str] = set()
         stat_labels_set: set[str] = set()
         for row in result.get("rows", []):
-            sig = row[0] or ""
-            label = row[1] or ""
-            val = float(row[2]) if row[2] else 0.0
+            instance_id = int(row[0]) if row[0] is not None else 0
+            channel = row[1] or ""
+            label = row[2] or ""
+            val = float(row[3]) if row[3] is not None else 0.0
             rows.append({
-                "signal_name": sig,
+                "event_instance_id": instance_id,
+                "channel_name": channel,
                 "aggregation_label": label,
                 "value": val,
-                "event_instance_id": None,
             })
-            signal_names_set.add(sig)
+            channel_names_set.add(channel)
             stat_labels_set.add(label)
+
+        # Prefer dim-table arrays for ordering/completeness; fall back to facts.
+        channel_names = dim_channel_names or sorted(channel_names_set)
+        stat_labels = dim_stat_labels or sorted(stat_labels_set)
 
         statistics[stat_name] = {
             "rows": rows,
-            "signal_names": sorted(signal_names_set),
-            "stat_labels": sorted(stat_labels_set),
+            "channel_names": channel_names,
+            "stat_labels": stat_labels,
             "description": _clean(dim_row[0]),
         }
 
     return {"statistics": statistics}
+
+
+def _parse_array(val: Any) -> list[str]:
+    """Best-effort parse of a SQL ARRAY value coming back from the connector.
+
+    SQL connectors variably return ARRAY<STRING> as a Python list, a JSON string,
+    or None. Normalise to list[str].
+    """
+    if val is None:
+        return []
+    if isinstance(val, list):
+        return [str(x) for x in val if x is not None]
+    if isinstance(val, str):
+        s = val.strip()
+        if not s:
+            return []
+        try:
+            import json
+            parsed = json.loads(s)
+            if isinstance(parsed, list):
+                return [str(x) for x in parsed if x is not None]
+        except Exception:
+            pass
+    return []

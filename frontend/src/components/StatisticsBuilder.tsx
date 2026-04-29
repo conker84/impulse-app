@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { EventDefinition, SignalDefinition, StatisticsDefinition } from "../types";
 
 interface Props {
@@ -6,6 +6,8 @@ interface Props {
   events: EventDefinition[];
   existingNames: Set<string>;
   onAdd: (stats: StatisticsDefinition) => void;
+  editingStatistics?: StatisticsDefinition | null;
+  onCancelEdit?: () => void;
 }
 
 const ALL_STAT_LABELS = ["min", "max", "mean", "median"] as const;
@@ -19,7 +21,7 @@ function makeUniqueName(base: string, existing: Set<string>): string {
   return `${base}_${Date.now()}`;
 }
 
-export default function StatisticsBuilder({ signals, events, existingNames, onAdd }: Props) {
+export default function StatisticsBuilder({ signals, events, existingNames, onAdd, editingStatistics, onCancelEdit }: Props) {
   const [expanded, setExpanded] = useState(false);
   const [selectedSignals, setSelectedSignals] = useState<Set<string>>(new Set());
   const [selectedStats, setSelectedStats] = useState<Set<string>>(new Set(ALL_STAT_LABELS));
@@ -27,6 +29,8 @@ export default function StatisticsBuilder({ signals, events, existingNames, onAd
   const [description, setDescription] = useState("");
   const [eventRef, setEventRef] = useState("");
   const [error, setError] = useState("");
+
+  const isEditing = !!editingStatistics;
 
   const resetForm = () => {
     setSelectedSignals(new Set());
@@ -36,6 +40,18 @@ export default function StatisticsBuilder({ signals, events, existingNames, onAd
     setEventRef("");
     setError("");
   };
+
+  useEffect(() => {
+    if (editingStatistics) {
+      setExpanded(true);
+      setSelectedSignals(new Set(editingStatistics.signal_refs));
+      setSelectedStats(new Set(editingStatistics.stat_labels));
+      setName(editingStatistics.name);
+      setDescription(editingStatistics.description || "");
+      setEventRef(editingStatistics.event_ref || "");
+      setError("");
+    }
+  }, [editingStatistics]);
 
   const toggleSignal = (varName: string) => {
     setSelectedSignals((prev) => {
@@ -75,7 +91,7 @@ export default function StatisticsBuilder({ signals, events, existingNames, onAd
         existingNames
       );
 
-    if (existingNames.has(finalName)) {
+    if (!isEditing && existingNames.has(finalName)) {
       setError(`Name '${finalName}' already exists.`);
       return;
     }
@@ -91,8 +107,14 @@ export default function StatisticsBuilder({ signals, events, existingNames, onAd
     };
 
     onAdd(stats);
-    setExpanded(false);
-    resetForm();
+    if (!isEditing) {
+      setExpanded(false);
+      resetForm();
+    } else if (onCancelEdit) {
+      onCancelEdit();
+      setExpanded(false);
+      resetForm();
+    }
   };
 
   if (!expanded) {
@@ -110,11 +132,15 @@ export default function StatisticsBuilder({ signals, events, existingNames, onAd
   return (
     <div className="histogram-builder" style={{ marginTop: 8 }}>
       <div className="histogram-builder-header">
-        Add Statistics
+        {isEditing ? "Edit Statistics" : "Add Statistics"}
         <button
           className="action-btn"
           style={{ marginLeft: "auto", fontSize: 12, padding: "2px 8px" }}
-          onClick={() => { setExpanded(false); resetForm(); }}
+          onClick={() => {
+            if (isEditing && onCancelEdit) onCancelEdit();
+            setExpanded(false);
+            resetForm();
+          }}
         >
           Cancel
         </button>
@@ -192,7 +218,7 @@ export default function StatisticsBuilder({ signals, events, existingNames, onAd
             onChange={(e) => setEventRef(e.target.value)}
           >
             <option value="">None — compute over full signal</option>
-            {events.filter((e) => e.event_type === "interval").map((e) => (
+            {events.filter((e) => e.event_type === "interval" || e.event_type === "periodic_distance").map((e) => (
               <option key={e.name} value={e.name}>
                 {e.name}{e.description ? ` — ${e.description}` : ""}
               </option>
@@ -236,7 +262,7 @@ export default function StatisticsBuilder({ signals, events, existingNames, onAd
           disabled={selectedSignals.size === 0 || selectedStats.size === 0}
           onClick={handleAdd}
         >
-          Add Statistics
+          {isEditing ? "Save Changes" : "Add Statistics"}
         </button>
       </div>
     </div>

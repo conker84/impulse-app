@@ -33,7 +33,12 @@ export interface ThresholdCondition {
   value: number;
 }
 
-export type EventType = "interval" | "rising_edges" | "falling_edges" | "change_points";
+export type EventType =
+  | "interval"
+  | "rising_edges"
+  | "falling_edges"
+  | "change_points"
+  | "periodic_distance";
 
 export interface EventDefinition {
   name: string;
@@ -43,6 +48,7 @@ export interface EventDefinition {
   signal_ref: string | null;
   from_state: number | null;
   to_state: number | null;
+  step: number | null;
   description: string;
 }
 
@@ -268,17 +274,17 @@ export interface Heatmap2DResult {
   description: string;
 }
 
-// Statistics table data
+// Statistics data (raw fact rows; per-event-instance)
 export interface StatisticsRow {
-  signal_name: string;
+  event_instance_id: number;
+  channel_name: string;
   aggregation_label: string;
   value: number;
-  event_instance_id: string | null;
 }
 
 export interface StatisticsResult {
   rows: StatisticsRow[];
-  signal_names: string[];
+  channel_names: string[];
   stat_labels: string[];
   description: string;
 }

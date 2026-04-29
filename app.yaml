@@ -1,4 +1,20 @@
-command: ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+name: impulse-v2
+profile: fe-vm-maximhammer
+command:
+  - "bash"
+  - "-c"
+  - |
+    set -e
+    INSTALL_DIR=/tmp/databricks-cli
+    CLI_VERSION=0.290.0
+    if [ ! -x "$INSTALL_DIR/databricks" ]; then
+      mkdir -p "$INSTALL_DIR"
+      curl -fsSL "https://github.com/databricks/cli/releases/download/v${CLI_VERSION}/databricks_cli_${CLI_VERSION}_linux_amd64.tar.gz" \
+        | tar -xz -C "$INSTALL_DIR" databricks
+    fi
+    export PATH="$INSTALL_DIR:$PATH"
+    echo "Using databricks CLI: $(databricks --version)"
+    exec uvicorn app:app --host 0.0.0.0 --port 8000
 compute_size: LARGE
 env:
   - name: DATABRICKS_WAREHOUSE_ID
@@ -17,5 +33,5 @@ env:
     value: "impulse"
   - name: SECRET_KEY_NAME
     value: "fernet-key"
-  - name: INGEST_NODE_TYPE
-    value: "i3.xlarge"
+  - name: IMPULSE_FRAMEWORK_WHEEL_FILENAME
+    value: "mda_framework_v2-0.0.4-py3-none-any.whl"

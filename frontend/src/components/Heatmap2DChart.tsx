@@ -46,8 +46,8 @@ export default function Heatmap2DChart({ name, result }: Props) {
         data={[trace]}
         layout={mergeLayout({
           margin: { t: 8, r: 16, b: 120, l: 120 },
-          xaxis: { title: xTitle, tickangle: -45, automargin: true },
-          yaxis: { title: yTitle, automargin: true },
+          xaxis: { title: { text: xTitle || "", standoff: 10 }, tickangle: -45, automargin: true },
+          yaxis: { title: { text: yTitle || "", standoff: 10 }, automargin: true },
         })}
         config={BASE_CONFIG}
         useResizeHandler

@@ -83,16 +83,19 @@ Measures how much **distance** is traveled while a signal is in each value bin.
 
 **Input:** `base_expr` must evaluate to `SampleSeries`.
 
+> **Required:** a cumulative-distance weight signal (`weights_expr`). The framework runs `diff()` on it internally to compute Δkm per sample. There is **no** implicit "auto-integrate vehicle_speed" — without `weights_expr` the constructor raises `TypeError`. Use the physical `odometer` channel when available, or define a virtual `distance_km` from vehicle speed (see below).
+
 ### Constructor
 
 ```python
-Histogram(
+HistogramDistance(
     name="eng_spd_hist_distance_p1",
-    base_expr=signals["Eng_Spd_masked"],
+    base_expr=signals["engine_speed"],
+    weights_expr=signals["odometer"],   # cumulative km — REQUIRED
     bins=[float(i) for i in range(0, 6000, 500)],
     desc="Distribution of engine speed over driven distance",
-    agg_type="distance",
-    bins_unit="rpm"
+    bins_unit="rpm",
+    values_unit="km",
 )
 ```
 
@@ -100,8 +103,9 @@ Histogram(
 - Analyzing signal distribution weighted by distance instead of time
 - Understanding how far the vehicle drives at each speed, temperature, etc.
 
-### Distance signal definition
-The distance signal is typically defined as the cumulative integral of vehicle speed:
+### Distance signal options
+- **Preferred:** an odometer channel from the silver layer (already cumulative km).
+- **Fallback (no odometer):** derive a virtual `distance_km` by integrating vehicle speed:
 
 ```python
 veh_spd = query.channel(channel_name="vehicle_speed")

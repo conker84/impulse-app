@@ -100,6 +100,15 @@ export default function AggregationsTab({ aggregations, onDelete, onEdit }: Prop
                 <code>{a.name}</code>
                 <span className="badge" style={{ marginLeft: 8, background: "var(--accent-secondary, #6366f1)", color: "#fff" }}>2D</span>
                 <span style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
+                  {onEdit && (
+                    <button
+                      className="icon-btn"
+                      title="Edit"
+                      onClick={() => onEdit(a)}
+                    >
+                      &#9998;
+                    </button>
+                  )}
                   {onDelete && (
                     <button
                       className="icon-btn danger"
@@ -134,6 +143,15 @@ export default function AggregationsTab({ aggregations, onDelete, onEdit }: Prop
                 <code>{a.name}</code>
                 <span className="badge" style={{ marginLeft: 8 }}>stats</span>
                 <span style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
+                  {onEdit && (
+                    <button
+                      className="icon-btn"
+                      title="Edit"
+                      onClick={() => onEdit(a)}
+                    >
+                      &#9998;
+                    </button>
+                  )}
                   {onDelete && (
                     <button
                       className="icon-btn danger"

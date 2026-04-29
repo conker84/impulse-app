@@ -27,12 +27,25 @@ router = APIRouter(prefix="/api/timeseries", tags=["timeseries"])
 _IDENTIFIER_RE = re.compile(r"^[a-zA-Z0-9_]+$")
 
 # Synthetic test data marker
-_SYNTHETIC_CONTAINER_ID = 0
+_SYNTHETIC_CONTAINER_ID = "-1"
 _SYNTHETIC_CATALOG = "synthetic"
 _SYNTHETIC_SCHEMA = "test"
 
+
+def _is_synthetic(container_id: object) -> bool:
+    return str(container_id) == _SYNTHETIC_CONTAINER_ID
+
 # Background load jobs — keyed by load_id
 _load_jobs: dict[str, dict] = {}
+
+# Session-scoped TS Viewer overrides — keyed by session_id (UI-set field overrides)
+_ts_session_overrides: dict[str, dict] = {}
+
+
+def _get_session_overrides(session_id: str | None) -> dict | None:
+    if not session_id:
+        return None
+    return _ts_session_overrides.get(session_id)
 
 
 def _validate_id(value: str, name: str) -> str:
@@ -50,9 +63,16 @@ def _get_user_token(request: Request) -> str | None:
 # ---------------------------------------------------------------------------
 
 
+def _to_id_str(value: object) -> str:
+    if value is None:
+        return ""
+    return str(value)
+
+
 @router.get("/containers")
 async def list_containers(
     catalog: str, schema: str, request: Request,
+    session_id: str | None = Query(None),
 ):
     """List available measurement containers with metadata."""
     # Synthetic data path
@@ -64,18 +84,9 @@ async def list_containers(
     _validate_id(schema, "schema")
     token = _get_user_token(request)
 
-    sql = (
-        f"SELECT m.container_id, "
-        f"  COALESCE(t_fn.value, CAST(m.container_id AS STRING)) AS filename, "
-        f"  COALESCE(t_vk.value, '') AS vehicle_key, "
-        f"  m.start_dt, m.stop_dt, m.num_channels, m.duration_ms "
-        f"FROM {catalog}.{schema}.container_metrics m "
-        f"LEFT JOIN {catalog}.{schema}.container_tags t_fn "
-        f"  ON m.container_id = t_fn.container_id AND t_fn.key = 'filename' "
-        f"LEFT JOIN {catalog}.{schema}.container_tags t_vk "
-        f"  ON m.container_id = t_vk.container_id AND t_vk.key = 'vehicle_key' "
-        f"ORDER BY m.start_dt DESC"
-    )
+    from server.schema_adapter import SchemaAdapter
+    overrides = _get_session_overrides(session_id)
+    sql = SchemaAdapter.from_active_profile(catalog, schema, session_overrides=overrides).containers_list_query()
 
     try:
         result = execute_sql(sql, user_token=token)
@@ -88,13 +99,12 @@ async def list_containers(
     containers = []
     for row in result.get("rows", []):
         containers.append({
-            "container_id": int(row[0]) if row[0] else 0,
-            "filename": row[1] or "",
-            "vehicle_key": row[2] or "",
-            "start_dt": str(row[3]) if row[3] else None,
-            "stop_dt": str(row[4]) if row[4] else None,
-            "num_channels": int(row[5]) if row[5] else 0,
-            "duration_ms": int(row[6]) if row[6] else 0,
+            "container_id": _to_id_str(row[0]),
+            "vehicle_key": row[1] or "",
+            "start_dt": str(row[2]) if row[2] else None,
+            "stop_dt": str(row[3]) if row[3] else None,
+            "num_channels": int(row[4]) if row[4] else 0,
+            "duration_ms": int(row[5]) if row[5] else 0,
         })
     return {"containers": containers}
 
@@ -106,34 +116,20 @@ async def list_containers(
 
 @router.get("/signals")
 async def list_signals(
-    catalog: str, schema: str, container_id: int, request: Request,
+    catalog: str, schema: str, container_id: str, request: Request,
+    session_id: str | None = Query(None),
 ):
     """List available signals for a container with metadata."""
-    # Synthetic data path
-    if container_id == _SYNTHETIC_CONTAINER_ID:
+    if _is_synthetic(container_id):
         return _list_synthetic_signals()
 
     _validate_id(catalog, "catalog")
     _validate_id(schema, "schema")
     token = _get_user_token(request)
 
-    sql = (
-        f"SELECT t_name.channel_id, "
-        f"  t_name.value AS channel_name, "
-        f"  COALESCE(t_unit.value, '') AS unit, "
-        f"  m.sample_count, m.min, m.max, m.mean "
-        f"FROM {catalog}.{schema}.channel_tags t_name "
-        f"LEFT JOIN {catalog}.{schema}.channel_tags t_unit "
-        f"  ON t_name.container_id = t_unit.container_id "
-        f"  AND t_name.channel_id = t_unit.channel_id "
-        f"  AND t_unit.key = 'unit' "
-        f"LEFT JOIN {catalog}.{schema}.channel_metrics m "
-        f"  ON t_name.container_id = m.container_id "
-        f"  AND t_name.channel_id = m.channel_id "
-        f"WHERE t_name.key = 'channel_name' "
-        f"  AND t_name.container_id = {container_id} "
-        f"ORDER BY channel_name"
-    )
+    from server.schema_adapter import SchemaAdapter
+    overrides = _get_session_overrides(session_id)
+    sql = SchemaAdapter.from_active_profile(catalog, schema, session_overrides=overrides).signals_list_query(container_id)
 
     try:
         result = execute_sql(sql, user_token=token)
@@ -143,16 +139,24 @@ async def list_signals(
             raise HTTPException(404, "Channel metadata tables not found.")
         raise
 
+    def _to_float(v):
+        if v in (None, "", "NULL"):
+            return None
+        try:
+            return float(v)
+        except (ValueError, TypeError):
+            return None
+
     signals = []
     for row in result.get("rows", []):
         signals.append({
-            "channel_id": int(row[0]) if row[0] else 0,
+            "channel_id": _to_id_str(row[0]),
             "channel_name": row[1] or "",
             "unit": row[2] or "",
             "sample_count": int(row[3]) if row[3] else 0,
-            "min_value": float(row[4]) if row[4] else None,
-            "max_value": float(row[5]) if row[5] else None,
-            "mean_value": float(row[6]) if row[6] else None,
+            "min_value": _to_float(row[4]),
+            "max_value": _to_float(row[5]),
+            "mean_value": _to_float(row[6]),
         })
     return {"signals": signals}
 
@@ -165,8 +169,9 @@ async def list_signals(
 class LoadRequest(BaseModel):
     catalog: str
     schema_name: str  # 'schema' is a Pydantic reserved name
-    container_id: int
-    channel_ids: list[int]
+    container_id: str
+    channel_ids: list[str]
+    session_id: str | None = None
 
 
 def _background_load(load_id: str, body: LoadRequest, token: str | None):
@@ -176,7 +181,7 @@ def _background_load(load_id: str, body: LoadRequest, token: str | None):
 
     try:
         # Synthetic data path
-        if body.container_id == _SYNTHETIC_CONTAINER_ID:
+        if _is_synthetic(body.container_id):
             result = _load_synthetic(body.channel_ids)
             job["result"] = result
             job["status"] = "done"
@@ -184,6 +189,7 @@ def _background_load(load_id: str, body: LoadRequest, token: str | None):
 
         from server.ts_connector import fetch_channel_arrow, get_connection
 
+        overrides = _get_session_overrides(body.session_id) if body.session_id else None
         conn = get_connection(token)
         channels = []
         try:
@@ -208,7 +214,8 @@ def _background_load(load_id: str, body: LoadRequest, token: str | None):
                 job["message"] = "Fetching data from warehouse..."
                 t0 = time.monotonic()
                 table = fetch_channel_arrow(
-                    conn, body.catalog, body.schema_name, body.container_id, channel_id
+                    conn, body.catalog, body.schema_name, body.container_id, channel_id,
+                    session_overrides=overrides,
                 )
                 fetch_ms = (time.monotonic() - t0) * 1000
 
@@ -255,7 +262,7 @@ async def load_channels(body: LoadRequest, request: Request):
     all_cached = True
     channels = []
     for channel_id in body.channel_ids:
-        if body.container_id == _SYNTHETIC_CONTAINER_ID:
+        if _is_synthetic(body.container_id):
             all_cached = False
             break
         cache_key = TimeSeriesCache.make_key(
@@ -393,12 +400,13 @@ def _lttb_downsample(t, v, n_out):
 async def get_timeseries_data(
     catalog: str,
     schema: str,
-    container_id: int,
-    channel_id: int,
+    container_id: str,
+    channel_id: str,
     request: Request,
     x_min: int | None = Query(None, description="Min timestamp (nanoseconds)"),
     x_max: int | None = Query(None, description="Max timestamp (nanoseconds)"),
     n_points: int = Query(5000, ge=100, le=50000),
+    session_id: str | None = Query(None),
 ):
     """Legacy: fetch + downsample in one call. Use /load + /resample for large data."""
     import numpy as np
@@ -407,22 +415,18 @@ async def get_timeseries_data(
     _validate_id(schema, "schema")
     token = _get_user_token(request)
 
-    channels_table = f"{catalog}.{schema}.channels"
-    where_parts = [
-        f"container_id = {container_id}",
-        f"channel_id = {channel_id}",
-    ]
-    if x_min is not None:
-        where_parts.append(f"tend >= {x_min}")
+    from server.schema_adapter import SchemaAdapter
+    overrides = _get_session_overrides(session_id) if session_id else None
+    adapter = SchemaAdapter.from_active_profile(catalog, schema, session_overrides=overrides)
+    has_tend = adapter.has_tend()
+    base_sql = adapter.ts_explorer_signal_fetch_query(container_id, channel_id)
+    extra_filters = []
     if x_max is not None:
-        where_parts.append(f"tstart <= {x_max}")
-
-    sql = (
-        f"SELECT tstart, tend, value "
-        f"FROM {channels_table} "
-        f"WHERE {' AND '.join(where_parts)} "
-        f"ORDER BY tstart"
-    )
+        extra_filters.append(f"tstart <= {x_max}")
+    if x_min is not None:
+        # For RLE schemas, an interval is in-range if it ends at or after x_min
+        extra_filters.append(f"tend >= {x_min}" if has_tend else f"tstart >= {x_min}")
+    sql = base_sql + ("".join(f" AND {f}" for f in extra_filters)) + " ORDER BY tstart"
 
     try:
         result = execute_sql(sql, user_token=token)
@@ -439,9 +443,13 @@ async def get_timeseries_data(
     times: list[int] = []
     values: list[float] = []
     for row in rows:
-        tstart = int(row[0]) if row[0] else 0
-        tend = int(row[1]) if row[1] else 0
-        val = float(row[2]) if row[2] else 0.0
+        tstart = int(row[0]) if row[0] is not None else 0
+        if has_tend:
+            tend = int(row[1]) if row[1] is not None else tstart
+            val = float(row[2]) if row[2] is not None else 0.0
+        else:
+            tend = tstart
+            val = float(row[1]) if row[1] is not None else 0.0
         times.append(tstart)
         values.append(val)
         if tend != tstart:
@@ -473,7 +481,7 @@ def _list_synthetic_signals() -> dict:
     return {"signals": [dict(s) for s in SYNTHETIC_SIGNALS]}
 
 
-def _load_synthetic(channel_ids: list[int]) -> dict:
+def _load_synthetic(channel_ids: list[str]) -> dict:
     """Load synthetic data into cache."""
     from test.synthetic_ts import load_synthetic_data
 
@@ -482,7 +490,8 @@ def _load_synthetic(channel_ids: list[int]) -> dict:
 
     channels = []
     for cid in channel_ids:
-        info = all_results.get(cid, {})
+        cid_int = int(cid)
+        info = all_results.get(cid_int, {})
         cache_key = info.get("cache_key", TimeSeriesCache.make_key(
             _SYNTHETIC_CATALOG, _SYNTHETIC_SCHEMA, _SYNTHETIC_CONTAINER_ID, cid
         ))
@@ -502,3 +511,92 @@ def _load_synthetic(channel_ids: list[int]) -> dict:
         "channels": channels,
         "memory_used_mb": round(cache.get_memory_usage() / 1024**2),
     }
+
+
+# ---------------------------------------------------------------------------
+# Session-scoped TS Viewer source overrides (UI flexibility layer)
+# ---------------------------------------------------------------------------
+
+
+_OVERRIDE_FIELDS = {
+    "timeseries_table",
+    "timeseries_time_col",
+    "timeseries_value_col",
+    "timeseries_container_match_col",
+    "timeseries_channel_match_expr",
+    "channel_container_id_col",
+    "channel_id_col",
+    "channel_name_col",
+}
+
+
+class SourceConfigPayload(BaseModel):
+    overrides: dict[str, str | None]
+
+
+@router.get("/source-config/{session_id}")
+async def get_source_config(session_id: str):
+    return {"overrides": _ts_session_overrides.get(session_id, {})}
+
+
+@router.post("/source-config/{session_id}")
+async def set_source_config(session_id: str, payload: SourceConfigPayload):
+    cleaned = {k: v for k, v in payload.overrides.items() if k in _OVERRIDE_FIELDS}
+    if cleaned:
+        _ts_session_overrides[session_id] = cleaned
+    else:
+        _ts_session_overrides.pop(session_id, None)
+    return {"overrides": _ts_session_overrides.get(session_id, {})}
+
+
+@router.delete("/source-config/{session_id}")
+async def clear_source_config(session_id: str):
+    _ts_session_overrides.pop(session_id, None)
+    return {"ok": True}
+
+
+@router.post("/test-source")
+async def test_source(payload: SourceConfigPayload, request: Request):
+    """Validate a candidate source config by running SELECT ... LIMIT 1.
+    Returns the resulting columns or the SQL error."""
+    overrides = {k: v for k, v in payload.overrides.items() if k in _OVERRIDE_FIELDS}
+    catalog = payload.overrides.get("__catalog", "")
+    schema = payload.overrides.get("__schema", "")
+    if not catalog or not schema:
+        raise HTTPException(400, "Catalog and schema required")
+
+    token = _get_user_token(request)
+    table = overrides.get("timeseries_table") or ""
+    if not table:
+        raise HTTPException(400, "timeseries_table required")
+
+    table_path = table if "." in table else f"{catalog}.{schema}.{table}"
+    time_expr = overrides.get("timeseries_time_col") or "tstart"
+    value_expr = overrides.get("timeseries_value_col") or "value"
+    sql = f"SELECT {time_expr} AS tstart, {value_expr} AS value FROM {table_path} LIMIT 1"
+
+    try:
+        result = execute_sql(sql, user_token=token)
+        return {"ok": True, "rows": result.get("rows", [])}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@router.post("/describe-table")
+async def describe_table(catalog: str, schema: str, table: str, request: Request):
+    """Return columns + types for a UC table — used by the configure-source modal."""
+    _validate_id(catalog, "catalog")
+    _validate_id(schema, "schema")
+    _validate_id(table, "table")
+    token = _get_user_token(request)
+    sql = f"DESCRIBE TABLE {catalog}.{schema}.{table}"
+    try:
+        result = execute_sql(sql, user_token=token)
+    except Exception as e:
+        raise HTTPException(404, f"Could not describe table: {e}")
+    columns = []
+    for row in result.get("rows", []):
+        if not row or not row[0] or row[0].startswith("#"):
+            continue
+        columns.append({"name": row[0], "type": row[1] if len(row) > 1 else ""})
+    return {"columns": columns}

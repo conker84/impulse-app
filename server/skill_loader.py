@@ -161,6 +161,13 @@ def build_system_prompt(
             cm = data_sources.get("container_metrics", "")
             if cm:
                 lines.append(f"**Container metrics table:** `{cm}` (use this for timeframe queries)\n")
+            aliases = data_sources.get("aliases", "")
+            if aliases:
+                lines.append(
+                    f"**Aliases table:** `{aliases}` is configured. Use the `search_aliases` tool "
+                    f"(do NOT construct SQL manually) — it builds the right query for the active "
+                    f"customer schema and returns rows you can pass straight to `suggest_signal_candidates`.\n"
+                )
         if vehicle_candidates:
             lines.append("### Available Vehicle Candidates\n")
             lines.append("These vehicles were discovered from the data. Use `set_vehicle` to add them directly.\n")

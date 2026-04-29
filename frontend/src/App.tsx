@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import type { ChatMessage, Histogram1DDefinition, Histogram2DDefinition, ReportState, StatisticsDefinition, WizardStep } from "./types";
-import { sendChat, scaffoldReport, deployReport, advanceStep, goBack, goToStep, setMetadata, selectCandidates, fetchVehicleCandidates, selectVehicles, updateVehicleTimestamps, getDeployStatus, cancelRun, getTokenStatus, setClusterConfig, loadReport, saveReport, suggestBins, addHistogram, addHistogram2D, addStatistics, deleteAggregation, updateAggregation, setSourceData, uploadMf4Files, triggerIngest, getIngestStatus, fetchChannelCatalog, fetchDataTimeRange, deleteSignal, updateSignal, addVirtualSignal, deleteVehicle } from "./api";
+import { sendChat, scaffoldReport, deployReport, advanceStep, goBack, goToStep, setMetadata, selectCandidates, fetchVehicleCandidates, selectVehicles, updateVehicleTimestamps, getDeployStatus, cancelRun, getTokenStatus, setClusterConfig, loadReport, saveReport, suggestBins, addHistogram, addHistogram2D, addStatistics, deleteAggregation, updateAggregation, updateHistogram2D, updateStatistics, setSourceData, uploadMf4Files, triggerIngest, getIngestStatus, fetchChannelCatalog, fetchDataTimeRange, deleteSignal, updateSignal, addVirtualSignal, deleteVehicle } from "./api";
 import type { DeployStatusResponse, TokenStatusResponse } from "./api";
 import type { DataSourceConfig } from "./types";
 import ChatPanel from "./components/ChatPanel";
@@ -331,6 +331,46 @@ export default function App() {
         setMessages((prev) => [
           ...prev,
           { role: "assistant", content: `Updated aggregation **${histogram.name}**.` },
+        ]);
+      } catch (err) {
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: `Error: ${err instanceof Error ? err.message : String(err)}` },
+        ]);
+      }
+    },
+    [sessionId]
+  );
+
+  const handleUpdateHistogram2D = useCallback(
+    async (originalName: string, histogram: Histogram2DDefinition) => {
+      if (!sessionId) return;
+      try {
+        const resp = await updateHistogram2D(sessionId, originalName, histogram);
+        setReportState(resp.report_state);
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: `Updated 2D histogram **${histogram.name}**.` },
+        ]);
+      } catch (err) {
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: `Error: ${err instanceof Error ? err.message : String(err)}` },
+        ]);
+      }
+    },
+    [sessionId]
+  );
+
+  const handleUpdateStatistics = useCallback(
+    async (originalName: string, stats: StatisticsDefinition) => {
+      if (!sessionId) return;
+      try {
+        const resp = await updateStatistics(sessionId, originalName, stats);
+        setReportState(resp.report_state);
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: `Updated statistics **${stats.name}**.` },
         ]);
       } catch (err) {
         setMessages((prev) => [
@@ -950,6 +990,8 @@ export default function App() {
         onAddStatistics={handleAddStatistics}
         onDeleteAggregation={handleDeleteAggregation}
         onUpdateAggregation={handleUpdateAggregation}
+        onUpdateHistogram2D={handleUpdateHistogram2D}
+        onUpdateStatistics={handleUpdateStatistics}
         onSuggestBins={handleSuggestBins}
         sessionId={sessionId}
         onStateUpdate={setReportState}

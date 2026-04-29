@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { EventDefinition, Histogram2DDefinition, SignalDefinition } from "../types";
 
 interface Props {
@@ -9,6 +9,8 @@ interface Props {
   onSuggestBins: (type: string, signalRef: string) => Promise<{
     bins: number[]; bins_unit: string; description: string; name: string;
   }>;
+  editingHistogram?: Histogram2DDefinition | null;
+  onCancelEdit?: () => void;
 }
 
 function makeUniqueName(base: string, existing: Set<string>): string {
@@ -20,7 +22,7 @@ function makeUniqueName(base: string, existing: Set<string>): string {
   return `${base}_${Date.now()}`;
 }
 
-export default function Histogram2DBuilder({ signals, events, existingNames, onAdd, onSuggestBins }: Props) {
+export default function Histogram2DBuilder({ signals, events, existingNames, onAdd, onSuggestBins, editingHistogram, onCancelEdit }: Props) {
   const [expanded, setExpanded] = useState(false);
   const [xSignalRef, setXSignalRef] = useState("");
   const [ySignalRef, setYSignalRef] = useState("");
@@ -34,6 +36,8 @@ export default function Histogram2DBuilder({ signals, events, existingNames, onA
   const [suggesting, setSuggesting] = useState<"x" | "y" | null>(null);
   const [error, setError] = useState("");
 
+  const isEditing = !!editingHistogram;
+
   const resetForm = () => {
     setXSignalRef("");
     setYSignalRef("");
@@ -46,6 +50,22 @@ export default function Histogram2DBuilder({ signals, events, existingNames, onA
     setEventRef("");
     setError("");
   };
+
+  useEffect(() => {
+    if (editingHistogram) {
+      setExpanded(true);
+      setXSignalRef(editingHistogram.x_signal_ref);
+      setYSignalRef(editingHistogram.y_signal_ref);
+      setName(editingHistogram.name);
+      setDescription(editingHistogram.description || "");
+      setXBinsText(editingHistogram.x_bins.join(", "));
+      setYBinsText(editingHistogram.y_bins.join(", "));
+      setXBinsUnit(editingHistogram.x_bins_unit || "");
+      setYBinsUnit(editingHistogram.y_bins_unit || "");
+      setEventRef(editingHistogram.event_ref || "");
+      setError("");
+    }
+  }, [editingHistogram]);
 
   const parseBins = (text: string): number[] | null => {
     const trimmed = text.trim();
@@ -122,7 +142,7 @@ export default function Histogram2DBuilder({ signals, events, existingNames, onA
       name.trim() ||
       makeUniqueName(`${xSignalRef}_${ySignalRef}_2d_p1`, existingNames);
 
-    if (existingNames.has(finalName)) {
+    if (!isEditing && existingNames.has(finalName)) {
       setError(`Name '${finalName}' already exists.`);
       return;
     }
@@ -144,8 +164,14 @@ export default function Histogram2DBuilder({ signals, events, existingNames, onA
     };
 
     onAdd(histogram);
-    setExpanded(false);
-    resetForm();
+    if (!isEditing) {
+      setExpanded(false);
+      resetForm();
+    } else if (onCancelEdit) {
+      onCancelEdit();
+      setExpanded(false);
+      resetForm();
+    }
   };
 
   const canAdd =
@@ -167,11 +193,15 @@ export default function Histogram2DBuilder({ signals, events, existingNames, onA
   return (
     <div className="histogram-builder" style={{ marginTop: 8 }}>
       <div className="histogram-builder-header">
-        Add 2D Histogram
+        {isEditing ? "Edit 2D Histogram" : "Add 2D Histogram"}
         <button
           className="action-btn"
           style={{ marginLeft: "auto", fontSize: 12, padding: "2px 8px" }}
-          onClick={() => { setExpanded(false); resetForm(); }}
+          onClick={() => {
+            if (isEditing && onCancelEdit) onCancelEdit();
+            setExpanded(false);
+            resetForm();
+          }}
         >
           Cancel
         </button>
@@ -330,7 +360,7 @@ export default function Histogram2DBuilder({ signals, events, existingNames, onA
             onChange={(e) => setEventRef(e.target.value)}
           >
             <option value="">None — no event filter</option>
-            {events.filter((e) => e.event_type === "interval").map((e) => (
+            {events.filter((e) => e.event_type === "interval" || e.event_type === "periodic_distance").map((e) => (
               <option key={e.name} value={e.name}>
                 {e.name}{e.description ? ` — ${e.description}` : ""}
               </option>
@@ -353,7 +383,7 @@ export default function Histogram2DBuilder({ signals, events, existingNames, onA
           disabled={!canAdd}
           onClick={handleAdd}
         >
-          Add 2D Histogram
+          {isEditing ? "Save Changes" : "Add 2D Histogram"}
         </button>
       </div>
     </div>

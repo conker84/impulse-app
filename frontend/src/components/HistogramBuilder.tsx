@@ -201,7 +201,11 @@ export default function HistogramBuilder({
   };
 
   const canSuggest = !!selectedType && !!signalRef && !suggesting;
-  const canAdd = !!selectedType && !!signalRef && !!parseBins();
+  const canAdd =
+    !!selectedType &&
+    !!signalRef &&
+    !!parseBins() &&
+    (selectedType !== "distance" || !!weightSignalRef);
 
   return (
     <div className="histogram-builder">
@@ -354,7 +358,7 @@ export default function HistogramBuilder({
               onChange={(e) => setEventRef(e.target.value)}
             >
               <option value="">None — no event filter</option>
-              {events.filter((e) => e.event_type === "interval").map((e) => (
+              {events.filter((e) => e.event_type === "interval" || e.event_type === "periodic_distance").map((e) => (
                 <option key={e.name} value={e.name}>
                   {e.name}{e.description ? ` — ${e.description}` : ""}
                 </option>

@@ -35,6 +35,7 @@ def _cli_env(user_email: str | None, user_token: str | None = None) -> dict[str,
     env = os.environ.copy()
     if "HOME" not in env:
         env["HOME"] = "/tmp"
+    env["DATABRICKS_BUNDLE_ENGINE"] = "direct"
     if IS_DATABRICKS_APP:
         # PAT first — OBO tokens lack jobs/workspace scopes
         token = None
@@ -194,15 +195,31 @@ async def scaffold_report(session_id: str, request: Request):
 
     ws_host = get_workspace_client().config.host
 
+    wheel_filename = os.environ.get(
+        "IMPULSE_FRAMEWORK_WHEEL_FILENAME",
+        "mda_framework_v2-0.0.4-py3-none-any.whl",
+    )
+    wheel_path = os.path.join(TEMPLATE_ROOT, "template", "lib", wheel_filename)
+    if not os.path.isfile(wheel_path):
+        raise HTTPException(
+            500,
+            f"Impulse framework wheel '{wheel_filename}' not found at {wheel_path}. "
+            "Drop the .whl in .template/template/lib/ and update IMPULSE_FRAMEWORK_WHEEL_FILENAME in app.yaml.",
+        )
+
     config = {
         "report_name": state.name,
         "dev_host": os.environ.get("DAB_DEV_HOST", ws_host),
         "dev_group": os.environ.get("DAB_DEV_GROUP", "users"),
+        "dev_notification_email": os.environ.get("DAB_DEV_NOTIFICATION_EMAIL", user_email or ""),
         "stg_host": os.environ.get("DAB_STG_HOST", ws_host),
         "stg_group": os.environ.get("DAB_STG_GROUP", "users"),
+        "stg_node_type_id": "i3.xlarge",
         "prd_host": os.environ.get("DAB_PRD_HOST", ws_host),
         "prd_group": os.environ.get("DAB_PRD_GROUP", "users"),
         "prd_sp_name": os.environ.get("DAB_PRD_SP_NAME", ""),
+        "prd_notification_email": os.environ.get("DAB_PRD_NOTIFICATION_EMAIL", user_email or ""),
+        "wheel_filename": wheel_filename,
     }
 
     config_path = os.path.join(user_dir, f"config_{state.name}.json")

@@ -13,14 +13,28 @@ function formatValue(val: number): string {
   return val.toFixed(4);
 }
 
+// Roll up per-event-instance values into a single number per (channel, label)
+// using the same convention the old SQL used: min→MIN, max→MAX, count→SUM,
+// everything else → mean.
+function rollup(values: number[], label: string): number | null {
+  if (values.length === 0) return null;
+  if (values.length === 1) return values[0];
+  if (label === "min") return Math.min(...values);
+  if (label === "max") return Math.max(...values);
+  if (label === "count") return values.reduce((a, b) => a + b, 0);
+  return values.reduce((a, b) => a + b, 0) / values.length;
+}
+
 export default function StatisticsTable({ name, result }: Props) {
   const title = result.description || name;
 
-  // Build a lookup: signal -> label -> value
-  const lookup = new Map<string, Map<string, number>>();
+  // Group raw rows: channel -> label -> [values...]
+  const grouped = new Map<string, Map<string, number[]>>();
   for (const row of result.rows) {
-    if (!lookup.has(row.signal_name)) lookup.set(row.signal_name, new Map());
-    lookup.get(row.signal_name)!.set(row.aggregation_label, row.value);
+    if (!grouped.has(row.channel_name)) grouped.set(row.channel_name, new Map());
+    const labelMap = grouped.get(row.channel_name)!;
+    if (!labelMap.has(row.aggregation_label)) labelMap.set(row.aggregation_label, []);
+    labelMap.get(row.aggregation_label)!.push(row.value);
   }
 
   return (
@@ -40,11 +54,12 @@ export default function StatisticsTable({ name, result }: Props) {
             </tr>
           </thead>
           <tbody>
-            {result.signal_names.map((sig) => (
-              <tr key={sig}>
-                <td className="stats-signal-name" title={sig}>{sig}</td>
+            {result.channel_names.map((ch) => (
+              <tr key={ch}>
+                <td className="stats-signal-name" title={ch}>{ch}</td>
                 {result.stat_labels.map((label) => {
-                  const val = lookup.get(sig)?.get(label);
+                  const vals = grouped.get(ch)?.get(label) || [];
+                  const val = rollup(vals, label);
                   return (
                     <td key={label} className="stats-value">
                       {val != null ? formatValue(val) : "—"}

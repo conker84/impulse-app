@@ -50,6 +50,8 @@ class SelectedCandidate(BaseModel):
     alias: str
     var_name: str
     channel_name: str = ""
+    signal: str = ""
+    network: str = ""
     description: str = ""
 
 
@@ -242,15 +244,21 @@ async def select_candidates(session_id: str, payload: SelectCandidatesPayload):
         raise HTTPException(404, "Session not found")
 
     added = []
+    candidate_lookup = {c.alias: c for c in session.state.signal_candidates}
     for sel in payload.selected:
         if any(s.var_name == sel.var_name for s in session.state.signals):
             continue
+        cand = candidate_lookup.get(sel.alias)
+        signal_val = sel.signal or (cand.signal if cand else "") or sel.channel_name or sel.alias
+        network_val = sel.network or (cand.network if cand else "")
         session.state.signals.append(
             SignalDefinition(
                 var_name=sel.var_name,
                 signal_type="physical",
                 alias=sel.alias,
-                channel_name=sel.channel_name or sel.alias,
+                channel_name=sel.channel_name or signal_val,
+                signal=signal_val or None,
+                network=network_val or None,
                 description=sel.description,
             )
         )
@@ -363,45 +371,14 @@ async def channel_catalog(session_id: str, request: Request):
         raise HTTPException(400, "Silver layer catalog/schema not configured.")
 
     from server.mcp_tools import execute_sql
+    from server.schema_adapter import SchemaAdapter
 
     user_token = request.headers.get("X-Forwarded-Access-Token")
     logger.info("Fetching channel catalog from %s.%s", catalog, schema)
 
-    # Filter channels to only those belonging to selected vehicles' containers
     vehicle_ids = [v.vehicle_id for v in session.state.vehicles]
-    if vehicle_ids:
-        ids_str = ", ".join(f"'{v}'" for v in vehicle_ids)
-        vehicle_filter = (
-            f"JOIN {catalog}.{schema}.container_tags ct_veh "
-            f"  ON t_name.container_id = ct_veh.container_id "
-            f"  AND ct_veh.key = 'vehicle_key' "
-            f"  AND ct_veh.value IN ({ids_str}) "
-        )
-    else:
-        vehicle_filter = ""
-
-    sql = (
-        f"SELECT t_name.value AS channel_name, "
-        f"       COALESCE(t_unit.value, '') AS unit, "
-        f"       CAST(SUM(m.sample_count) AS INT) AS sample_count, "
-        f"       MIN(m.min) AS min_value, "
-        f"       MAX(m.max) AS max_value, "
-        f"       AVG(m.mean) AS mean_value, "
-        f"       AVG(m.sample_rate) AS sample_rate, "
-        f"       COUNT(DISTINCT t_name.container_id) AS container_count "
-        f"FROM {catalog}.{schema}.channel_tags t_name "
-        f"LEFT JOIN {catalog}.{schema}.channel_tags t_unit "
-        f"  ON t_name.container_id = t_unit.container_id "
-        f"  AND t_name.channel_id = t_unit.channel_id "
-        f"  AND t_unit.key = 'unit' "
-        f"JOIN {catalog}.{schema}.channel_metrics m "
-        f"  ON t_name.container_id = m.container_id "
-        f"  AND t_name.channel_id = m.channel_id "
-        f"{vehicle_filter}"
-        f"WHERE t_name.key = 'channel_name' "
-        f"GROUP BY t_name.value, t_unit.value "
-        f"ORDER BY channel_name"
-    )
+    adapter = SchemaAdapter.from_active_profile(catalog, schema)
+    sql = adapter.channel_catalog_query(vehicle_ids=vehicle_ids or None)
     try:
         result = execute_sql(sql, user_token=user_token)
     except Exception as e:
@@ -442,26 +419,30 @@ async def channel_catalog(session_id: str, request: Request):
 
 
 def _auto_populate_silver_data_sources(session: _Session) -> None:
-    """Auto-fill data_sources from the silver layer tables produced by ingest."""
+    from server.schema_adapter import SchemaAdapter
+
     sd = session.state.source_data
     catalog = sd.silver_catalog
     schema = sd.silver_schema
     if not catalog or not schema:
         return
 
+    adapter = SchemaAdapter.from_active_profile(catalog, schema)
+    p = adapter.profile
     ds = session.state.data_sources
-    prefix = f"{catalog}.{schema}"
 
     if not ds.channels:
-        ds.channels = [f"{prefix}.channels"]
+        ds.channels = [adapter.timeseries_path()]
     if not ds.container_metrics:
-        ds.container_metrics = f"{prefix}.container_metrics"
+        ds.container_metrics = adapter.container_metrics_path()
     if not ds.channel_metrics:
-        ds.channel_metrics = f"{prefix}.channel_metrics"
-    if not ds.container_tags:
-        ds.container_tags = f"{prefix}.container_tags"
-    if not ds.channel_tags:
-        ds.channel_tags = f"{prefix}.channel_tags"
+        ds.channel_metrics = adapter.channel_metrics_path()
+    if not ds.container_tags and p.container_tags_table:
+        ds.container_tags = adapter._full_path(p.container_tags_table)
+    if not ds.channel_tags and p.channel_tags_table:
+        ds.channel_tags = adapter._full_path(p.channel_tags_table)
+    if not ds.aliases and p.aliases_table:
+        ds.aliases = adapter._full_path(p.aliases_table)
     if not ds.destination_catalog:
         ds.destination_catalog = catalog
     if not ds.destination_schema:
@@ -473,7 +454,7 @@ async def fetch_vehicle_candidates(session_id: str, request: Request):
     """Query for available vehicles.
 
     Two modes:
-    - If IMPULSE_MAPPING_TABLE is configured, query it for test_object_name (Mercedes/legacy).
+    - If IMPULSE_MAPPING_TABLE is configured, query it for test_object_name (legacy mapping-table mode).
     - Otherwise, discover vehicles from the silver layer container_tags (vehicle_key).
     """
     session = _sessions.get(session_id)
@@ -481,6 +462,7 @@ async def fetch_vehicle_candidates(session_id: str, request: Request):
         raise HTTPException(404, "Session not found")
 
     from server.mcp_tools import execute_sql
+    from server.schema_adapter import SchemaAdapter
 
     user_token = request.headers.get("X-Forwarded-Access-Token")
 
@@ -496,19 +478,12 @@ async def fetch_vehicle_candidates(session_id: str, request: Request):
         name_col = "test_object_name"
         count_col = "datapoint_count"
     else:
-        # Silver layer: discover vehicles from container_tags
         sd = session.state.source_data
         catalog = sd.silver_catalog
         schema = sd.silver_schema
         if not catalog or not schema:
             raise HTTPException(400, "Silver layer catalog/schema not configured and no mapping table set.")
-        sql = (
-            f"SELECT value AS vehicle_id, COUNT(DISTINCT container_id) AS container_count "
-            f"FROM {catalog}.{schema}.container_tags "
-            f"WHERE key = 'vehicle_key' AND value IS NOT NULL AND value != 'NA' "
-            f"GROUP BY value "
-            f"ORDER BY value"
-        )
+        sql = SchemaAdapter.from_active_profile(catalog, schema).vehicle_candidates_query()
         name_col = "vehicle_id"
         count_col = "container_count"
 
@@ -716,25 +691,13 @@ async def data_time_range(session_id: str, request: Request):
         raise HTTPException(400, "Silver layer catalog/schema not configured.")
 
     from server.mcp_tools import execute_sql
+    from server.schema_adapter import SchemaAdapter
 
     user_token = request.headers.get("X-Forwarded-Access-Token")
 
     vehicle_ids = [v.vehicle_id for v in session.state.vehicles]
-    if vehicle_ids:
-        ids_str = ", ".join(f"'{v}'" for v in vehicle_ids)
-        vehicle_join = (
-            f"JOIN {catalog}.{schema}.container_tags ct "
-            f"  ON m.container_id = ct.container_id "
-            f"  AND ct.key = 'vehicle_key' "
-            f"  AND ct.value IN ({ids_str}) "
-        )
-    else:
-        vehicle_join = ""
-
-    sql = (
-        f"SELECT MIN(m.start_dt) AS min_start, MAX(m.stop_dt) AS max_stop "
-        f"FROM {catalog}.{schema}.container_metrics m "
-        f"{vehicle_join}"
+    sql = SchemaAdapter.from_active_profile(catalog, schema).data_time_range_query(
+        vehicle_ids=vehicle_ids or None
     )
 
     try:
@@ -890,6 +853,7 @@ class AddEventPayload(BaseModel):
     signal_ref: str | None = None
     from_state: float | None = None
     to_state: float | None = None
+    step: float | None = None
     description: str = ""
 
 
@@ -930,6 +894,7 @@ async def add_event(session_id: str, payload: AddEventPayload):
         signal_ref=payload.signal_ref,
         from_state=payload.from_state,
         to_state=payload.to_state,
+        step=payload.step,
         description=payload.description,
     )
     state.events.append(event)
@@ -961,6 +926,7 @@ async def update_event(session_id: str, event_name: str, payload: AddEventPayloa
         signal_ref=payload.signal_ref,
         from_state=payload.from_state,
         to_state=payload.to_state,
+        step=payload.step,
         description=payload.description,
     )
 
@@ -1248,6 +1214,51 @@ async def add_histogram_2d(session_id: str, payload: AddHistogram2DPayload):
     return {"report_state": state.model_dump()}
 
 
+@router.put("/aggregation-2d/{session_id}/{name}")
+async def update_histogram_2d(session_id: str, name: str, payload: AddHistogram2DPayload):
+    """Replace an existing 2D histogram by name."""
+    session = _sessions.get(session_id)
+    if not session:
+        raise HTTPException(404, "Session not found")
+
+    state = session.state
+    idx = next((i for i, a in enumerate(state.aggregations) if a.name == name), None)
+    if idx is None:
+        raise HTTPException(404, f"Aggregation '{name}' not found.")
+
+    if not any(s.var_name == payload.x_signal_ref for s in state.signals):
+        raise HTTPException(400, f"X signal '{payload.x_signal_ref}' does not exist.")
+    if not any(s.var_name == payload.y_signal_ref for s in state.signals):
+        raise HTTPException(400, f"Y signal '{payload.y_signal_ref}' does not exist.")
+
+    if not payload.x_bins or len(payload.x_bins) < 2:
+        raise HTTPException(400, "At least 2 X bin edges are required.")
+    if not payload.y_bins or len(payload.y_bins) < 2:
+        raise HTTPException(400, "At least 2 Y bin edges are required.")
+
+    if payload.name != name and any(a.name == payload.name for a in state.aggregations):
+        raise HTTPException(400, f"Aggregation '{payload.name}' already exists.")
+
+    _validate_event_ref(state, payload.event_ref)
+
+    state.aggregations[idx] = Histogram2DDefinition(
+        name=payload.name,
+        x_signal_ref=payload.x_signal_ref,
+        y_signal_ref=payload.y_signal_ref,
+        x_bins=payload.x_bins,
+        y_bins=payload.y_bins,
+        x_bins_unit=payload.x_bins_unit,
+        y_bins_unit=payload.y_bins_unit,
+        x_signal_name=payload.x_signal_name,
+        y_signal_name=payload.y_signal_name,
+        values_unit=payload.values_unit,
+        event_ref=payload.event_ref,
+        description=payload.description,
+    )
+
+    return {"report_state": state.model_dump()}
+
+
 # ---------------------------------------------------------------------------
 # Statistics builder endpoint
 # ---------------------------------------------------------------------------
@@ -1298,6 +1309,46 @@ async def add_statistics(session_id: str, payload: AddStatisticsPayload):
             signal_names=payload.signal_names,
             description=payload.description,
         )
+    )
+
+    return {"report_state": state.model_dump()}
+
+
+@router.put("/aggregation-stats/{session_id}/{name}")
+async def update_statistics(session_id: str, name: str, payload: AddStatisticsPayload):
+    """Replace an existing statistics aggregation by name."""
+    session = _sessions.get(session_id)
+    if not session:
+        raise HTTPException(404, "Session not found")
+
+    state = session.state
+    idx = next((i for i, a in enumerate(state.aggregations) if a.name == name), None)
+    if idx is None:
+        raise HTTPException(404, f"Aggregation '{name}' not found.")
+
+    if not payload.signal_refs:
+        raise HTTPException(400, "At least one signal is required.")
+
+    for ref in payload.signal_refs:
+        if not any(s.var_name == ref for s in state.signals):
+            raise HTTPException(400, f"Signal '{ref}' does not exist.")
+
+    if payload.name != name and any(a.name == payload.name for a in state.aggregations):
+        raise HTTPException(400, f"Aggregation '{payload.name}' already exists.")
+
+    invalid = set(payload.stat_labels) - VALID_STAT_LABELS
+    if invalid:
+        raise HTTPException(400, f"Invalid stat labels: {invalid}")
+
+    _validate_event_ref(state, payload.event_ref)
+
+    state.aggregations[idx] = StatisticsDefinition(
+        name=payload.name,
+        signal_refs=payload.signal_refs,
+        stat_labels=payload.stat_labels,
+        event_ref=payload.event_ref,
+        signal_names=payload.signal_names,
+        description=payload.description,
     )
 
     return {"report_state": state.model_dump()}

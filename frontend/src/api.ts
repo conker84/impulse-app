@@ -349,6 +349,7 @@ export async function addEvent(
     signal_ref?: string | null;
     from_state?: number | null;
     to_state?: number | null;
+    step?: number | null;
     description?: string;
   }
 ): Promise<{ report_state: ReportState }> {
@@ -369,6 +370,7 @@ export async function updateEvent(
     signal_ref?: string | null;
     from_state?: number | null;
     to_state?: number | null;
+    step?: number | null;
     description?: string;
   }
 ): Promise<{ report_state: ReportState }> {
@@ -476,6 +478,48 @@ export async function updateAggregation(
   }
 ): Promise<{ report_state: ReportState }> {
   return request(`/aggregation/${sessionId}/${encodeURIComponent(originalName)}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateHistogram2D(
+  sessionId: string,
+  originalName: string,
+  payload: {
+    name: string;
+    x_signal_ref: string;
+    y_signal_ref: string;
+    x_bins: number[];
+    y_bins: number[];
+    x_bins_unit?: string | null;
+    y_bins_unit?: string | null;
+    x_signal_name?: string | null;
+    y_signal_name?: string | null;
+    values_unit?: string | null;
+    event_ref?: string | null;
+    description?: string;
+  }
+): Promise<{ report_state: ReportState }> {
+  return request(`/aggregation-2d/${sessionId}/${encodeURIComponent(originalName)}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateStatistics(
+  sessionId: string,
+  originalName: string,
+  payload: {
+    name: string;
+    signal_refs: string[];
+    stat_labels: string[];
+    event_ref?: string | null;
+    signal_names?: string[] | null;
+    description?: string;
+  }
+): Promise<{ report_state: ReportState }> {
+  return request(`/aggregation-stats/${sessionId}/${encodeURIComponent(originalName)}`, {
     method: "PUT",
     body: JSON.stringify(payload),
   });

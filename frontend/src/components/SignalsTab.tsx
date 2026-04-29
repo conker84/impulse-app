@@ -63,6 +63,7 @@ const EVENT_TYPES: { value: EventType; label: string; output: string }[] = [
   { value: "rising_edges", label: "Rising Edges", output: "PointsInTime" },
   { value: "falling_edges", label: "Falling Edges", output: "PointsInTime" },
   { value: "change_points", label: "Change Points", output: "PointsInTime" },
+  { value: "periodic_distance", label: "Periodic Distance", output: "Intervals" },
 ];
 
 const COL_WIDTHS = { name: "20%", type: "10%", expr: "34%", meta: "22%", actions: "14%" };
@@ -73,6 +74,9 @@ const OPERATORS = [">", "<", ">=", "<=", "==", "!="] as const;
 function eventSummary(evt: EventDefinition): string {
   if (evt.event_type === "change_points") {
     return `${evt.signal_ref}.change_points(${evt.from_state} → ${evt.to_state})`;
+  }
+  if (evt.event_type === "periodic_distance") {
+    return `(${evt.signal_ref} % ${evt.step}).intervals_between_falling_edges()`;
   }
   const parts = evt.conditions.map((c) => `${c.signal_ref} ${c.operator} ${c.value}`);
   const logic = evt.compound_logic === "OR" ? " | " : " & ";
@@ -116,6 +120,7 @@ export default function SignalsTab({ signals, events, sessionId, silverCatalog, 
   const [evtSignalRef, setEvtSignalRef] = useState("");
   const [evtFromState, setEvtFromState] = useState<number>(0);
   const [evtToState, setEvtToState] = useState<number>(1);
+  const [evtStep, setEvtStep] = useState<number>(1);
   const [evtDescription, setEvtDescription] = useState("");
   const [evtError, setEvtError] = useState("");
 
@@ -127,6 +132,7 @@ export default function SignalsTab({ signals, events, sessionId, silverCatalog, 
     setEvtSignalRef("");
     setEvtFromState(0);
     setEvtToState(1);
+    setEvtStep(1);
     setEvtDescription("");
     setEvtError("");
   };
@@ -141,6 +147,7 @@ export default function SignalsTab({ signals, events, sessionId, silverCatalog, 
     setEvtSignalRef(evt.signal_ref || "");
     setEvtFromState(evt.from_state ?? 0);
     setEvtToState(evt.to_state ?? 1);
+    setEvtStep(evt.step ?? 1);
     setEvtDescription(evt.description);
     setEvtError("");
     setEditingEvent(evt.name);
@@ -148,11 +155,14 @@ export default function SignalsTab({ signals, events, sessionId, silverCatalog, 
   };
 
   const isChangePoints = evtType === "change_points";
+  const isPeriodicDistance = evtType === "periodic_distance";
+  const needsSignalRef = isChangePoints || isPeriodicDistance;
   const needsConditions = evtType === "interval" || evtType === "rising_edges" || evtType === "falling_edges";
 
   const canSaveEvent = () => {
     if (!evtName.trim()) return false;
     if (isChangePoints) return !!evtSignalRef;
+    if (isPeriodicDistance) return !!evtSignalRef && evtStep > 0;
     return evtConditions.every((c) => c.signal_ref !== "");
   };
 
@@ -163,9 +173,10 @@ export default function SignalsTab({ signals, events, sessionId, silverCatalog, 
       event_type: evtType,
       conditions: needsConditions ? evtConditions : [],
       compound_logic: evtLogic,
-      signal_ref: isChangePoints ? evtSignalRef : null,
+      signal_ref: needsSignalRef ? evtSignalRef : null,
       from_state: isChangePoints ? evtFromState : null,
       to_state: isChangePoints ? evtToState : null,
+      step: isPeriodicDistance ? evtStep : null,
       description: evtDescription,
     };
     try {
@@ -505,7 +516,7 @@ export default function SignalsTab({ signals, events, sessionId, silverCatalog, 
                   </td>
                   <td style={TRUNCATE}><code style={{ fontSize: 11 }}>{eventSummary(evt)}</code></td>
                   <td style={{ color: "var(--text-secondary)", fontSize: 12 }}>
-                    {evt.event_type === "interval" ? "Intervals" : "PointsInTime"}
+                    {(evt.event_type === "interval" || evt.event_type === "periodic_distance") ? "Intervals" : "PointsInTime"}
                   </td>
                   {onStateUpdate && (
                   <td>
@@ -678,6 +689,39 @@ export default function SignalsTab({ signals, events, sessionId, silverCatalog, 
                   value={evtToState}
                   onChange={(e) => setEvtToState(parseFloat(e.target.value) || 0)}
                 />
+              </div>
+            )}
+
+            {/* Periodic distance fields */}
+            {isPeriodicDistance && (
+              <div style={{ marginBottom: 6 }}>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <select
+                    className="form-input"
+                    style={{ flex: 2, fontSize: 12 }}
+                    value={evtSignalRef}
+                    onChange={(e) => setEvtSignalRef(e.target.value)}
+                  >
+                    <option value="">Cumulative-distance signal...</option>
+                    {signals.map((s) => (
+                      <option key={s.var_name} value={s.var_name}>{s.var_name}</option>
+                    ))}
+                  </select>
+                  <input
+                    className="form-input"
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    style={{ width: 110, fontSize: 12 }}
+                    placeholder="Step"
+                    value={evtStep}
+                    onChange={(e) => setEvtStep(parseFloat(e.target.value) || 0)}
+                  />
+                </div>
+                <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
+                  Produces one interval each time the signal crosses a step boundary
+                  (e.g. step=1 with odometer in km → an interval per km driven).
+                </div>
               </div>
             )}
 

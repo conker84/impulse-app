@@ -61,6 +61,8 @@ interface Props {
   onAddStatistics: (stats: StatisticsDefinition) => void;
   onDeleteAggregation: (name: string) => void;
   onUpdateAggregation: (originalName: string, histogram: Histogram1DDefinition) => void;
+  onUpdateHistogram2D: (originalName: string, histogram: Histogram2DDefinition) => void;
+  onUpdateStatistics: (originalName: string, stats: StatisticsDefinition) => void;
   onSuggestBins: (type: string, signalRef: string) => Promise<{
     bins: number[]; bins_unit: string; description: string; name: string;
   }>;
@@ -128,6 +130,8 @@ export default function PreviewPanel({
   onAddStatistics,
   onDeleteAggregation,
   onUpdateAggregation,
+  onUpdateHistogram2D,
+  onUpdateStatistics,
   onSuggestBins,
   sessionId,
   onStateUpdate,
@@ -142,10 +146,22 @@ export default function PreviewPanel({
   const canDeploy = isReady && (state.deployment === "not_started" || isTerminal) && clusterReady;
 
   const [editingHistogram, setEditingHistogram] = useState<Histogram1DDefinition | null>(null);
+  const [editingHistogram2D, setEditingHistogram2D] = useState<Histogram2DDefinition | null>(null);
+  const [editingStatistics, setEditingStatistics] = useState<StatisticsDefinition | null>(null);
 
   const handleEditAggregation = useCallback((agg: AggregationDefinition) => {
     if (agg.agg_kind === "histogram_1d") {
       setEditingHistogram(agg);
+      setEditingHistogram2D(null);
+      setEditingStatistics(null);
+    } else if (agg.agg_kind === "histogram_2d") {
+      setEditingHistogram2D(agg);
+      setEditingHistogram(null);
+      setEditingStatistics(null);
+    } else if (agg.agg_kind === "statistics") {
+      setEditingStatistics(agg);
+      setEditingHistogram(null);
+      setEditingHistogram2D(null);
     }
   }, []);
 
@@ -157,6 +173,24 @@ export default function PreviewPanel({
       onAddHistogram(histogram);
     }
   }, [editingHistogram, onAddHistogram, onUpdateAggregation]);
+
+  const handleAddOrUpdateHistogram2D = useCallback((histogram: Histogram2DDefinition) => {
+    if (editingHistogram2D) {
+      onUpdateHistogram2D(editingHistogram2D.name, histogram);
+      setEditingHistogram2D(null);
+    } else {
+      onAddHistogram2D(histogram);
+    }
+  }, [editingHistogram2D, onAddHistogram2D, onUpdateHistogram2D]);
+
+  const handleAddOrUpdateStatistics = useCallback((stats: StatisticsDefinition) => {
+    if (editingStatistics) {
+      onUpdateStatistics(editingStatistics.name, stats);
+      setEditingStatistics(null);
+    } else {
+      onAddStatistics(stats);
+    }
+  }, [editingStatistics, onAddStatistics, onUpdateStatistics]);
 
   const candidateRef = useRef<HTMLDivElement>(null);
   const prevCandidateCount = useRef(0);
@@ -284,14 +318,18 @@ export default function PreviewPanel({
               signals={state.signals}
               events={state.events || []}
               existingNames={new Set(state.aggregations.map((a) => a.name))}
-              onAdd={onAddHistogram2D}
+              onAdd={handleAddOrUpdateHistogram2D}
               onSuggestBins={onSuggestBins}
+              editingHistogram={editingHistogram2D}
+              onCancelEdit={() => setEditingHistogram2D(null)}
             />
             <StatisticsBuilder
               signals={state.signals}
               events={state.events || []}
               existingNames={new Set(state.aggregations.map((a) => a.name))}
-              onAdd={onAddStatistics}
+              onAdd={handleAddOrUpdateStatistics}
+              editingStatistics={editingStatistics}
+              onCancelEdit={() => setEditingStatistics(null)}
             />
           </StepSection>
         )}

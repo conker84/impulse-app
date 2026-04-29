@@ -14,7 +14,7 @@ resources:
           spec:
             client: "5"
             dependencies:
-              - ../lib/mda_framework_v2-0.0.4-py3-none-any.whl
+              - ../lib/{{.wheel_filename}}
       permissions:
         - level: CAN_MANAGE
           group_name: ${var.manage_group}

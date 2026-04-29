@@ -9,3 +9,8 @@ reports/
 CLAUDE.md
 PROJECT.md
 .databricks/
+uv.lock
+.vscode/
+frontend/dist/
+app.yaml
+profiles.yaml

@@ -35,10 +35,12 @@ add_histogram(
     bins_unit: str,         # Unit for the x-axis (e.g. "rpm", "°C")
     description: str,       # Human-readable description
     event_ref: str,         # (optional) name of an interval event defined in Channels tab
-    weight_signal_ref: str, # (distance only) var_name of the cumulative distance signal
+    weight_signal_ref: str, # (distance only — REQUIRED for distance) var_name of the cumulative distance signal (e.g. odometer or a virtual distance_km)
     max_duration: float     # (duration only) max sample duration cap in nanoseconds
 )
 ```
+
+> **Distance histograms are NOT auto-weighted.** The Impulse framework's `HistogramDistance` requires an explicit `weights_expr` (a cumulative-km signal it diffs internally). Do not tell the user "the framework handles weighting automatically" — it does not. Always set `weight_signal_ref` for distance histograms; if the user hasn't named one, ask them which signal to use (odometer if available, otherwise propose a virtual `distance_km` integrated from vehicle_speed).
 
 **Bin selection guidance:**
 - Use physically meaningful ranges (engine speed: 0-7000 rpm, temperature: -40 to 160°C)

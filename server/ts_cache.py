@@ -70,7 +70,7 @@ class TimeSeriesCache:
         self._max_memory_bytes = max_memory_bytes
 
     @staticmethod
-    def make_key(catalog: str, schema: str, container_id: int, channel_id: int) -> str:
+    def make_key(catalog: str, schema: str, container_id: str, channel_id: str) -> str:
         return f"{catalog}.{schema}.{container_id}.{channel_id}"
 
     def is_loaded(self, cache_key: str) -> bool:
@@ -82,7 +82,7 @@ class TimeSeriesCache:
     def load_from_arrow(
         self,
         cache_key: str,
-        channel_id: int,
+        channel_id: str,
         table: pa.Table,
     ) -> ChannelData:
         """Load a channel from a PyArrow Table of RLE rows into the cache.

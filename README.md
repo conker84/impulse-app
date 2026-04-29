@@ -2,6 +2,14 @@
 
 A full-stack web application for creating **Impulse framework** data reports through a guided, natural-language interface. Users describe their report requirements in plain English and the app scaffolds, deploys, and runs the report as a Databricks job. Report definitions are persisted in Lakebase so they can be loaded and re-deployed later.
 
+The app reads silver-layer measurement data based on a **schema profile** (`profiles.yaml` at the repo root) that maps a customer's table and column names to the canonical names the wizard expects. Defaults match the upstream impulse-app silver-layer convention; per-customer overrides go in this single YAML file. The full field reference is in [Schema Profile](#schema-profile) below.
+
+> **Deploy with:**
+> ```bash
+> test/deploy.sh [--skip-build]
+> ```
+> Both the deployed app name (`name:`) and the Databricks CLI profile (`profile:`) come from `app.yaml`. Edit `app.yaml` to retarget. `DATABRICKS_PROFILE=<other>` may be passed as a shell override; the script prints a loud warning and uses it instead, but never falls back to a default.
+
 **Stack:** FastAPI (Python) + React (TypeScript), hosted as a Databricks App.
 
 ## Architecture
@@ -100,11 +108,13 @@ Delta Lake (silver layer: channels table, RLE format)
 
 ### Step 1: Create and deploy the app
 
+First make sure `app.yaml`'s top-level `name:` and `profile:` fields point at the app and CLI profile you want to deploy with.
+
 ```bash
 # First time: the deploy script auto-creates the app with OBO scopes
 # Subsequent times: it just syncs and redeploys
 git add -A && git commit -m "deploy"
-DATABRICKS_PROFILE=<your-profile> test/deploy-fevm.sh
+test/deploy.sh
 ```
 
 On first run, the script creates the app and provisions a service principal. Note the `service_principal_client_id` from the output — you'll need it for Steps 2-4 below.
@@ -185,18 +195,22 @@ databricks secrets put-acl impulse <sp-client-id> READ \
 
 ### Step 4: Update `app.yaml`
 
-Verify the environment variables match your workspace:
+`app.yaml` is the **single source of truth** for the deployed app. Edit:
+
+- **`name:`** (top-level) — the app name on the workspace, e.g. `impulse-stla`. The deploy script reads this and derives the workspace path as `/Workspace/Users/<you>/<name>-app`.
+- **`profile:`** (top-level) — the Databricks CLI profile to deploy with, matching a section in `~/.databrickscfg`. The script aborts if this is missing.
+- **`env:`** — verify the variables match your workspace:
 
 | Variable | Description |
 |----------|-------------|
 | `DATABRICKS_WAREHOUSE_ID` | Your SQL Warehouse ID |
-| `SERVING_ENDPOINT` | Foundation Model API endpoint name |
+| `SERVING_ENDPOINT` | Default Foundation Model API endpoint name (the model picker is populated dynamically from your workspace's serving endpoints) |
 | `LAKEBASE_HOST` | Endpoint host from `list-endpoints` output |
 | `LAKEBASE_DB` | `impulse` |
 | `LAKEBASE_PROJECT` | `impulse` |
 | `SECRET_SCOPE` | Databricks secret scope for Fernet key (default `impulse`) |
 | `SECRET_KEY_NAME` | Secret key name within the scope (default `fernet-key`) |
-| `INGEST_NODE_TYPE` | Instance type for ingest job clusters (e.g. `i3.xlarge`) |
+| `IMPULSE_FRAMEWORK_WHEEL_FILENAME` | Filename of the Impulse framework wheel bundled in `.template/template/lib/`. Bumping the wheel = drop the new file in `lib/` and update this value |
 
 ### Step 5: Grant service principal permissions
 
@@ -213,7 +227,7 @@ Verify the environment variables match your workspace:
 After completing Steps 2-5, redeploy so the app picks up the Lakebase and secrets configuration:
 
 ```bash
-DATABRICKS_PROFILE=<your-profile> test/deploy-fevm.sh --skip-build
+test/deploy.sh --skip-build
 ```
 
 The app URL will be shown in the output, e.g.: `https://impulse-<hash>.databricksapps.com`
@@ -224,8 +238,8 @@ Use `--skip-build` for backend-only changes, `--sync-only` for just syncing file
 
 ```bash
 git add -A && git commit -m "update"
-test/deploy-fevm.sh              # full rebuild
-test/deploy-fevm.sh --skip-build # backend-only
+test/deploy.sh              # full rebuild
+test/deploy.sh --skip-build # backend-only
 ```
 
 ## Run Locally
@@ -274,7 +288,7 @@ catalog.catalogs:read, catalog.schemas:read, catalog.tables:read
 
 > **Note:** Serving endpoint scopes (`serving.serving-endpoints`, `serving.serving-endpoints-data-plane`) are NOT included — they break the OAuth consent flow. FMAPI calls use the app service principal instead.
 
-> **Important:** Scopes should be set when the app is first created. The deploy script (`test/deploy-fevm.sh`) handles this automatically.
+> **Important:** Scopes should be set when the app is first created. The deploy script (`test/deploy.sh`) handles this automatically.
 
 To set scopes manually:
 ```bash
@@ -292,16 +306,152 @@ The app depends on the Impulse framework library which is developed in a separat
 **Updating the framework version:**
 
 1. Build a new wheel in the framework repo: `uv build --wheel`
-2. Replace the old `.whl` in `.template/template/lib/`
-3. Update the wheel filename in `.template/template/resources/jobs.yml.tmpl`
+2. Drop the new `.whl` in `.template/template/lib/`
+3. Update `IMPULSE_FRAMEWORK_WHEEL_FILENAME` in `app.yaml` to match the new filename
 4. Commit and redeploy
+
+## Schema Profile
+
+The app's runtime data shape is described by a single YAML at `impulse_app/profiles.yaml`. When the file is missing, the app falls back to a built-in default that matches the upstream impulse-app silver-layer convention. The schema is validated against `SchemaProfile` in `server/schema_profile.py`.
+
+### How the profile is consumed
+
+Two consumers, both at runtime:
+
+1. **`SchemaAdapter`** (`server/schema_adapter.py`) — builds every wizard SQL string from the active profile. Result columns are projected to logical names (`container_id`, `channel_id`, `vehicle_key`, `channel_alias_name`, …) so downstream Python code doesn't change with the customer.
+2. **`code_generator`** (`server/code_generator.py`) — emits the framework job's `report.py` and `dev_config.json`. Solver, data type, source-key name (`channels_table` vs `channels_uri`), `measurement_dimensions`, and the `query.channel(**kwargs)` map are all read from the profile.
+
+### Field reference
+
+The full source of truth is `server/schema_profile.py`. Every field has a default that produces the upstream impulse-app behavior, so a profile only needs to specify what diverges from the default.
+
+#### Container metrics (one row per recording)
+
+| Field | Default | Purpose |
+|---|---|---|
+| `container_table` | `container_metrics` | Table suffix; resolved against `<silver_catalog>.<silver_schema>` unless the value already contains a `.` |
+| `container_id_col` | `container_id` | Column the wizard treats as the container's opaque identifier (string-typed downstream) |
+| `container_start_col` | `start_dt` | Readable start timestamp |
+| `container_stop_col` | `stop_dt` | Readable stop timestamp |
+
+#### Channel metrics (one row per `(container, channel)`)
+
+| Field | Default | Purpose |
+|---|---|---|
+| `channel_table` | `channel_metrics` | |
+| `channel_container_id_col` | `container_id` | FK column joining back to the container table |
+| `channel_id_col` | `channel_id` | Column uniquely identifying a channel within a container; treat as opaque string |
+| `channel_name_col` | `channel_name` | Display name |
+| `channel_secondary_id_col` | `null` | Optional secondary identifier column. Set this when the same `channel_name` can appear multiple times within a container, distinguished by some other column (e.g. source, device, bus). Used to disambiguate the unit-by-alias join when both this and `aliases_secondary_id_col` are set. |
+| `channel_unit_col` | `null` | If set, unit comes from this column directly. If null, unit is sourced from a left-join to the aliases table (when available) |
+| `channel_min_col` / `channel_max_col` / `channel_mean_col` | `min` / `max` / `mean` | |
+| `channel_sample_count_col` | `sample_count` | |
+| `channel_sample_rate_expr` | `sample_rate` | SQL expression; `null` means the wizard treats sample_rate as unknown |
+
+#### Tags
+
+Native key-value tag tables are optional. When `null`, the adapter synthesizes equivalent rows in CTEs from the container/channel tables plus the vehicle dimension config — so the wizard's hardcoded JOINs against `container_tags` / `channel_tags` continue to work.
+
+| Field | Default | Purpose |
+|---|---|---|
+| `container_tags_table` | `container_tags` | Set to `null` to synthesize from `container_table` + `vehicle_*` |
+| `channel_tags_table` | `channel_tags` | Set to `null` to synthesize from `channel_table` + aliases (for unit) |
+
+#### Vehicle dimension
+
+The wizard's Vehicles step shows a "vehicle_key" picker. Three modes:
+
+| `vehicle_source` | What it does | Required fields |
+|---|---|---|
+| `tag` (default) | Reads `container_tags` rows where `key='vehicle_key'`. | Requires `container_tags_table` to be set. |
+| `column` | Vehicle key is a column on the container table. | Set `vehicle_column`. |
+| `constant` | Single static value for all containers. | Set `vehicle_constant`. |
+
+#### Aliases (chat skill: friendly name → physical signal lookup)
+
+When `aliases_table` is `null`, the chat skill's alias-search path is disabled (and the LLM falls back to enumerating the channel catalog directly).
+
+The aliases table is expected to expose the physical channel-name column (and optional secondary-id column) under the **same names as `channel_metrics`** — i.e. `channel_name_col` and `channel_secondary_id_col`. If the underlying alias table uses different names, wrap it in a view that renames them.
+
+| Field | Default | Purpose |
+|---|---|---|
+| `aliases_table` | `null` | Suffix or full path |
+| `aliases_alias_col` | `channel_alias_name` | Friendly name column |
+| `aliases_unit_col` | `unit` | |
+| `aliases_description_col` | `description` | |
+
+#### Time-series source (per-sample data)
+
+| Field | Default | Purpose |
+|---|---|---|
+| `timeseries_table` | `channels` | Suffix or full path of the per-sample data table |
+| `timeseries_time_col` | `tstart` | Column or SQL expression projected as the canonical timestamp (the TS Viewer cache reads `tstart`). For nanosecond-precision timestamps, use a column directly; for seconds-typed columns, multiply: `"CAST(time * 1e9 AS BIGINT)"`. |
+| `timeseries_value_col` | `value` | Column or SQL expression projected as the canonical value. Use a cast when the source is string-typed: `"TRY_CAST(value_double AS DOUBLE)"`. |
+| `timeseries_container_match_col` | `null` → `channel_container_id_col` | Column on the timeseries table matched against the requested `container_id`. Only set if it differs from the channel-metrics container column. |
+| `timeseries_channel_match_expr` | `null` → `channel_id_col` | SQL expression on the timeseries table matched against the requested `channel_id`. Use a column for trivial cases; use an expression when the timeseries table keys differently from `channel_metrics` (e.g. `"concat_ws(':', split(signal_name, ':')[0], split(signal_name, ':')[2])"` for a 3-part signal_name → 2-part match). |
+
+#### Framework / solver
+
+| Field | Default | Purpose |
+|---|---|---|
+| `framework_solver` | `DeltaSolver` | |
+| `framework_data_type` | `RLE` | |
+| `framework_measurement_dimensions` | `["container_id", "vehicle_key", "start_ts", "stop_ts"]` | Columns the framework writes into the `measurement_dimension` gold-layer table |
+| `channel_call_kwargs` | `{"channel_name": "channel_name"}` | Maps generated-code kwarg name → `SignalDefinition` field name. Default emits `query.channel(channel_name=sig.channel_name)`. Override to emit different kwargs (e.g. `{"signal": "signal", "network": "network"}` for solvers that take both). |
+
+### Examples
+
+Minimal override — only one column name differs:
+
+```yaml
+name: example
+channel_name_col: alias_name
+```
+
+Customer with a different container key, no native tag tables, single-vehicle constant, custom aliases table, and a non-default solver:
+
+```yaml
+name: example_customer
+
+container_id_col: recording_session_id
+container_start_col: start_ts
+container_stop_col: stop_ts
+
+channel_container_id_col: recording_session_id
+channel_id_col: signal_source
+channel_name_col: signal
+channel_secondary_id_col: source
+channel_sample_rate_expr: "CAST(sample_count AS DOUBLE) / NULLIF(duration, 0)"
+
+container_tags_table: null
+channel_tags_table: null
+
+vehicle_source: constant
+vehicle_constant: my_demo
+
+aliases_table: signal_lookup
+aliases_alias_col: parameter
+
+timeseries_table: signal_new
+
+framework_solver: CustomSolver
+framework_data_type: RAW
+framework_measurement_dimensions:
+  - container_id
+  - start_ts
+  - stop_ts
+
+channel_call_kwargs:
+  signal: signal
+  network: network
+```
 
 ## Environment Variables
 
 | Variable | Description |
 |----------|-------------|
 | `DATABRICKS_WAREHOUSE_ID` | SQL Warehouse ID |
-| `SERVING_ENDPOINT` | Default LLM endpoint (users can override in Settings) |
+| `SERVING_ENDPOINT` | Default LLM endpoint (users can override in Settings; picker lists workspace endpoints dynamically) |
 | `DATABRICKS_PROFILE` | CLI profile (local mode only) |
 | `LAKEBASE_HOST` | Lakebase endpoint host (app mode only) |
 | `LAKEBASE_PORT` | Lakebase port (default `5432`) |
@@ -309,7 +459,8 @@ The app depends on the Impulse framework library which is developed in a separat
 | `LAKEBASE_PROJECT` | Lakebase project name |
 | `SECRET_SCOPE` | Databricks secret scope for Fernet key (default `impulse`) |
 | `SECRET_KEY_NAME` | Secret key name within the scope (default `fernet-key`) |
-| `INGEST_NODE_TYPE` | EC2 instance type for ingest job clusters |
+| `IMPULSE_FRAMEWORK_WHEEL_FILENAME` | Filename of the Impulse framework wheel in `.template/template/lib/` |
+| `INGEST_NOTEBOOK_ROOT` | Override workspace path for ingest notebooks (default derived from the deploying user + app name) |
 
 ## Troubleshooting
 

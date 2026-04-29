@@ -4,11 +4,12 @@ import json
 from typing import Any
 
 from server.models import EventDefinition, Histogram1DDefinition, Histogram2DDefinition, HistogramType, ReportState, StatisticsDefinition
+from server.schema_profile import get_profile
 
 
-_HISTOGRAM_AGG_TYPE_MAP = {
-    HistogramType.DURATION: "duration",
-    HistogramType.DISTANCE: "distance",
+_HISTOGRAM_CLASS_MAP = {
+    HistogramType.DURATION: "HistogramDuration",
+    HistogramType.DISTANCE: "HistogramDistance",
 }
 
 _OP_MAP = {">": ">", "<": "<", ">=": ">=", "<=": "<=", "==": "==", "!=": "!="}
@@ -21,6 +22,12 @@ def _generate_event_expr(event: EventDefinition) -> str:
     """Generate the Python expression string for a BasicEvent from an EventDefinition."""
     if event.event_type == "change_points":
         return f'signals["{event.signal_ref}"].change_points(from_state={event.from_state}, to_state={event.to_state})'
+
+    if event.event_type == "periodic_distance":
+        return (
+            f'(signals["{event.signal_ref}"] % {event.step})'
+            f".intervals_between_falling_edges()"
+        )
 
     # Build threshold expression from conditions
     parts = []
@@ -61,13 +68,15 @@ def generate_report_notebook(state: ReportState) -> str:
         "",
         "from mda_reporting.core.report import Report",
         "from mda_reporting.core.page import Page",
-        "from mda_reporting.aggregations.histogram import Histogram",
-        "from mda_reporting.aggregations.histogram2d import Histogram2D",
-        "from mda_reporting.aggregations.statistics import Statistics",
+        "from mda_reporting.aggregations.histogram import HistogramDuration, HistogramDistance",
+        "from mda_reporting.aggregations.histogram2d import Histogram2DDuration",
+        "from mda_reporting.aggregations.stats_aggregator import StatsAggregator",
         "from mda_reporting.aggregations.aggregation_types import AggregationType",
         "from mda_reporting.events.basic_event import BasicEvent",
         "from mda_reporting.events.container_event import ContainerEvent",
         "from mda_reporting.events.event_types import EventType",
+        "",
+        "from databricks.sdk import WorkspaceClient",
         "",
         "from utils.report_utils import drop_all_report_tables",
     ]))
@@ -80,7 +89,7 @@ def generate_report_notebook(state: ReportState) -> str:
         'config_path = dbutils.widgets.get("config_path")',
         'reset_report = dbutils.widgets.get("reset_report").lower() == "true"',
         "",
-        'my_report = Report(name="report", spark=spark, config_path=config_path)',
+        'my_report = Report(name="report", spark=spark, workspace_client=WorkspaceClient(), config_path=config_path)',
         "query = my_report.query",
         "",
         "catalog = my_report.config.unity_sink.catalog",
@@ -97,9 +106,20 @@ def generate_report_notebook(state: ReportState) -> str:
     physical = [s for s in state.signals if s.signal_type == "physical"]
     virtual = [s for s in state.signals if s.signal_type == "virtual"]
 
+    profile = get_profile()
     for sig in physical:
-        ch_name = sig.channel_name or sig.alias or sig.var_name
-        sig_lines.append(f'{sig.var_name} = query.channel(channel_name="{ch_name}")')
+        sig_dict = sig.model_dump()
+        kwargs_str_parts: list[str] = []
+        for kwarg_name, field_name in profile.channel_call_kwargs.items():
+            value = sig_dict.get(field_name)
+            if not value and kwarg_name == "channel_name":
+                value = sig.channel_name or sig.alias or sig.var_name
+            if not value and kwarg_name == "signal":
+                value = sig.signal or sig.channel_name or sig.alias or sig.var_name
+            if value:
+                kwargs_str_parts.append(f'{kwarg_name}="{value}"')
+        kwargs_str = ", ".join(kwargs_str_parts) if kwargs_str_parts else f'channel_name="{sig.channel_name or sig.var_name}"'
+        sig_lines.append(f'{sig.var_name} = query.channel({kwargs_str})')
 
     if physical and virtual:
         sig_lines.append("")
@@ -113,8 +133,9 @@ def generate_report_notebook(state: ReportState) -> str:
     sig_lines += ["}"]
     cells.append("\n".join(sig_lines))
 
-    # var_name → display name lookup for signal_names in Statistics
-    sig_lookup = {s.var_name: (s.channel_name or s.alias or s.var_name) for s in state.signals}
+    # var_name → display name lookup for signal_names in Statistics.
+    # Prefer the user-typed var_name so downstream visuals show friendly names.
+    sig_lookup = {s.var_name: (s.var_name or s.alias or s.channel_name) for s in state.signals}
 
     # ---- Event definitions ----
     # Build a lookup of event definitions by name
@@ -145,26 +166,36 @@ def generate_report_notebook(state: ReportState) -> str:
     ]
 
     for hist in (a for a in state.aggregations if isinstance(a, Histogram1DDefinition)):
-        agg_type = _HISTOGRAM_AGG_TYPE_MAP[hist.histogram_type]
-        params = [f'    name="{hist.name}"', f'    base_expr=signals["{hist.signal_ref}"]', f"    bins={hist.bins}"]
+        cls = _HISTOGRAM_CLASS_MAP[hist.histogram_type]
+        params = [f'    name="{hist.name}"', f'    base_expr=signals["{hist.signal_ref}"]']
+        if hist.histogram_type == HistogramType.DISTANCE:
+            if not hist.weight_signal_ref:
+                raise ValueError(
+                    f"Distance histogram '{hist.name}' requires a weight signal "
+                    "(e.g. odometer) — set weight_signal_ref."
+                )
+            params.append(f'    weights_expr=signals["{hist.weight_signal_ref}"]')
+        params.append(f"    bins={hist.bins}")
         if hist.description:
             params.append(f'    desc="{hist.description}"')
-        params.append(f'    agg_type="{agg_type}"')
         if hist.bins_unit:
             params.append(f'    bins_unit="{hist.bins_unit}"')
         if hist.values_unit:
             params.append(f'    values_unit="{hist.values_unit}"')
         if hist.event_ref and hist.event_ref in event_lookup:
             params.append(f'    event=evt_{hist.event_ref}')
-        agg_lines.append("page.add_aggregation(Histogram(")
+        agg_lines.append(f"page.add_aggregation({cls}(")
         agg_lines.append(",\n".join(params) + ",")
         agg_lines.append("))")
         agg_lines.append("")
 
     for hist2d in (a for a in state.aggregations if isinstance(a, Histogram2DDefinition)):
+        x_label = hist2d.x_signal_name or hist2d.x_signal_ref
+        y_label = hist2d.y_signal_name or hist2d.y_signal_ref
         params = [
             f'    name="{hist2d.name}"', f'    x_expr=signals["{hist2d.x_signal_ref}"]',
             f'    y_expr=signals["{hist2d.y_signal_ref}"]', f"    x_bins={hist2d.x_bins}", f"    y_bins={hist2d.y_bins}",
+            f'    x_channel_name="{x_label}"', f'    y_channel_name="{y_label}"',
         ]
         if hist2d.description:
             params.append(f'    desc="{hist2d.description}"')
@@ -176,7 +207,7 @@ def generate_report_notebook(state: ReportState) -> str:
             params.append(f'    values_unit="{hist2d.values_unit}"')
         if hist2d.event_ref and hist2d.event_ref in event_lookup:
             params.append(f'    event=evt_{hist2d.event_ref}')
-        agg_lines.append("page.add_aggregation(Histogram2D(")
+        agg_lines.append("page.add_aggregation(Histogram2DDuration(")
         agg_lines.append(",\n".join(params) + ",")
         agg_lines.append("))")
         agg_lines.append("")
@@ -192,10 +223,10 @@ def generate_report_notebook(state: ReportState) -> str:
             agg_lines.append("")
         selections_items = ", ".join(f'signals["{ref}"]' for ref in stats.signal_refs)
         signal_names = [sig_lookup.get(ref, ref) for ref in stats.signal_refs]
-        params = [f'    name="{stats.name}"', f"    selections=[{selections_items}]", f"    aggregation_labels={repr(stats.stat_labels)}", f"    event={event_var}", f"    signal_names={repr(signal_names)}"]
+        params = [f'    name="{stats.name}"', f"    input_expressions=[{selections_items}]", f"    statistics={repr(stats.stat_labels)}", f"    event={event_var}", f"    channel_names={repr(signal_names)}"]
         if stats.description:
             params.append(f'    desc="{stats.description}"')
-        agg_lines.append("page.add_aggregation(Statistics(")
+        agg_lines.append("page.add_aggregation(StatsAggregator(")
         agg_lines.append(",\n".join(params) + ",")
         agg_lines.append("))")
         agg_lines.append("")
@@ -240,6 +271,7 @@ def generate_report_notebook(state: ReportState) -> str:
 
 def generate_config_json(state: ReportState) -> dict[str, Any]:
     ds = state.data_sources
+    profile = get_profile()
 
     units_under_test = []
     for v in state.vehicles:
@@ -251,14 +283,18 @@ def generate_config_json(state: ReportState) -> dict[str, Any]:
             entry["end_ts"] = {"col_name": "stop_dt", "value": v.stop_ts}
         units_under_test.append(entry)
 
+    source: dict[str, Any] = {
+        "container_metrics_table": ds.container_metrics,
+        "channel_metrics_table": ds.channel_metrics,
+        "channels_uri": ds.channels[0] if ds.channels else "",
+    }
+    if ds.container_tags:
+        source["container_tags_table"] = ds.container_tags
+    if ds.channel_tags:
+        source["channel_tags_table"] = ds.channel_tags
+
     return {
-        "source": {
-            "container_metrics_table": ds.container_metrics,
-            "channel_metrics_table": ds.channel_metrics,
-            "channels_table": ds.channels[0] if ds.channels else "",
-            "container_tags_table": ds.container_tags,
-            "channel_tags_table": ds.channel_tags,
-        },
+        "source": source,
         "unity_sink": {
             "catalog": ds.destination_catalog,
             "schema": ds.destination_schema,
@@ -266,11 +302,11 @@ def generate_config_json(state: ReportState) -> dict[str, Any]:
         },
         "units_under_test": units_under_test,
         "query_engine": {
-            "solver": "DeltaSolver",
-            "data_type": "RLE",
+            "solver": profile.framework_solver,
+            "data_type": profile.framework_data_type,
             "drop_implausible_data": False,
         },
-        "measurement_dimensions": ["container_id", "vehicle_key", "start_ts", "stop_ts"],
+        "measurement_dimensions": list(profile.framework_measurement_dimensions),
     }
 
 

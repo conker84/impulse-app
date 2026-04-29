@@ -18,35 +18,59 @@
       "description": "Which group should be granted 'Manage' permissions for Databricks jobs in the DEV environment?",
       "order": 3
     },
+    "dev_notification_email": {
+      "type": "string",
+      "default": "",
+      "description": "Email for job failure notifications in the DEV environment.",
+      "order": 4
+    },
     "stg_host": {
       "type": "string",
       "default": "",
       "description": "What is the host of the STG environment? (use the same host as the DEV environment)",
-      "order": 4
+      "order": 5
     },
     "stg_group": {
       "type": "string",
       "default": "users",
       "description": "Which group should be granted 'Manage' permissions for Databricks jobs in the STG environment?",
-      "order": 5
+      "order": 6
+    },
+    "stg_node_type_id": {
+      "type": "string",
+      "default": "i3.xlarge",
+      "description": "Node type ID for STG integration-test job clusters.",
+      "order": 7
     },
     "prd_host": {
       "type": "string",
       "default": "",
       "description": "What is the host of the PRD environment?",
-      "order": 6
+      "order": 8
     },
     "prd_group": {
       "type": "string",
       "default": "users",
       "description": "Which group should be granted 'Manage' permissions for Databricks jobs in the PRD environment?",
-      "order": 7
+      "order": 9
     },
     "prd_sp_name": {
       "type": "string",
       "default": "",
       "description": "What is the name (i.e. app ID) of the Service Principal in the PRD environment?",
-      "order": 8
+      "order": 10
+    },
+    "prd_notification_email": {
+      "type": "string",
+      "default": "",
+      "description": "Email for job failure notifications in the PRD environment.",
+      "order": 11
+    },
+    "wheel_filename": {
+      "type": "string",
+      "default": "mda_framework_v2-0.0.4-py3-none-any.whl",
+      "description": "Filename of the Impulse framework wheel bundled in lib/.",
+      "order": 12
     }
   },
   "success_message": "\nYour bundle '{{.report_name}}' has been created."

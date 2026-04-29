@@ -57,19 +57,19 @@ def fetch_channel_arrow(
     conn: Connection,
     catalog: str,
     schema: str,
-    container_id: int,
-    channel_id: int,
+    container_id: str,
+    channel_id: str,
+    session_overrides: dict | None = None,
 ) -> pa.Table:
-    """Fetch all RLE rows for a channel as a PyArrow Table.
+    """Fetch a channel's samples as a PyArrow Table with columns [tstart, value].
 
-    Returns Table with columns [tstart, tend, value].
-    Uses Arrow-native fetching — no intermediate DataFrame conversion.
+    SQL is built via SchemaAdapter — table name and column mappings come from
+    the active schema profile (or session overrides when supplied).
     """
-    sql = (
-        f"SELECT tstart, tend, value "
-        f"FROM {catalog}.{schema}.channels "
-        f"WHERE container_id = {container_id} AND channel_id = {channel_id}"
-    )
+    from server.schema_adapter import SchemaAdapter
+
+    adapter = SchemaAdapter.from_active_profile(catalog, schema, session_overrides=session_overrides)
+    sql = adapter.ts_explorer_signal_fetch_query(container_id, channel_id)
 
     cursor = conn.cursor()
     try:

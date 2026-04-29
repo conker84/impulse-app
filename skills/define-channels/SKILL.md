@@ -93,43 +93,42 @@ The keywords passed to `channel()` depend on the configured query solver and how
 
 ### 3a. Channel Alias Lookup
 
-When the user provides a descriptive name (e.g. "temperature", "speed", "torque") but doesn't know the exact alias, look up matching channels in the aliases table in Unity Catalog.
+When the user describes a channel by friendly name (e.g. "vehicle speed", "engine RPM", "oil temperature") and you don't already know the exact physical signal, look it up in the customer's aliases table.
 
-**Lookup table:** `<aliases_table>`
+**Use the `search_aliases` tool** — it builds the right SQL automatically from the active SchemaProfile (works against any customer schema; you don't need to know the underlying column names).
 
 **Procedure:**
 
-1. Query for matching aliases using a `LIKE` filter on the alias column:
-   ```sql
-   SELECT DISTINCT channel_alias_name
-   FROM <aliases_table>
-   WHERE channel_alias_name LIKE '%<user_keyword>%'
-      OR channel_name LIKE '%<user_keyword>%'
-   ORDER BY channel_alias_name
-   LIMIT 50
+1. Call `search_aliases(keyword="<user_keyword>")`. The tool returns up to 50 matches as JSON with these fields per row:
+
+   | Field | Description |
+   |---|---|
+   | `channel_alias_name` | Friendly name (e.g. `vehicle_speed`) |
+   | `channel_name` | Physical signal name |
+   | `signal` | Pass into `query.channel(signal=...)` for solvers that accept it |
+   | `network` | Bus network (e.g. `HS1`, `CAN1`) — empty string if the schema has no network dimension |
+   | `unit` | Unit (`km/h`, `rpm`, `°C`, …) — empty if unknown |
+   | `description` | Human-readable description |
+
+2. Pass those rows directly into `suggest_signal_candidates`, mapping `alias=channel_alias_name` and forwarding the rest:
+   ```json
+   {"alias": "<channel_alias_name>",
+    "channel_name": "<channel_name>",
+    "signal": "<signal>",
+    "network": "<network>",
+    "unit": "<unit>",
+    "description": "<description>"}
    ```
+   This renders interactive checkboxes in the right panel; selected rows flow into `SignalDefinition` and downstream into the generated framework call.
 
-2. Call `suggest_signal_candidates` with all result rows as `[{alias: "<channel_alias_name>"}]`. This renders interactive checkboxes in the right panel.
+3. When the user is explicit (e.g. "add vehicle_speed"), call `add_physical_signal` directly with the matching row's `signal` and `network` already filled. Always carry both through if the row has a non-empty `network` — schemas that duplicate signal names across multiple buses or sources require the network for disambiguation.
 
-3. The user selects aliases from the checkbox UI and clicks "Add Selected". The app registers them as physical signals automatically.
-
-4. The generated code will use the selected alias:
-   ```python
-   signal = query.channel(channel_alias_name="<selected_alias>")
-   ```
-
-**Available columns in the aliases table:**
-
-| Column | Description |
-|---|---|
-| `channel_alias_name` | Alias name (e.g. `EngineSpeed`) — **default lookup column** |
-| `channel_name` | Physical channel name (e.g. `Eng_Spd`) |
-| `device_name` | Device/ECU name (e.g. `CAN1`) |
+4. If `search_aliases` reports the active profile has no aliases table, fall back to selecting from the channel catalog directly (use `mcp_execute_sql` against the channel_metrics table to enumerate available signals).
 
 **Tips:**
-- If the initial search returns too many results, narrow with additional terms.
-- If no results are found, try a broader keyword or search on `channel_name` instead.
-- One `channel_alias_name` may map to multiple `device_name` entries — the alias layer resolves this automatically at query time.
+- If the search returns too many results, narrow with a more specific keyword.
+- If no results, try a broader term, or check the channel catalog for a different naming.
+- One `channel_alias_name` may map to one specific `(signal, network)` pair (hand-curated lookups) or to multiple devices (auto-generated lookups). Read the returned rows to see which case applies.
 
 ### 4. Add virtual signals
 

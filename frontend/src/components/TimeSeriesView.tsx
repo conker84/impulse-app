@@ -155,6 +155,13 @@ export default function TimeSeriesView({ onBack, initialCatalog, initialSchema, 
   const [selectedContainer, setSelectedContainer] = useState<number | null>(null);
   const [signals, setSignals] = useState<TimeSeriesSignal[]>([]);
   const [selectedSignals, setSelectedSignals] = useState<Set<number>>(new Set());
+  const [signalSearch, setSignalSearch] = useState("");
+
+  const filteredSignals = useMemo(() => {
+    const q = signalSearch.trim().toLowerCase();
+    if (!q) return signals;
+    return signals.filter((s) => s.channel_name.toLowerCase().includes(q));
+  }, [signals, signalSearch]);
 
   // Loaded channels (from /load)
   const [loadedChannels, setLoadedChannels] = useState<Map<number, LoadedChannel>>(new Map());
@@ -526,11 +533,27 @@ export default function TimeSeriesView({ onBack, initialCatalog, initialSchema, 
             <div className="viz-section-title">
               Signals
               <span className="viz-hint" style={{ marginLeft: "auto" }}>
-                {selectedSignals.size} selected
+                {signalSearch.trim()
+                  ? `${selectedSignals.size} selected · ${filteredSignals.length}/${signals.length} shown`
+                  : `${selectedSignals.size} selected`}
               </span>
             </div>
+            <div className="viz-filter-row">
+              <input
+                type="text"
+                className="form-input"
+                placeholder="Search signals..."
+                value={signalSearch}
+                onChange={(e) => setSignalSearch(e.target.value)}
+              />
+            </div>
             <div className="viz-checkbox-list" style={{ maxHeight: 240 }}>
-              {signals.map((s) => {
+              {filteredSignals.length === 0 && (
+                <div className="viz-hint" style={{ padding: "6px 4px" }}>
+                  No signals match "{signalSearch}".
+                </div>
+              )}
+              {filteredSignals.map((s) => {
                 const side = axisMap.get(s.channel_id);
                 const axisTag = useAxisTags && hasDualAxis && side ? (side === "left" ? " [L]" : " [R]") : "";
                 return (

@@ -15,6 +15,7 @@ import {
 import HistogramChart from "./HistogramChart";
 import Heatmap2DChart from "./Heatmap2DChart";
 import StatisticsTable from "./StatisticsTable";
+import StatisticsLineChart from "./StatisticsLineChart";
 
 interface Props {
   dataSources: DataSourceConfig;
@@ -39,6 +40,8 @@ export default function VisualizeView({ dataSources, reportName, onBack, setting
   const [hist1DResults, setHist1DResults] = useState<Record<string, HistogramResult>>({});
   const [hist2DResults, setHist2DResults] = useState<Record<string, Heatmap2DResult>>({});
   const [statsResults, setStatsResults] = useState<Record<string, StatisticsResult>>({});
+  // Per-stats-aggregation view toggle: "table" or "lines"
+  const [statsView, setStatsView] = useState<Record<string, "table" | "lines">>({});
 
   // Layout
   const [gridCols, setGridCols] = useState<1 | 2 | 3>(1);
@@ -293,7 +296,41 @@ export default function VisualizeView({ dataSources, reportName, onBack, setting
             if (meta.agg_type === "statistics") {
               const result = statsResults[name];
               if (!result) return null;
-              return <StatisticsTable key={name} name={name} result={result} />;
+              const instanceCount = new Set(result.rows.map((r) => r.event_instance_id)).size;
+              const defaultView: "table" | "lines" = instanceCount >= 2 ? "lines" : "table";
+              const view = statsView[name] || defaultView;
+              return (
+                <div key={name} style={{ display: "contents" }}>
+                  <div className="chart-card stats-card-wrapper" style={{ padding: 0 }}>
+                    <div style={{
+                      padding: "6px 10px",
+                      display: "flex",
+                      gap: 6,
+                      borderBottom: "1px solid rgba(128,128,128,0.15)",
+                      background: "rgba(30,41,59,0.25)",
+                    }}>
+                      <button
+                        className={`action-btn${view === "table" ? " primary" : ""}`}
+                        style={{ fontSize: 11, padding: "2px 8px" }}
+                        onClick={() => setStatsView((v) => ({ ...v, [name]: "table" }))}
+                      >Table</button>
+                      <button
+                        className={`action-btn${view === "lines" ? " primary" : ""}`}
+                        style={{ fontSize: 11, padding: "2px 8px" }}
+                        disabled={instanceCount < 2}
+                        title={instanceCount < 2 ? "Need ≥2 event instances for a line chart" : ""}
+                        onClick={() => setStatsView((v) => ({ ...v, [name]: "lines" }))}
+                      >Lines</button>
+                      <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--text-muted)" }}>
+                        {instanceCount} event instance{instanceCount === 1 ? "" : "s"}
+                      </span>
+                    </div>
+                    {view === "lines"
+                      ? <StatisticsLineChart name={name} result={result} />
+                      : <StatisticsTable name={name} result={result} />}
+                  </div>
+                </div>
+              );
             }
 
             return null;

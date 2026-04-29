@@ -68,15 +68,18 @@ TOOLS = [
             "name": "add_physical_signal",
             "description": (
                 "Add a physical signal directly. Use when the user explicitly asks to add channels "
-                "(not just browse). Set channel_name to the exact channel name from the Available "
-                "Channels table for silver layer data."
+                "(not just browse). When the schema profile defines an aliases table, look the parameter "
+                "up there and pass `signal` and `network` (or just `channel_name` for schemas that don't "
+                "disambiguate by bus) — these populate the framework's query.channel(...) call."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "var_name": {"type": "string", "description": "Python variable name (lowercase, underscores)"},
-                    "alias": {"type": "string", "description": "Channel alias or channel_name"},
-                    "channel_name": {"type": "string", "description": "Exact channel name from the data (same as alias for silver layer)"},
+                    "alias": {"type": "string", "description": "Friendly channel alias (from the aliases table, when present)"},
+                    "channel_name": {"type": "string", "description": "Physical channel name from channel_metrics"},
+                    "signal": {"type": "string", "description": "Signal name passed to query.channel(signal=...) when the active solver expects it"},
+                    "network": {"type": "string", "description": "Secondary identifier (e.g. bus/network/source) passed to query.channel(network=...) for schemas that disambiguate by bus"},
                     "description": {"type": "string", "description": "Human-readable description"},
                 },
                 "required": ["var_name", "alias"],
@@ -114,6 +117,36 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "search_aliases",
+            "description": (
+                "Search the customer's aliases table for a friendly-name → physical-signal mapping. "
+                "Use this whenever the user describes a channel in natural language (e.g. 'vehicle speed', "
+                "'engine RPM', 'oil temperature'). The result contains rows with `channel_alias_name`, "
+                "`channel_name`, `signal`, `network`, `unit`, `description` — pass those rows directly to "
+                "`suggest_signal_candidates`. The SQL is built dynamically from the active SchemaProfile, "
+                "so this works the same way regardless of which customer's schema is mounted. "
+                "If the active profile has no aliases table, this returns an empty list and you should "
+                "fall back to selecting from the channel catalog directly."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "keyword": {
+                        "type": "string",
+                        "description": "Free-text keyword to LIKE-search against alias name and physical signal name (no wildcards needed; they are added automatically)",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max results to return (default 50)",
+                    },
+                },
+                "required": ["keyword"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "suggest_signal_candidates",
             "description": (
                 "MANDATORY after identifying channels for the user. Present signal candidates to the user "
@@ -128,9 +161,11 @@ TOOLS = [
                         "items": {
                             "type": "object",
                             "properties": {
-                                "alias": {"type": "string", "description": "Channel identifier (channel_name or alias)"},
+                                "alias": {"type": "string", "description": "Channel identifier from the aliases table (when configured)"},
                                 "channel_name": {"type": "string", "description": "Physical channel name from the data"},
                                 "unit": {"type": "string", "description": "Unit of measurement (e.g. rpm, °C, km/h)"},
+                                "signal": {"type": "string", "description": "Signal name for query.channel(signal=...) when the active solver expects it"},
+                                "network": {"type": "string", "description": "Secondary identifier for query.channel(network=...) when the schema disambiguates by bus/source"},
                                 "description": {"type": "string", "description": "Human-readable description inferred from name/unit/context"},
                             },
                             "required": ["alias"],
@@ -148,8 +183,10 @@ TOOLS = [
             "name": "add_event",
             "description": (
                 "Add an event definition. Events are named filters used by aggregations. "
-                "Interval events produce time windows; rising/falling/change_points produce discrete moments (PointsInTime). "
-                "Only interval events can be used with histograms and 2D histograms."
+                "Interval and periodic_distance events produce time windows; rising/falling/change_points produce discrete moments (PointsInTime). "
+                "Use periodic_distance for repeating distance bins (e.g. 'every 1 km of odometer'); it produces one interval per step crossing — "
+                "ideal for line-chart statistics across a drive. "
+                "Only interval-style events (interval and periodic_distance) can be used with histograms and 2D histograms."
             ),
             "parameters": {
                 "type": "object",
@@ -160,7 +197,7 @@ TOOLS = [
                     },
                     "event_type": {
                         "type": "string",
-                        "enum": ["interval", "rising_edges", "falling_edges", "change_points"],
+                        "enum": ["interval", "rising_edges", "falling_edges", "change_points", "periodic_distance"],
                     },
                     "conditions": {
                         "type": "array",
@@ -182,7 +219,10 @@ TOOLS = [
                     },
                     "signal_ref": {
                         "type": "string",
-                        "description": "Signal for change_points events",
+                        "description": (
+                            "For change_points: the signal whose state changes are detected. "
+                            "For periodic_distance: the cumulative-distance signal (e.g. odometer)."
+                        ),
                     },
                     "from_state": {
                         "type": "number",
@@ -191,6 +231,13 @@ TOOLS = [
                     "to_state": {
                         "type": "number",
                         "description": "To state value for change_points",
+                    },
+                    "step": {
+                        "type": "number",
+                        "description": (
+                            "For periodic_distance: distance per bin in the unit of signal_ref "
+                            "(e.g. 1 means an interval every 1 km when signal_ref is odometer in km)."
+                        ),
                     },
                     "description": {"type": "string"},
                 },
@@ -204,6 +251,10 @@ TOOLS = [
             "name": "add_histogram",
             "description": (
                 "Add a 1D histogram visualization. "
+                "For histogram_type='distance', weight_signal_ref is REQUIRED — "
+                "it must be the var_name of a cumulative-distance signal (e.g. 'odometer'). "
+                "The framework runs diff() on it internally to compute Δkm per sample, "
+                "so passing instantaneous vehicle_speed will NOT work — the weight must be cumulative km. "
                 "From create-histogram-1d skill steps 2-5."
             ),
             "parameters": {
@@ -227,6 +278,7 @@ TOOLS = [
                         "description": "Bin edge values",
                     },
                     "bins_unit": {"type": "string"},
+                    "values_unit": {"type": "string"},
                     "max_duration": {
                         "type": "number",
                         "description": "Max sample duration in nanoseconds (duration type only)",
@@ -235,7 +287,16 @@ TOOLS = [
                         "type": "string",
                         "description": "Name of an event defined in the Channels tab (interval events only)",
                     },
-                    "weight_const": {"type": "number"},
+                    "weight_signal_ref": {
+                        "type": "string",
+                        "description": (
+                            "REQUIRED when histogram_type='distance'. var_name of a cumulative-distance "
+                            "signal (e.g. 'odometer' if available, or a virtual 'distance_km' integrated "
+                            "from vehicle_speed). The framework diffs this to get Δkm per sample. "
+                            "If the user says 'weighted by X', pass X here. Do NOT pass an instantaneous "
+                            "speed signal — only cumulative distance is valid."
+                        ),
+                    },
                     "description": {"type": "string"},
                 },
                 "required": ["name", "histogram_type", "signal_ref", "bins"],
@@ -472,7 +533,15 @@ def _get_all_tools(user_token: str | None = None) -> tuple[list[dict], dict[str,
 # ---------------------------------------------------------------------------
 
 
-def _exec_add_physical_signal(state: ReportState, var_name: str, alias: str, channel_name: str = "", description: str = "") -> str:
+def _exec_add_physical_signal(
+    state: ReportState,
+    var_name: str,
+    alias: str,
+    channel_name: str = "",
+    signal: str = "",
+    network: str = "",
+    description: str = "",
+) -> str:
     if any(s.var_name == var_name for s in state.signals):
         return f"Signal '{var_name}' already exists. Use a different name or remove it first."
     state.signals.append(
@@ -480,11 +549,14 @@ def _exec_add_physical_signal(state: ReportState, var_name: str, alias: str, cha
             var_name=var_name,
             signal_type="physical",
             alias=alias,
-            channel_name=channel_name or alias,
+            channel_name=channel_name or signal or alias,
+            signal=signal or None,
+            network=network or None,
             description=description,
         )
     )
-    return f"Added physical signal '{var_name}' (channel: '{channel_name or alias}')."
+    qualifier = f"signal='{signal}', network='{network}'" if (signal and network) else f"channel: '{channel_name or alias}'"
+    return f"Added physical signal '{var_name}' ({qualifier})."
 
 
 def _exec_add_virtual_signal(
@@ -504,6 +576,67 @@ def _exec_add_virtual_signal(
     return f"Added virtual signal '{var_name}' = `{expression}` (type: {eval_type})."
 
 
+def _exec_search_aliases(
+    state: ReportState,
+    keyword: str,
+    limit: int = 50,
+    user_token: str | None = None,
+) -> str:
+    from server.mcp_tools import execute_sql
+    from server.schema_adapter import SchemaAdapter
+
+    sd = state.source_data
+    catalog = sd.silver_catalog
+    schema = sd.silver_schema
+    if not catalog or not schema:
+        return (
+            "Cannot search aliases: silver_catalog/silver_schema not configured yet. "
+            "Ask the user to complete the Source Data step first."
+        )
+
+    adapter = SchemaAdapter.from_active_profile(catalog, schema)
+    sql = adapter.aliases_search_query(keyword, limit=limit)
+    if sql is None:
+        return (
+            "The active SchemaProfile has no aliases table configured. "
+            "Fall back to selecting channels from the channel catalog directly."
+        )
+
+    try:
+        result = execute_sql(sql, user_token=user_token)
+    except Exception as e:
+        return f"Aliases search failed: {e}"
+
+    rows = result.get("rows", [])
+    cols = result.get("columns", [])
+    if not rows:
+        return f"No aliases matched '{keyword}'. Try a broader keyword or pick from the channel catalog."
+
+    col_idx = {c.lower(): i for i, c in enumerate(cols)}
+
+    def _g(row: list, name: str) -> str:
+        i = col_idx.get(name, -1)
+        return str(row[i]) if 0 <= i < len(row) and row[i] is not None else ""
+
+    items = [
+        {
+            "channel_alias_name": _g(r, "channel_alias_name"),
+            "channel_name": _g(r, "channel_name"),
+            "signal": _g(r, "signal"),
+            "network": _g(r, "network"),
+            "unit": _g(r, "unit"),
+            "description": _g(r, "description"),
+        }
+        for r in rows
+    ]
+    return (
+        f"Found {len(items)} match(es) for '{keyword}':\n"
+        + json.dumps(items, indent=2)
+        + "\n\nNow call `suggest_signal_candidates` with these rows mapped to "
+          "{alias=channel_alias_name, channel_name, signal, network, unit, description}."
+    )
+
+
 def _exec_suggest_candidates(state: ReportState, candidates: list[dict]) -> str:
     seen: set[str] = set()
     unique: list[SignalCandidate] = []
@@ -518,6 +651,8 @@ def _exec_suggest_candidates(state: ReportState, candidates: list[dict]) -> str:
                 channel_name=c.get("channel_name", alias),
                 unit=c.get("unit", ""),
                 device_name=c.get("device_name", ""),
+                signal=c.get("signal", ""),
+                network=c.get("network", ""),
                 description=c.get("description", ""),
             )
         )
@@ -542,6 +677,7 @@ def _exec_add_event(state: ReportState, **kwargs: Any) -> str:
         signal_ref=kwargs.get("signal_ref"),
         from_state=kwargs.get("from_state"),
         to_state=kwargs.get("to_state"),
+        step=kwargs.get("step"),
         description=kwargs.get("description", ""),
     )
     state.events.append(event)
@@ -680,6 +816,7 @@ _TOOL_STEP_MAP: dict[str, set[WizardStep]] = {
     "add_physical_signal": {WizardStep.CHANNELS},
     "add_virtual_signal": {WizardStep.CHANNELS},
     "suggest_signal_candidates": {WizardStep.CHANNELS},
+    "search_aliases": {WizardStep.CHANNELS},
     "add_event": {WizardStep.CHANNELS, WizardStep.AGGREGATIONS},
     "add_histogram": {WizardStep.AGGREGATIONS},
     "add_histogram_2d": {WizardStep.AGGREGATIONS},
@@ -716,11 +853,21 @@ def _dispatch_tool(
         )
 
     if name == "add_physical_signal":
-        return _exec_add_physical_signal(state, args["var_name"], args["alias"], args.get("channel_name", ""), args.get("description", ""))
+        return _exec_add_physical_signal(
+            state,
+            args["var_name"],
+            args["alias"],
+            args.get("channel_name", ""),
+            args.get("signal", ""),
+            args.get("network", ""),
+            args.get("description", ""),
+        )
     if name == "add_virtual_signal":
         return _exec_add_virtual_signal(state, args["var_name"], args["expression"], args["eval_type"], args.get("description", ""))
     if name == "suggest_signal_candidates":
         return _exec_suggest_candidates(state, args["candidates"])
+    if name == "search_aliases":
+        return _exec_search_aliases(state, args["keyword"], args.get("limit", 50), user_token=user_token)
     if name == "add_event":
         return _exec_add_event(state, **args)
     if name == "add_histogram":

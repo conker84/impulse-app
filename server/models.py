@@ -46,6 +46,8 @@ class SignalCandidate(BaseModel):
     channel_name: str = ""
     unit: str = ""
     device_name: str = ""
+    signal: str = ""
+    network: str = ""
     description: str = ""
 
 
@@ -54,6 +56,8 @@ class SignalDefinition(BaseModel):
     signal_type: Literal["physical", "virtual"] = "physical"
     alias: str | None = None
     channel_name: str | None = None
+    signal: str | None = None
+    network: str | None = None
     expression: str | None = None
     eval_type: EvalType = EvalType.SAMPLE_SERIES
     description: str = ""
@@ -71,7 +75,9 @@ class ThresholdCondition(BaseModel):
 
 class EventDefinition(BaseModel):
     name: str
-    event_type: Literal["interval", "rising_edges", "falling_edges", "change_points"]
+    event_type: Literal[
+        "interval", "rising_edges", "falling_edges", "change_points", "periodic_distance",
+    ]
     # For interval & edge events (threshold-based conditions)
     conditions: list[ThresholdCondition] = Field(default_factory=list)
     compound_logic: Literal["AND", "OR"] = "AND"
@@ -79,6 +85,9 @@ class EventDefinition(BaseModel):
     signal_ref: str | None = None
     from_state: float | None = None
     to_state: float | None = None
+    # For periodic_distance only — produces an interval each time the cumulative
+    # signal_ref crosses a step boundary (e.g. every 1 km of odometer).
+    step: float | None = None
     description: str = ""
 
     @field_validator("conditions", mode="after")
@@ -89,10 +98,24 @@ class EventDefinition(BaseModel):
             raise ValueError(f"event_type '{et}' requires at least one condition")
         return v
 
+    @field_validator("step", mode="after")
+    @classmethod
+    def _check_step(cls, v: float | None, info) -> float | None:
+        et = info.data.get("event_type", "")
+        if et == "periodic_distance":
+            if v is None or v <= 0:
+                raise ValueError("periodic_distance events require a positive 'step'")
+            if not info.data.get("signal_ref"):
+                raise ValueError(
+                    "periodic_distance events require 'signal_ref' "
+                    "(a cumulative-distance signal such as odometer)."
+                )
+        return v
+
     @property
     def output_type(self) -> str:
         """Returns 'Intervals' or 'PointsInTime' based on event_type."""
-        if self.event_type == "interval":
+        if self.event_type in ("interval", "periodic_distance"):
             return "Intervals"
         return "PointsInTime"
 
@@ -119,6 +142,16 @@ class Histogram1DDefinition(BaseModel):
     event_ref: str | None = None
     weight_signal_ref: str | None = None
     weight_const: float | None = None
+
+    @field_validator("weight_signal_ref", mode="after")
+    @classmethod
+    def _check_distance_has_weight(cls, v: str | None, info) -> str | None:
+        if info.data.get("histogram_type") == HistogramType.DISTANCE and not v:
+            raise ValueError(
+                "Distance histograms require weight_signal_ref "
+                "(a cumulative-distance signal such as odometer)."
+            )
+        return v
 
 
 class Histogram2DDefinition(BaseModel):
