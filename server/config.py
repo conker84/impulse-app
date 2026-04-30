@@ -21,33 +21,21 @@ def resolve_serving_endpoint(user_preference: str | None = None) -> str:
     return SERVING_ENDPOINT
 
 
-@lru_cache()
+AVAILABLE_MODELS = [
+    {"id": "databricks-claude-haiku-4-5", "label": "Claude Haiku 4.5 (fast)"},
+    {"id": "databricks-claude-sonnet-4-6", "label": "Claude Sonnet 4.6 (balanced)"},
+    {"id": "databricks-claude-opus-4-6", "label": "Claude Opus 4.6 (best reasoning)"},
+    {"id": "databricks-gemini-2-5-flash", "label": "Gemini 2.5 Flash"},
+    {"id": "databricks-gemini-2-5-pro", "label": "Gemini 2.5 Pro"},
+    {"id": "databricks-gpt-5-4-mini", "label": "GPT 5.4 Mini"},
+    {"id": "databricks-gpt-5-4", "label": "GPT 5.4"},
+    {"id": "databricks-meta-llama-3-3-70b-instruct", "label": "Llama 3.3 70B"},
+]
+
+
 def get_available_models() -> list[dict]:
-    """List chat-capable serving endpoints in the workspace.
-
-    Returns Foundation Model API endpoints (name prefixed with ``databricks-``)
-    that are currently READY. Cached for the app lifetime; restart to pick up
-    newly provisioned endpoints.
-    """
-    try:
-        client = get_workspace_client()
-        endpoints = client.serving_endpoints.list()
-    except Exception:
-        logger.exception("Failed to list serving endpoints; returning empty list")
-        return []
-
-    models: list[dict] = []
-    for ep in endpoints:
-        name = getattr(ep, "name", "") or ""
-        if not name.startswith("databricks-"):
-            continue
-        state_obj = getattr(ep, "state", None)
-        ready = getattr(state_obj, "ready", None) if state_obj is not None else None
-        if ready and str(ready).upper() not in {"READY"}:
-            continue
-        models.append({"id": name, "label": name})
-    models.sort(key=lambda m: m["id"])
-    return models
+    """Return the curated list of chat-capable Foundation Model API endpoints."""
+    return AVAILABLE_MODELS
 _app_dir = os.path.join(os.path.dirname(__file__), "..")
 SKILLS_ROOT = os.environ.get(
     "SKILLS_ROOT",
