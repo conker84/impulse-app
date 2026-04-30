@@ -32,7 +32,22 @@ from server.models import (
     VehicleConfig,
     WizardStep,
 )
+from server.schema_profile import get_profile
 from server.skill_loader import build_system_prompt, load_skill_full
+
+
+def _profile_kwarg_hint() -> str:
+    kwargs = list(get_profile().channel_call_kwargs.keys())
+    sig = ", ".join(f"{k}=..." for k in kwargs)
+    fields = ", ".join(f"`{k}`" for k in kwargs)
+    plural = "these fields" if len(kwargs) > 1 else "this field"
+    return (
+        f" Active profile: `query.channel({sig})`. Always pass {fields} when present "
+        f"in the alias row — never omit {plural}."
+    )
+
+
+_PROFILE_KWARG_HINT = _profile_kwarg_hint()
 
 # ---------------------------------------------------------------------------
 # Session store (in-memory; swap for Lakebase in production)
@@ -69,8 +84,9 @@ TOOLS = [
             "description": (
                 "Add a physical signal directly. Use when the user explicitly asks to add channels "
                 "(not just browse). When the schema profile defines an aliases table, look the parameter "
-                "up there and pass `signal` and `network` (or just `channel_name` for schemas that don't "
-                "disambiguate by bus) — these populate the framework's query.channel(...) call."
+                "up there and forward all identifier fields from the matching row — these populate the "
+                "framework's query.channel(...) call."
+                + _PROFILE_KWARG_HINT
             ),
             "parameters": {
                 "type": "object",
@@ -152,6 +168,7 @@ TOOLS = [
                 "MANDATORY after identifying channels for the user. Present signal candidates to the user "
                 "as checkboxes in the right panel. NEVER list channel names in chat text — always use this tool. "
                 "For silver layer channels, set alias=channel_name."
+                + _PROFILE_KWARG_HINT
             ),
             "parameters": {
                 "type": "object",
