@@ -46,13 +46,7 @@ Separate from the report wizard, the **"Explore Time Series"** feature (accessib
 3. **Explore** — the chart renders with a full-range overview. Drag to zoom into any region and the backend instantly re-aggregates using the LTTB algorithm (`tsdownsample`), selecting ~5,000 visually representative points from however many are in the window. Zoom/pan responses are <50ms regardless of dataset size
 4. **Reset** — double-click to return to the full range
 
-**Key features:**
-- **Scale:** Tested with 300M+ data points on a Large (12 GB) app instance
-- **Multi-signal correlation:** Overlay multiple signals on one chart with automatic dual y-axis grouping by unit (e.g., RPM on left, Voltage on right). For 3+ unit types, signals are clustered into two axis groups with [L]/[R] legend tags
-- **Normalized view:** Toggle between absolute values and [0–1] normalized scale for comparing signals with different magnitudes
-- **Live counters:** "Currently viewing: X data points" updates on every zoom, with a downsampling indicator when LTTB is active
-- **Progressive hover:** At overview level, hover shows basic info. Zoom below 10K points and hover switches to sub-second timestamps with unified cross-trace tooltips
-- **In-memory caching:** After the initial load, all interactions are served from memory — no further SQL queries. LRU eviction manages memory when multiple channels are loaded
+Multiple signals can be overlaid on one chart with automatic dual y-axis grouping by unit, with an optional `[0–1]` normalized view for comparing signals with different magnitudes. After the initial load all interactions (zoom, pan, signal toggling) are served from the in-memory Polars cache — no further SQL queries. LRU eviction manages memory when many channels are loaded. Tested with 300M+ data points on a Large (12 GB) app instance.
 
 **Architecture:**
 
@@ -117,7 +111,14 @@ git add -A && git commit -m "deploy"
 test/deploy.sh
 ```
 
-On first run, the script creates the app and provisions a service principal. Note the `service_principal_client_id` from the output — you'll need it for Steps 2-4 below.
+On first run, the script creates the app and provisions a service principal. After it finishes, capture the SP's client ID — you'll need it for Steps 2-4:
+
+```bash
+databricks apps get <app-name> --profile <your-profile> -o json \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['service_principal_client_id'])"
+```
+
+Save this value; it's referenced as `<sp-client-id>` below.
 
 ### Step 2: Create Lakebase infrastructure (first time only)
 
@@ -203,24 +204,37 @@ databricks secrets put-acl impulse <sp-client-id> READ \
 
 | Variable | Description |
 |----------|-------------|
-| `DATABRICKS_WAREHOUSE_ID` | Your SQL Warehouse ID |
-| `SERVING_ENDPOINT` | Default Foundation Model API endpoint name (the model picker is populated dynamically from your workspace's serving endpoints) |
+| `DATABRICKS_WAREHOUSE_ID` | SQL Warehouse ID |
+| `SERVING_ENDPOINT` | Default Foundation Model API endpoint used for chat. Users can switch to any endpoint listed in `AVAILABLE_MODELS` (`server/config.py`) from the Settings UI |
 | `LAKEBASE_HOST` | Endpoint host from `list-endpoints` output |
-| `LAKEBASE_DB` | `impulse` |
-| `LAKEBASE_PROJECT` | `impulse` |
-| `SECRET_SCOPE` | Databricks secret scope for Fernet key (default `impulse`) |
+| `LAKEBASE_PORT` | Lakebase port (default `5432` — rarely changed) |
+| `LAKEBASE_DB` | Lakebase database name (e.g. `impulse`) |
+| `LAKEBASE_PROJECT` | Lakebase project name (e.g. `impulse`) |
+| `SECRET_SCOPE` | Databricks secret scope for the Fernet key (default `impulse`) |
 | `SECRET_KEY_NAME` | Secret key name within the scope (default `fernet-key`) |
 | `IMPULSE_FRAMEWORK_WHEEL_FILENAME` | Filename of the Impulse framework wheel bundled in `.template/template/lib/`. Bumping the wheel = drop the new file in `lib/` and update this value |
+| `INGEST_NOTEBOOK_ROOT` | *(optional)* Override the workspace path for ingest notebooks. Default is derived from the deploying user + app name |
 
-### Step 5: Grant service principal permissions
+### Step 5: Grant permissions
+
+**Service principal grants** (needed for the app to function):
 
 | Resource | Permission | How to grant |
 |----------|-----------|--------------|
-| Foundation Model API endpoint | CAN QUERY | Endpoint permissions in workspace admin UI |
-| Lakebase database | OAuth role + ALL PRIVILEGES | See Step 2 |
-| Secret scope `impulse` | READ | `databricks secrets put-acl` (see Step 3) |
+| Lakebase database | OAuth role + `ALL PRIVILEGES` | See Step 2 |
+| Secret scope (`SECRET_SCOPE`) | `READ` | `databricks secrets put-acl <scope> <sp-client-id> READ` |
+| Foundation Model API endpoint | `CAN QUERY` *(only if not already inherited)* | Most workspaces grant `EXECUTE` on `system.ai.*` to all account users by default — in that case the SP gets implicit access. For workspaces that don't, or when using a custom (non-system) serving endpoint, grant explicitly via the AI Gateway / Serving page |
 
-> SQL Warehouse and Unity Catalog permissions are **not needed** for the service principal — those operations use the user's OBO token.
+> SQL Warehouse and Unity Catalog permissions on the SP are **not needed** — those operations use the user's OBO token.
+
+**End-user grants** (needed for each person using the app):
+
+| Resource | Permission |
+|----------|-----------|
+| SQL Warehouse referenced by `DATABRICKS_WAREHOUSE_ID` | `CAN USE` |
+| Unity Catalog tables read by the wizard (channel/container/aliases) | `SELECT` |
+| Unity Catalog catalog/schemas being browsed | `USE CATALOG` / `USE SCHEMA` |
+| The app itself | `CAN USE` (granted in the app's Permissions tab) |
 
 ### Step 6: Redeploy
 
@@ -286,14 +300,9 @@ sql, dashboards.genie, files.files, catalog.connections,
 catalog.catalogs:read, catalog.schemas:read, catalog.tables:read
 ```
 
-> **Note:** Serving endpoint scopes (`serving.serving-endpoints`, `serving.serving-endpoints-data-plane`) are NOT included — they break the OAuth consent flow. FMAPI calls use the app service principal instead.
+Serving endpoint scopes (`serving.serving-endpoints`, `serving.serving-endpoints-data-plane`) are intentionally NOT included — they break the OAuth consent flow. FMAPI calls use the app service principal instead.
 
-> **Important:** Scopes should be set when the app is first created. The deploy script (`test/deploy.sh`) handles this automatically.
-
-To set scopes manually:
-```bash
-databricks apps update <app-name> --json '{"user_api_scopes":["sql","dashboards.genie","files.files","catalog.connections","catalog.catalogs:read","catalog.schemas:read","catalog.tables:read"]}'
-```
+`test/deploy.sh` sets these scopes on every deploy (the `USER_API_SCOPES` constant near the top of the script is the source of truth).
 
 ### Local Development Auth
 
@@ -312,7 +321,7 @@ The app depends on the Impulse framework library which is developed in a separat
 
 ## Schema Profile
 
-The app's runtime data shape is described by a single YAML at `impulse_app/profiles.yaml`. When the file is missing, the app falls back to a built-in default that matches the upstream impulse-app silver-layer convention. The schema is validated against `SchemaProfile` in `server/schema_profile.py`.
+The app's runtime data shape is described by `profiles.yaml` at the repo root. When the file is missing, the app falls back to a built-in default that matches the upstream impulse-app silver-layer convention. The schema is validated against `SchemaProfile` in `server/schema_profile.py`.
 
 ### How the profile is consumed
 
@@ -445,22 +454,6 @@ channel_call_kwargs:
   signal: signal
   network: network
 ```
-
-## Environment Variables
-
-| Variable | Description |
-|----------|-------------|
-| `DATABRICKS_WAREHOUSE_ID` | SQL Warehouse ID |
-| `SERVING_ENDPOINT` | Default LLM endpoint (users can override in Settings; picker lists workspace endpoints dynamically) |
-| `DATABRICKS_PROFILE` | CLI profile (local mode only) |
-| `LAKEBASE_HOST` | Lakebase endpoint host (app mode only) |
-| `LAKEBASE_PORT` | Lakebase port (default `5432`) |
-| `LAKEBASE_DB` | Lakebase database name |
-| `LAKEBASE_PROJECT` | Lakebase project name |
-| `SECRET_SCOPE` | Databricks secret scope for Fernet key (default `impulse`) |
-| `SECRET_KEY_NAME` | Secret key name within the scope (default `fernet-key`) |
-| `IMPULSE_FRAMEWORK_WHEEL_FILENAME` | Filename of the Impulse framework wheel in `.template/template/lib/` |
-| `INGEST_NOTEBOOK_ROOT` | Override workspace path for ingest notebooks (default derived from the deploying user + app name) |
 
 ## Troubleshooting
 
