@@ -4,11 +4,7 @@ A full-stack web application for creating **Impulse framework** data reports thr
 
 The app reads silver-layer measurement data based on a **schema profile** (`profiles.yaml` at the repo root) that maps a customer's table and column names to the canonical names the wizard expects. Defaults match the upstream impulse-app silver-layer convention; per-customer overrides go in this single YAML file. The full field reference is in [Schema Profile](#schema-profile) below.
 
-> **Deploy with:**
-> ```bash
-> test/deploy.sh [--skip-build]
-> ```
-> Both the deployed app name (`name:`) and the Databricks CLI profile (`profile:`) come from `app.yaml`. Edit `app.yaml` to retarget. `DATABRICKS_PROFILE=<other>` may be passed as a shell override; the script prints a loud warning and uses it instead, but never falls back to a default.
+> **Deploy with:** `./install.sh` — see [INSTALL.md](INSTALL.md). The app name comes from `databricks.yml`'s `app_name` bundle variable (default `impulse-v3`); the CLI profile is whichever you're currently authenticated with.
 
 **Stack:** FastAPI (Python) + React (TypeScript), hosted as a Databricks App.
 
@@ -68,7 +64,6 @@ Delta Lake (silver layer: channels table, RLE format)
 | Path | Description |
 |------|-------------|
 | `app.py` | FastAPI entry point, serves built frontend as static files |
-| `app.yaml` | Databricks App configuration (env vars, command) |
 | `server/` | Backend: agent, routes, config, database, code generation |
 | `server/routes/` | API endpoint routers (chat, state, deploy, validate, visualize, etc.) |
 | `server/agent.py` | LLM agent with tool-calling loop (step-gated tools) |
@@ -83,7 +78,7 @@ Delta Lake (silver layer: channels table, RLE format)
 | `frontend/dist/` | Production build (served as static files) |
 | `skills/` | Domain-specific knowledge loaded into the agent's system prompt |
 | `ingest/` | MDF4-to-Silver ingest pipeline notebooks |
-| `report_template/` | Runtime DAB template the app runs `bundle init` against to scaffold each user-defined report (Go template syntax). Bundles the Impulse framework wheel at `report_template/template/lib/`. |
+| `report_template/` | Runtime DAB template the app runs `bundle init` against to scaffold each user-defined report (Go template syntax). The framework is pulled at job-deploy time from `github.com/databrickslabs/impulse` via pip. |
 | `databricks.yml` | Bundle definition — Lakebase instance, SQL warehouse, app + all bindings/permissions |
 | `install.sh` | Customer install script — see [INSTALL.md](INSTALL.md) |
 
@@ -168,14 +163,9 @@ When running locally, all operations use your `~/.databrickscfg` profile. No Lak
 
 ## Impulse Framework
 
-The app depends on the Impulse framework library which is developed in a separate repository. A pre-built wheel is bundled at `report_template/template/lib/` and automatically included in every scaffolded report project.
+The app depends on the Impulse framework (Python package `mda_reporting`) at https://github.com/databrickslabs/impulse. Each scaffolded report job's environment pulls the framework via pip directly from GitHub — no wheel binary is vendored in this repo.
 
-**Updating the framework version:**
-
-1. Build a new wheel in the framework repo: `uv build --wheel`
-2. Drop the new `.whl` in `report_template/template/lib/`
-3. Update `IMPULSE_FRAMEWORK_WHEEL_FILENAME` in `app.yaml` to match the new filename
-4. Commit and redeploy
+**Pinning the framework version:** edit `report_template/template/resources/jobs.yml.tmpl` and change `@main` to a specific commit SHA or tag (once the framework starts publishing releases).
 
 ## Schema Profile
 
@@ -321,7 +311,7 @@ Most install-time errors are documented in **[INSTALL.md → Troubleshooting](IN
 The app requires User Authorization scopes. Ensure scopes are set on the app (see `databricks.yml` `user_api_scopes`) and that the user has consented to the authorization prompt on first access.
 
 **Bundle doesn't pick up changes**
-`databricks bundle deploy` respects `.gitignore` AND `.bundleignore`. If your file isn't being uploaded, check both. `app.yaml` and `profiles.yaml` used to be gitignored historically — `app.yaml` is now tracked, `profiles.yaml` is still gitignored (customer-local).
+`databricks bundle deploy` respects `.gitignore` AND `.bundleignore`. If your file isn't being uploaded, check both. `profiles.yaml` is gitignored (customer-local — copy from `profiles.yaml.example`); add it explicitly to `.bundleignore` overrides or `git add -f` if you want it in your fork's deploy.
 
 **Lakebase schema out of date (missing columns)**
 `CREATE TABLE IF NOT EXISTS` doesn't alter existing tables. `server/db.py` has idempotent `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` statements for known migrations; add to `_SCHEMA_SQL` when introducing new columns.

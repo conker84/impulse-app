@@ -65,12 +65,6 @@
       "default": "",
       "description": "Email for job failure notifications in the PRD environment.",
       "order": 11
-    },
-    "wheel_filename": {
-      "type": "string",
-      "default": "mda_framework_v2-0.0.4-py3-none-any.whl",
-      "description": "Filename of the Impulse framework wheel bundled in lib/.",
-      "order": 12
     }
   },
   "success_message": "\nYour bundle '{{.report_name}}' has been created."

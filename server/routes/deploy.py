@@ -162,19 +162,6 @@ async def scaffold_report(session_id: str, request: Request):
 
     ws_host = get_workspace_client().config.host
 
-    # Auto-discover the wheel bundled in report_template/template/lib/.
-    # Exactly one .whl is expected; drop a new wheel into lib/ to bump.
-    import glob
-    lib_dir = os.path.join(TEMPLATE_ROOT, "template", "lib")
-    wheels = sorted(glob.glob(os.path.join(lib_dir, "*.whl")))
-    if len(wheels) != 1:
-        raise HTTPException(
-            500,
-            f"Expected exactly one .whl in {lib_dir}, found {len(wheels)}: {wheels}. "
-            "Drop a single Impulse framework wheel into report_template/template/lib/.",
-        )
-    wheel_filename = os.path.basename(wheels[0])
-
     config = {
         "report_name": state.name,
         "dev_host": os.environ.get("DAB_DEV_HOST", ws_host),
@@ -187,7 +174,6 @@ async def scaffold_report(session_id: str, request: Request):
         "prd_group": os.environ.get("DAB_PRD_GROUP", "users"),
         "prd_sp_name": os.environ.get("DAB_PRD_SP_NAME", ""),
         "prd_notification_email": os.environ.get("DAB_PRD_NOTIFICATION_EMAIL", user_email or ""),
-        "wheel_filename": wheel_filename,
     }
 
     config_path = os.path.join(user_dir, f"config_{state.name}.json")

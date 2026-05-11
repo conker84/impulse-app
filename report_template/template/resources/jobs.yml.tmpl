@@ -14,7 +14,10 @@ resources:
           spec:
             client: "5"
             dependencies:
-              - ../lib/{{.wheel_filename}}
+              # Pulls the Impulse framework (package `mda_reporting`) from
+              # github.com/databrickslabs/impulse at deploy time. Pin to a tag
+              # or commit SHA once the framework starts publishing releases.
+              - "mda_reporting @ git+https://github.com/databrickslabs/impulse@main"
       permissions:
         - level: CAN_MANAGE
           group_name: ${var.manage_group}
