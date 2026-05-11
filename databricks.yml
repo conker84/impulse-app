@@ -1,0 +1,71 @@
+bundle:
+  name: impulse
+
+# Bundle variables — customer values supplied either via:
+#   1. install.sh (reads from app.yaml / profiles.yaml + interactive prompts), or
+#   2. --var flags on the bundle deploy command line, or
+#   3. setting the *.default field here per fork.
+variables:
+  catalog:
+    description: Unity Catalog containing the customer's silver-layer impulse tables (channel_metrics, container_metrics, channels, etc.)
+  schema:
+    description: Schema within ${var.catalog} containing the impulse tables
+  warehouse_id:
+    description: SQL warehouse ID the app uses for queries
+  end_user_group:
+    description: Workspace group granted CAN_USE on the app + warehouse
+    default: users
+
+resources:
+  # Lakebase Postgres for app metadata. `database_instances` API silently
+  # creates an Autoscaling backend under the hood (Databricks-side change
+  # rolled out 2026-03-12 — see TASKS.md). Customer DB lives inside this
+  # instance and is registered as a UC catalog so DAB-managed UC features
+  # can attach to it later.
+  database_instances:
+    impulse_db:
+      name: impulse
+      capacity: CU_1
+
+  database_catalogs:
+    impulse_uccat:
+      database_instance_name: ${resources.database_instances.impulse_db.name}
+      database_name: impulse
+      name: impulse_lakebase
+      create_database_if_not_exists: true
+
+  apps:
+    impulse_app:
+      name: impulse
+      source_code_path: ${workspace.file_path}
+      compute_size: LARGE
+      user_api_scopes:
+        - sql
+        - dashboards.genie
+        - files.files
+        - catalog.connections
+        - catalog.catalogs:read
+        - catalog.schemas:read
+        - catalog.tables:read
+        - serving.serving-endpoints
+      resources:
+        # Lakebase binding — Databricks auto-provisions a Postgres role for
+        # the app's SP and grants CONNECT + CREATE on the database.
+        - name: lakebase
+          database:
+            instance_name: ${resources.database_instances.impulse_db.name}
+            database_name: ${resources.database_catalogs.impulse_uccat.database_name}
+            permission: CAN_CONNECT_AND_CREATE
+        # Read SQL warehouse via the user's OBO token; the binding just
+        # exposes the connection info to the app at runtime.
+        - name: sql
+          sql_warehouse:
+            id: ${var.warehouse_id}
+            permission: CAN_USE
+      permissions:
+        - level: CAN_USE
+          group_name: ${var.end_user_group}
+
+targets:
+  prod:
+    default: true

@@ -1,0 +1,31 @@
+# Bundle deploy upload ignore list — keep the uploaded source clean.
+
+# Python venv + bytecode
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+
+# Frontend dev artifacts (frontend/dist/ IS uploaded — that's the built UI)
+frontend/node_modules/
+frontend/.vite/
+
+# Local dev tooling
+.git/
+.github/
+.idea/
+.vscode/
+.DS_Store
+
+# Per-user scratch
+reports/
+test/
+TASKS.md
+CLAUDE.md
+PROJECT.md
+.claude/
+
+# Build/dev caches
+.databricks/
+*.log
+uv.lock
