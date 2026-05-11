@@ -11,5 +11,7 @@ CLAUDE.md
 uv.lock
 .vscode/
 frontend/dist/
-app.yaml
+# profiles.yaml is customer-specific schema mapping; ship profiles.yaml.example
+# in git (task #9) and let customers commit their own profiles.yaml in their
+# fork. Bundle deploy uploads whatever's in the repo tree.
 profiles.yaml

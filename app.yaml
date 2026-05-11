@@ -1,0 +1,4 @@
+name: impulse-v3
+env:
+  - name: IMPULSE_FRAMEWORK_WHEEL_FILENAME
+    value: "mda_framework_v2-0.0.4-py3-none-any.whl"
