@@ -116,12 +116,19 @@ SCHEMA=$SCHEMA
 END_USER_GROUP=$END_USER_GROUP
 EOF
 
-# Resolve app_name from databricks.yml (default in the bundle variable).
-APP_NAME=$(python3 -c "
-import yaml
-v = yaml.safe_load(open('databricks.yml')).get('variables', {}).get('app_name', {})
-print(v.get('default', 'impulse-v3'))
-")
+# Resolve app_name from databricks.yml. Plain regex to avoid a pyyaml
+# dependency on the customer's local Python.
+APP_NAME=$(python3 - <<'PY'
+import re
+text = open("databricks.yml").read()
+m = re.search(r"app_name:\s*[^\n]*?\n\s+default:\s*(\S+)", text, re.S)
+print(m.group(1).strip() if m else "impulse-v3")
+PY
+)
+if [ -z "$APP_NAME" ]; then
+  echo "ERROR: could not resolve app_name from databricks.yml" >&2
+  exit 1
+fi
 
 echo ""
 echo "=== Bundle deploy ==="
@@ -145,57 +152,87 @@ DATABRICKS_BUNDLE_ENGINE=direct databricks bundle deploy \
 echo ""
 echo "=== Post-deploy UC grants for app SP ==="
 
-SP_ID=$(databricks apps get "$APP_NAME" -o json | python3 -c "
-import sys, json
-print(json.load(sys.stdin)['service_principal_client_id'])
-")
+SP_ID=$(databricks apps get "$APP_NAME" -o json \
+  | python3 -c "import sys, json; print(json.load(sys.stdin).get('service_principal_client_id', ''))")
 echo "  SP: $SP_ID"
+if [ -z "$SP_ID" ]; then
+  echo "  ERROR: app $APP_NAME has no service_principal_client_id yet" >&2
+  exit 1
+fi
 
-WAREHOUSE_ID=$(databricks warehouses list -o json | python3 -c "
-import sys, json
+WAREHOUSE_ID=$(databricks warehouses list -o json \
+  | APP_NAME="$APP_NAME" python3 -c "
+import os, sys, json
+target = os.environ['APP_NAME']
 for w in json.load(sys.stdin):
-    if w.get('name') == '$APP_NAME':
+    if w.get('name') == target:
         print(w['id'])
-        break
-")
+        break")
 echo "  Warehouse: $WAREHOUSE_ID"
-
 if [ -z "$WAREHOUSE_ID" ]; then
   echo "  ERROR: could not find the bundle-created warehouse named $APP_NAME" >&2
   exit 1
 fi
 
-run_sql() {
-  local sql="$1"
-  echo "  -> $sql"
-  databricks api post /api/2.0/sql/statements --json "$(python3 -c "
-import json, sys
-print(json.dumps({
-    'warehouse_id': '$WAREHOUSE_ID',
-    'statement': sys.argv[1],
-    'wait_timeout': '30s',
-}))
-" "$sql")" -o json | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-state = d.get('status', {}).get('state', '?')
-err = d.get('status', {}).get('error', {}).get('message', '')
-print(f'     {state}{(\" — \" + err) if err else \"\"}')
-if state not in ('SUCCEEDED', 'PENDING'):
-    sys.exit(1)
-"
-}
+# Use Python (single block, no shell escaping) to issue the 4 GRANTs against
+# the bundle-created warehouse. Each statement is sent via the CLI's API
+# proxy with a temp-file JSON payload — no shell-quoting hazards.
+SP_ID="$SP_ID" CATALOG="$CATALOG" SCHEMA="$SCHEMA" WAREHOUSE_ID="$WAREHOUSE_ID" \
+  python3 - <<'PY'
+import json, os, subprocess, sys, tempfile
 
-run_sql "GRANT USE CATALOG ON CATALOG \`$CATALOG\` TO \`$SP_ID\`"
-run_sql "GRANT USE SCHEMA ON SCHEMA \`$CATALOG\`.\`$SCHEMA\` TO \`$SP_ID\`"
-run_sql "GRANT SELECT ON ALL TABLES IN SCHEMA \`$CATALOG\`.\`$SCHEMA\` TO \`$SP_ID\`"
-run_sql "GRANT SELECT ON FUTURE TABLES IN SCHEMA \`$CATALOG\`.\`$SCHEMA\` TO \`$SP_ID\`"
+sp = os.environ["SP_ID"]
+cat = os.environ["CATALOG"]
+sch = os.environ["SCHEMA"]
+wh  = os.environ["WAREHOUSE_ID"]
+
+stmts = [
+    # UC permissions are hierarchical — granting SELECT ON SCHEMA cascades
+    # to all current and future tables in that schema. No need for the
+    # Postgres-style ALL TABLES IN SCHEMA / FUTURE TABLES IN SCHEMA syntax.
+    f"GRANT USE CATALOG ON CATALOG `{cat}` TO `{sp}`",
+    f"GRANT USE SCHEMA ON SCHEMA `{cat}`.`{sch}` TO `{sp}`",
+    f"GRANT SELECT ON SCHEMA `{cat}`.`{sch}` TO `{sp}`",
+]
+
+failed = 0
+for sql in stmts:
+    print(f"  -> {sql}")
+    payload = {"warehouse_id": wh, "statement": sql, "wait_timeout": "30s"}
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+        json.dump(payload, f)
+        path = f.name
+    try:
+        result = subprocess.run(
+            ["databricks", "api", "post", "/api/2.0/sql/statements",
+             "--json", f"@{path}", "-o", "json"],
+            capture_output=True, text=True,
+        )
+    finally:
+        os.unlink(path)
+    if result.returncode != 0:
+        print(f"     FAIL: {result.stderr.strip()[:200]}")
+        failed += 1
+        continue
+    try:
+        d = json.loads(result.stdout)
+    except Exception:
+        print(f"     FAIL: non-JSON response: {result.stdout.strip()[:200]}")
+        failed += 1
+        continue
+    status = d.get("status", {})
+    state = status.get("state", "?")
+    err = status.get("error", {}).get("message", "")
+    print(f"     {state}{(' — ' + err) if err else ''}")
+    if state not in ("SUCCEEDED", "PENDING"):
+        failed += 1
+
+sys.exit(1 if failed else 0)
+PY
 
 # Final summary.
-APP_URL=$(databricks apps get "$APP_NAME" -o json | python3 -c "
-import sys, json
-print(json.load(sys.stdin).get('url', 'pending — check workspace UI'))
-")
+APP_URL=$(databricks apps get "$APP_NAME" -o json \
+  | python3 -c "import sys, json; print(json.load(sys.stdin).get('url', 'pending — check workspace UI'))")
 
 echo ""
 echo "=== Install complete ==="
