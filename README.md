@@ -83,174 +83,40 @@ Delta Lake (silver layer: channels table, RLE format)
 | `frontend/dist/` | Production build (served as static files) |
 | `skills/` | Domain-specific knowledge loaded into the agent's system prompt |
 | `ingest/` | MDF4-to-Silver ingest pipeline notebooks |
-| `report_template/` | Runtime DAB template the app runs `bundle init` against to scaffold each user-defined report (Go template syntax). Bundles the Impulse framework wheel at `report_template/template/lib/`. Not the customer-install template — that lives at `template/` (DAB convention). |
+| `report_template/` | Runtime DAB template the app runs `bundle init` against to scaffold each user-defined report (Go template syntax). Bundles the Impulse framework wheel at `report_template/template/lib/`. |
+| `databricks.yml` | Bundle definition — Lakebase instance, SQL warehouse, app + all bindings/permissions |
+| `install.sh` | Customer install script — see [INSTALL.md](INSTALL.md) |
 
-## Prerequisites
+## Prerequisites (for development)
 
-1. **Databricks workspace** with:
-   - A SQL Warehouse
-   - A Foundation Model API serving endpoint (e.g. `databricks-claude-sonnet-4-6`)
-   - Unity Catalog tables for channel aliases and vehicle mapping
+For customer install prereqs see [INSTALL.md](INSTALL.md). For local development:
 
+1. **Databricks workspace** with Apps, Lakebase, and FMAPI enabled
 2. **Databricks CLI** configured with a profile in `~/.databrickscfg`
-
 3. **Python 3.12+** — managed via `uv`
-
 4. **Node.js 18+** and npm (for frontend builds)
 
 ## Deploy to Databricks
 
-### Step 1: Create and deploy the app
-
-First make sure `app.yaml`'s top-level `name:` and `profile:` fields point at the app and CLI profile you want to deploy with.
+See **[INSTALL.md](INSTALL.md)** for the customer-facing install guide. TL;DR:
 
 ```bash
-# First time: the deploy script auto-creates the app with OBO scopes
-# Subsequent times: it just syncs and redeploys
-git add -A && git commit -m "deploy"
-test/deploy.sh
+cp profiles.yaml.example profiles.yaml   # only if your schema differs from defaults
+databricks auth login --host https://<workspace>.cloud.databricks.com --profile <name>
+./install.sh
 ```
 
-On first run, the script creates the app and provisions a service principal. After it finishes, capture the SP's client ID — you'll need it for Steps 2-4:
+`install.sh` runs `databricks bundle deploy` (which creates the Lakebase instance, SQL warehouse, app, and all bindings) and then grants the app's service principal `USE_CATALOG` / `USE_SCHEMA` / `SELECT` on your silver-layer schema. Re-runs are idempotent.
 
-```bash
-databricks apps get <app-name> --profile <your-profile> -o json \
-  | python3 -c "import sys,json; print(json.load(sys.stdin)['service_principal_client_id'])"
-```
+### Resource names
 
-Save this value; it's referenced as `<sp-client-id>` below.
+The bundle creates everything with the name set by the `app_name` variable in `databricks.yml` (default `impulse-v3`):
 
-### Step 2: Create Lakebase infrastructure (first time only)
+- App: `impulse-v3`
+- Lakebase instance: `impulse-v3`
+- SQL warehouse: `impulse-v3` (Medium, serverless, 10-min auto-stop)
 
-```bash
-# Create a Lakebase project (managed PostgreSQL)
-databricks postgres create-project impulse \
-  --json '{"spec": {"display_name": "Impulse"}}' \
-  --no-wait -p <your-profile>
-
-# Wait for endpoint to become ACTIVE (~1-2 min), then note the host
-databricks postgres list-endpoints \
-  projects/impulse/branches/production \
-  -p <your-profile> -o json
-```
-
-Once the endpoint is active, create the database and set up the service principal's OAuth role. Connect as the project owner (your human user):
-
-```python
-import subprocess, json, psycopg
-
-# Generate a short-lived OAuth token
-result = subprocess.run(
-    ["databricks", "postgres", "generate-database-credential",
-     "projects/impulse/branches/production/endpoints/primary",
-     "-o", "json", "--profile", "<your-profile>"],
-    capture_output=True, text=True,
-)
-cred = json.loads(result.stdout)
-
-# Connect to default database and create the app database
-conn = psycopg.connect(
-    host="<endpoint-host>", port=5432,
-    dbname="databricks_postgres",
-    user="<your-email>", password=cred["token"],
-    sslmode="require", autocommit=True,
-)
-conn.cursor().execute("CREATE DATABASE impulse;")
-conn.close()
-
-# Reconnect to the new database and set up auth
-conn = psycopg.connect(
-    host="<endpoint-host>", port=5432,
-    dbname="impulse",
-    user="<your-email>", password=cred["token"],
-    sslmode="require", autocommit=True,
-)
-cur = conn.cursor()
-cur.execute("CREATE EXTENSION IF NOT EXISTS databricks_auth;")
-cur.execute("SELECT databricks_create_role('<sp-client-id>', 'SERVICE_PRINCIPAL');")
-cur.execute('GRANT ALL PRIVILEGES ON DATABASE impulse TO "<sp-client-id>";')
-cur.execute('GRANT ALL ON SCHEMA public TO "<sp-client-id>";')
-conn.close()
-```
-
-> **Important:** You must use `databricks_create_role()` — plain `CREATE ROLE` does not support OAuth token authentication and will fail with `password authentication failed`.
-
-The app automatically creates the required tables on first startup via `server/db.py`.
-
-> **If recreating the app** (delete + create): the new service principal gets a new client ID. You must re-run `databricks_create_role()` and grants for the new SP. If tables already exist from the old SP, drop them first — the new SP cannot ALTER tables it doesn't own.
-
-### Step 3: Create a secret scope for PAT encryption
-
-```bash
-databricks secrets create-scope impulse --profile <your-profile>
-
-# Generate and store a Fernet encryption key
-python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-databricks secrets put-secret impulse fernet-key \
-  --string-value "<generated-key>" --profile <your-profile>
-
-# Grant the app's service principal READ access
-databricks secrets put-acl impulse <sp-client-id> READ \
-  --profile <your-profile>
-```
-
-### Step 4: Update `app.yaml`
-
-`app.yaml` is the **single source of truth** for the deployed app. Edit:
-
-- **`name:`** (top-level) — the app name on the workspace, e.g. `impulse-stla`. The deploy script reads this and derives the workspace path as `/Workspace/Users/<you>/<name>-app`.
-- **`profile:`** (top-level) — the Databricks CLI profile to deploy with, matching a section in `~/.databrickscfg`. The script aborts if this is missing.
-- **`env:`** — verify the variables match your workspace:
-
-| Variable | Description |
-|----------|-------------|
-| `IMPULSE_FRAMEWORK_WHEEL_FILENAME` | Filename of the Impulse framework wheel bundled in `report_template/template/lib/`. Bumping the wheel = drop the new file in `lib/` and update this value |
-| `DATABRICKS_WAREHOUSE_ID` | *(optional)* Pin a specific SQL warehouse. By default, the app looks up the bundle-created warehouse by name (same as `DATABRICKS_APP_NAME`) |
-| `LAKEBASE_INSTANCE_NAME` | *(optional)* Override the Lakebase instance to connect to. Defaults to `${DATABRICKS_APP_NAME}` |
-| `INGEST_NOTEBOOK_ROOT` | *(optional)* Override the workspace path for ingest notebooks. Default `/Workspace/Shared/<app>/ingest` |
-
-The bundle creates the SQL warehouse + Lakebase instance both named the same as the app. The app discovers them at runtime via the SDK — no IDs in env vars. The chat model defaults to the first endpoint from the curated list (`CURATED_MODELS` in `server/config.py`) that exists in the workspace; end users override per-account via Settings.
-
-### Step 5: Grant permissions
-
-**Service principal grants** (needed for the app to function):
-
-| Resource | Permission | How to grant |
-|----------|-----------|--------------|
-| Lakebase database | OAuth role + `ALL PRIVILEGES` | See Step 2 |
-| Secret scope (`SECRET_SCOPE`) | `READ` | `databricks secrets put-acl <scope> <sp-client-id> READ` |
-| ~~Foundation Model API endpoint~~ | ~~`CAN QUERY`~~ | **No longer needed.** FMAPI calls now use the user's OBO token via `serving.serving-endpoints` scope (token-exchange fix shipped 2026-04-29). End users need their own FMAPI access — usually inherited via `EXECUTE` on `system.ai.*` granted to all account users. |
-
-> SQL Warehouse and Unity Catalog permissions on the SP are **not needed** — those operations use the user's OBO token.
-
-**End-user grants** (needed for each person using the app):
-
-| Resource | Permission |
-|----------|-----------|
-| SQL Warehouse referenced by `DATABRICKS_WAREHOUSE_ID` | `CAN USE` |
-| Unity Catalog tables read by the wizard (channel/container/aliases) | `SELECT` |
-| Unity Catalog catalog/schemas being browsed | `USE CATALOG` / `USE SCHEMA` |
-| The app itself | `CAN USE` (granted in the app's Permissions tab) |
-
-### Step 6: Redeploy
-
-After completing Steps 2-5, redeploy so the app picks up the Lakebase and secrets configuration:
-
-```bash
-test/deploy.sh --skip-build
-```
-
-The app URL will be shown in the output, e.g.: `https://impulse-<hash>.databricksapps.com`
-
-Use `--skip-build` for backend-only changes, `--sync-only` for just syncing files.
-
-### Redeployment (after code changes)
-
-```bash
-git add -A && git commit -m "update"
-test/deploy.sh              # full rebuild
-test/deploy.sh --skip-build # backend-only
-```
+App metadata lives in `databricks_postgres.impulse.*` inside the Lakebase instance (see `.claude/TASKS.md` follow-ups for why this shape).
 
 ## Run Locally
 
@@ -277,19 +143,18 @@ Set `DATABRICKS_PROFILE` to override the CLI profile used.
 
 | Identity | Used for |
 |----------|----------|
-| **User OBO token** (automatic via User Authorization) | SQL queries, UC browsing, MCP tools, file uploads |
-| **App Service Principal** (auto-provisioned) | Lakebase read/write, Fernet key retrieval, MCP tool discovery |
-| **User's PAT** (entered in Settings UI) | Job deploy and job run only (ingest + report deploy) |
+| **User OBO token** (forwarded via `X-Forwarded-Access-Token`) | SQL queries, UC browsing, MCP tools, file uploads, FMAPI inference |
+| **App Service Principal** (auto-provisioned) | Lakebase read/write, MCP tool discovery, ingest + report-deploy job orchestration |
 
-The app uses **User Authorization (OBO)** as the primary auth mechanism. When a user accesses the app, Databricks issues an OBO token that is forwarded via the `X-Forwarded-Access-Token` header. This token carries the user's identity and permissions for all data operations.
+The app uses **User Authorization (OBO)** as the primary auth mechanism. When a user accesses the app, Databricks issues an OBO token forwarded via the `X-Forwarded-Access-Token` header — this token carries the user's identity and permissions for all data operations.
 
 LLM inference (Foundation Model API) uses the user's OBO token via the `serving.serving-endpoints` scope (consent-flow fix shipped 2026-04-29). End users see their own usage in audit logs.
 
-A PAT is only required for the two job operations (MF4 ingest and report deploy) because OBO tokens lack the `jobs` scope.
+Jobs (MF4 ingest + report deploy) run as the app's service principal using its auto-injected OAuth client credentials (no PATs; the SP-as-orchestrator pattern). Triggering user identity is carried in job parameters / tags for audit.
 
 ### User Authorization Scopes
 
-The app requires these scopes (set at app creation time via the deploy script):
+The app's `user_api_scopes` (set in `databricks.yml`):
 
 ```
 sql, dashboards.genie, files.files, catalog.connections,
@@ -297,13 +162,9 @@ catalog.catalogs:read, catalog.schemas:read, catalog.tables:read,
 serving.serving-endpoints
 ```
 
-`serving.serving-endpoints` is included as of the 2026-04-29 token-exchange fix — FMAPI calls now use the user's OBO token. `serving.serving-endpoints-data-plane` is NOT included (still has an open MAS / model-serving scope mismatch; this app doesn't use MAS).
-
-`test/deploy.sh` sets these scopes on every deploy (the `USER_API_SCOPES` constant near the top of the script is the source of truth).
-
 ### Local Development Auth
 
-When running locally, all operations use your `~/.databrickscfg` profile. No Lakebase, no PAT storage, no settings UI.
+When running locally, all operations use your `~/.databrickscfg` profile. No Lakebase, sessions are in-memory only.
 
 ## Impulse Framework
 
@@ -454,17 +315,13 @@ channel_call_kwargs:
 
 ## Troubleshooting
 
-**`password authentication failed for user '<sp-client-id>'`**
-The Lakebase Postgres role must be created with `databricks_create_role()`, not `CREATE ROLE`. See Step 2 above.
-
-**`PermissionDenied: does not have READ permission on scope impulse`**
-Grant the SP read access: `databricks secrets put-acl impulse <sp-client-id> READ`
+Most install-time errors are documented in **[INSTALL.md → Troubleshooting](INSTALL.md#troubleshooting)**. A few dev-specific ones:
 
 **`401 User authorization token required`**
-The app requires User Authorization scopes. Ensure scopes are set on the app (see above) and that the user has consented to the authorization prompt on first access.
+The app requires User Authorization scopes. Ensure scopes are set on the app (see `databricks.yml` `user_api_scopes`) and that the user has consented to the authorization prompt on first access.
 
-**Deploy doesn't pick up changes**
-`databricks sync` only syncs git-tracked files. Make sure to `git commit` before deploying.
+**Bundle doesn't pick up changes**
+`databricks bundle deploy` respects `.gitignore` AND `.bundleignore`. If your file isn't being uploaded, check both. `app.yaml` and `profiles.yaml` used to be gitignored historically — `app.yaml` is now tracked, `profiles.yaml` is still gitignored (customer-local).
 
 **Lakebase schema out of date (missing columns)**
-`CREATE TABLE IF NOT EXISTS` doesn't alter existing tables. Run `ALTER TABLE` manually against Lakebase to add missing columns, or drop and recreate the table.
+`CREATE TABLE IF NOT EXISTS` doesn't alter existing tables. `server/db.py` has idempotent `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` statements for known migrations; add to `_SCHEMA_SQL` when introducing new columns.
