@@ -25,6 +25,12 @@
 
 set -euo pipefail
 
+CHECK_ONLY=false
+if [ "${1:-}" = "--check" ]; then
+  CHECK_ONLY=true
+  shift
+fi
+
 CONFIG_FILE=".install.config"
 
 # Persisted values from a previous run, if any.
@@ -48,6 +54,51 @@ prompt() {
     eval "$var=\"\${input:-$current}\""
   fi
 }
+
+check() {
+  local label="$1"
+  shift
+  printf "  %-48s " "$label"
+  if "$@" >/dev/null 2>&1; then
+    echo "OK"
+    return 0
+  else
+    echo "FAIL"
+    return 1
+  fi
+}
+
+if [ "$CHECK_ONLY" = true ]; then
+  echo "=== Workspace prereq check ==="
+  failed=0
+  check "auth (databricks current-user me)" \
+    databricks current-user me || failed=$((failed+1))
+  check "Apps API enabled" \
+    databricks apps list || failed=$((failed+1))
+  check "Lakebase API enabled" \
+    databricks database list-database-instances || failed=$((failed+1))
+  check "SQL warehouses API" \
+    databricks warehouses list || failed=$((failed+1))
+  check "Serving endpoints (FMAPI)" \
+    databricks serving-endpoints list || failed=$((failed+1))
+  if [ -n "$CATALOG" ]; then
+    check "Target catalog exists: $CATALOG" \
+      databricks catalogs get "$CATALOG" || failed=$((failed+1))
+    if [ -n "$SCHEMA" ]; then
+      check "Target schema exists: $CATALOG.$SCHEMA" \
+        databricks schemas get "$CATALOG.$SCHEMA" || failed=$((failed+1))
+    fi
+  else
+    echo "  (set IMPULSE_CATALOG to also probe the target catalog/schema)"
+  fi
+  echo ""
+  if [ "$failed" -gt 0 ]; then
+    echo "$failed check(s) failed. See INSTALL.md → Troubleshooting." >&2
+    exit 1
+  fi
+  echo "All checks passed. Run ./install.sh without --check to deploy."
+  exit 0
+fi
 
 echo "=== Customer values ==="
 prompt CATALOG "Unity Catalog containing your silver-layer impulse tables"

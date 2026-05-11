@@ -103,6 +103,14 @@ The bundle has already granted that group `CAN_USE` on the app + warehouse, so y
 
 ---
 
+## Probing prereqs without deploying
+
+```bash
+./install.sh --check
+```
+
+Runs read-only API probes against your authenticated workspace to confirm Apps + Lakebase + warehouses + FMAPI are all enabled and that your target catalog/schema exist (if `IMPULSE_CATALOG` / `IMPULSE_SCHEMA` are set). Exits non-zero with a count of failed checks. Useful in CI before doing a real deploy.
+
 ## Non-interactive / CI install
 
 ```bash
