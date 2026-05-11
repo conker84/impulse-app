@@ -204,16 +204,11 @@ databricks secrets put-acl impulse <sp-client-id> READ \
 
 | Variable | Description |
 |----------|-------------|
-| `DATABRICKS_WAREHOUSE_ID` | SQL Warehouse ID |
-| `SERVING_ENDPOINT` | Default Foundation Model API endpoint used for chat. Users can switch to any endpoint listed in `AVAILABLE_MODELS` (`server/config.py`) from the Settings UI |
-| `LAKEBASE_HOST` | Endpoint host from `list-endpoints` output |
-| `LAKEBASE_PORT` | Lakebase port (default `5432` — rarely changed) |
-| `LAKEBASE_DB` | Lakebase database name (e.g. `impulse`) |
-| `LAKEBASE_PROJECT` | Lakebase project name (e.g. `impulse`) |
-| `SECRET_SCOPE` | Databricks secret scope for the Fernet key (default `impulse`) |
-| `SECRET_KEY_NAME` | Secret key name within the scope (default `fernet-key`) |
+| `DATABRICKS_WAREHOUSE_ID` | SQL Warehouse ID — the only customer-specific value |
+| `SERVING_ENDPOINT` | Default FMAPI endpoint used for chat. End users can pick another from Settings (the dropdown is filtered to endpoints actually available in the workspace) |
 | `IMPULSE_FRAMEWORK_WHEEL_FILENAME` | Filename of the Impulse framework wheel bundled in `report_template/template/lib/`. Bumping the wheel = drop the new file in `lib/` and update this value |
-| `INGEST_NOTEBOOK_ROOT` | *(optional)* Override the workspace path for ingest notebooks. Default is derived from the deploying user + app name |
+| `LAKEBASE_INSTANCE_NAME` | *(optional)* Override the Lakebase instance to connect to. Defaults to `${DATABRICKS_APP_NAME}` so it always matches the app name the bundle created |
+| `INGEST_NOTEBOOK_ROOT` | *(optional)* Override the workspace path for ingest notebooks. Default `/Workspace/Shared/<app>/ingest` |
 
 ### Step 5: Grant permissions
 

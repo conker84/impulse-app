@@ -23,8 +23,16 @@ from server.config import IS_DATABRICKS_APP
 
 logger = logging.getLogger(__name__)
 
-LAKEBASE_INSTANCE_NAME = os.environ.get("LAKEBASE_INSTANCE_NAME", "impulse")
-LAKEBASE_DB = os.environ.get("LAKEBASE_DB", "databricks_postgres")
+# The Lakebase instance name is derived from DATABRICKS_APP_NAME — the bundle
+# creates both with the same value (the `app_name` variable). The default
+# `databricks_postgres` database always exists on every Lakebase instance, so
+# neither value needs to be customer-configurable. Override LAKEBASE_INSTANCE_NAME
+# only if the bundle was deployed with a non-default name mismatch.
+LAKEBASE_INSTANCE_NAME = os.environ.get(
+    "LAKEBASE_INSTANCE_NAME",
+    os.environ.get("DATABRICKS_APP_NAME", "impulse"),
+)
+LAKEBASE_DB = "databricks_postgres"
 
 # All tables live in a SP-owned `impulse` schema. The app SP creates the schema
 # at startup (it gets CREATE on the database via the binding's
@@ -116,14 +124,13 @@ def get_connection(dbname: str | None = None) -> psycopg.Connection:
             "Lakebase is only available when running as a Databricks App."
         )
     host, _ = _resolve_instance()
-    port = int(os.environ.get("LAKEBASE_PORT", "5432"))
     db = dbname or LAKEBASE_DB
 
     user, password = _get_db_credential()
 
     return psycopg.connect(
         host=host,
-        port=port,
+        port=5432,
         dbname=db,
         user=user,
         password=password,
