@@ -1,137 +1,16 @@
-"""Encrypted PAT storage + user preferences backed by Lakebase.
+"""Per-user preferences (cluster ID, serving endpoint) backed by Lakebase.
 
-Stores per-user Personal Access Tokens (encrypted with Fernet) and
-preferences (cluster ID, serving endpoint) in the Lakebase PostgreSQL
-database. In local mode every function is a no-op.
-
-PATs are required for deploying and running jobs on behalf of users
-because the OBO token's OAuth scopes don't cover the Jobs/Workspace APIs.
+The encrypted-PAT layer was removed when the app moved to SP-as-orchestrator
+for job ops (see TASKS.md). In local mode every function is a no-op.
 """
 
 from __future__ import annotations
 
 import logging
-import os
-from functools import lru_cache
 
 from server.config import IS_DATABRICKS_APP
 
 logger = logging.getLogger(__name__)
-
-
-# ---------------------------------------------------------------------------
-# Fernet encryption (PAT at rest)
-# ---------------------------------------------------------------------------
-
-@lru_cache()
-def _get_fernet():
-    """Retrieve the Fernet key from Databricks Secrets and return a Fernet instance."""
-    import base64
-
-    from cryptography.fernet import Fernet
-    from server.config import get_workspace_client
-
-    scope = os.environ.get("SECRET_SCOPE", "impulse")
-    key_name = os.environ.get("SECRET_KEY_NAME", "fernet-key")
-
-    w = get_workspace_client()
-    secret_resp = w.secrets.get_secret(scope=scope, key=key_name)
-    raw = secret_resp.value
-    if isinstance(raw, str):
-        raw = raw.encode()
-    key_bytes = base64.b64decode(raw)
-
-    logger.info("Loaded Fernet key from scope=%s key=%s", scope, key_name)
-    return Fernet(key_bytes)
-
-
-def _encrypt(plaintext: str) -> str:
-    return _get_fernet().encrypt(plaintext.encode()).decode()
-
-
-def _decrypt(ciphertext: str) -> str:
-    return _get_fernet().decrypt(ciphertext.encode()).decode()
-
-
-# ---------------------------------------------------------------------------
-# PAT persistence
-# ---------------------------------------------------------------------------
-
-def store_pat(user_email: str, pat: str) -> None:
-    """Encrypt and upsert a PAT for the given user."""
-    if not IS_DATABRICKS_APP:
-        logger.debug("store_pat no-op in local mode")
-        return
-
-    from server.db import get_connection
-
-    encrypted = _encrypt(pat)
-    with get_connection() as conn:
-        conn.execute(
-            """
-            INSERT INTO user_settings (user_email, encrypted_pat, updated_at)
-            VALUES (%s, %s, NOW())
-            ON CONFLICT (user_email)
-            DO UPDATE SET encrypted_pat = EXCLUDED.encrypted_pat, updated_at = NOW()
-            """,
-            (user_email, encrypted),
-        )
-        conn.commit()
-    logger.info("Stored PAT for %s", user_email)
-
-
-def get_pat(user_email: str) -> str | None:
-    """Retrieve and decrypt the stored PAT, or None if not found."""
-    if not IS_DATABRICKS_APP:
-        return None
-
-    from server.db import get_connection
-
-    with get_connection() as conn:
-        row = conn.execute(
-            "SELECT encrypted_pat FROM user_settings WHERE user_email = %s",
-            (user_email,),
-        ).fetchone()
-
-    if not row or not row[0]:
-        return None
-    return _decrypt(row[0])
-
-
-def has_pat(user_email: str) -> bool:
-    """Check whether a non-empty PAT is stored for the user."""
-    if not IS_DATABRICKS_APP:
-        return False
-
-    from server.db import get_connection
-
-    with get_connection() as conn:
-        row = conn.execute(
-            "SELECT encrypted_pat FROM user_settings WHERE user_email = %s",
-            (user_email,),
-        ).fetchone()
-
-    return bool(row and row[0])
-
-
-def delete_pat(user_email: str) -> bool:
-    """Clear the stored PAT. Returns True if a row was updated."""
-    if not IS_DATABRICKS_APP:
-        return False
-
-    from server.db import get_connection
-
-    with get_connection() as conn:
-        cur = conn.execute(
-            "UPDATE user_settings SET encrypted_pat = '', updated_at = NOW() WHERE user_email = %s",
-            (user_email,),
-        )
-        conn.commit()
-        updated = cur.rowcount > 0
-
-    if updated:
-        logger.info("Deleted PAT for %s", user_email)
-    return updated
 
 
 # ---------------------------------------------------------------------------

@@ -1,7 +1,7 @@
-"""User settings endpoints — PAT management, cluster and model preferences.
+"""User settings endpoints — cluster and model preferences.
 
-Per-user preferences and encrypted PATs are stored in Lakebase.
-PATs are required for deploying and running jobs on behalf of users.
+The PAT-management routes were removed when the app moved to SP-as-orchestrator
+for job ops (see TASKS.md).
 """
 
 from __future__ import annotations
@@ -11,11 +11,10 @@ import logging
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from server.config import IS_DATABRICKS_APP
-from server.config import SERVING_ENDPOINT, get_available_models
+from server.config import IS_DATABRICKS_APP, SERVING_ENDPOINT, get_available_models
 from server.token_store import (
-    delete_pat, get_cluster_id, get_serving_endpoint,
-    has_pat, store_cluster_id, store_pat, store_serving_endpoint,
+    get_cluster_id, get_serving_endpoint,
+    store_cluster_id, store_serving_endpoint,
 )
 
 logger = logging.getLogger(__name__)
@@ -35,7 +34,11 @@ def _resolve_user_email(request: Request) -> str:
 
 @router.get("/token-status")
 async def token_status(request: Request):
-    """Check whether the user has a stored PAT, cluster config, and model preference."""
+    """Return user preferences (cluster ID, serving endpoint, available models).
+
+    Endpoint name is legacy — kept for frontend compat. PAT fields are
+    unconditionally true since no PAT is needed anymore.
+    """
     available_models = get_available_models()
     if not IS_DATABRICKS_APP:
         return {
@@ -49,43 +52,12 @@ async def token_status(request: Request):
     email = _resolve_user_email(request)
     return {
         "local_mode": False,
-        "has_token": has_pat(email),
+        "has_token": True,
         "user_email": email,
         "cluster_id": get_cluster_id(email),
         "serving_endpoint": get_serving_endpoint(email) or SERVING_ENDPOINT,
         "available_models": available_models,
     }
-
-
-class TokenRequest(BaseModel):
-    pat: str
-
-
-@router.post("/token")
-async def save_token(request: Request, body: TokenRequest):
-    """Store an encrypted PAT for the calling user."""
-    if not IS_DATABRICKS_APP:
-        return {"status": "skipped", "message": "Local mode — PAT storage not needed."}
-
-    email = _resolve_user_email(request)
-    if not body.pat or not body.pat.startswith("dapi"):
-        raise HTTPException(400, "Invalid PAT. Databricks PATs start with 'dapi'.")
-
-    store_pat(email, body.pat)
-    return {"status": "saved", "user_email": email}
-
-
-@router.delete("/token")
-async def remove_token(request: Request):
-    """Delete the stored PAT for the calling user."""
-    if not IS_DATABRICKS_APP:
-        return {"status": "skipped", "message": "Local mode — no PAT to delete."}
-
-    email = _resolve_user_email(request)
-    deleted = delete_pat(email)
-    if not deleted:
-        raise HTTPException(404, "No stored PAT found for your account.")
-    return {"status": "deleted", "user_email": email}
 
 
 class ClusterRequest(BaseModel):

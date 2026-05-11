@@ -19,47 +19,28 @@ from fastapi import APIRouter, HTTPException, Request
 
 from server.agent import _sessions
 from server.code_generator import generate_all_files
-from server.config import DATABRICKS_PROFILE, IS_DATABRICKS_APP, REPORTS_ROOT, TEMPLATE_ROOT, get_user_client, get_workspace_client
+from server.config import DATABRICKS_PROFILE, IS_DATABRICKS_APP, REPORTS_ROOT, TEMPLATE_ROOT, get_workspace_client
 from server.models import DeploymentStatus
 
 logger = logging.getLogger(__name__)
 
 
-def _cli_env(user_email: str | None, user_token: str | None = None) -> dict[str, str]:
-    """Build env dict for Databricks CLI subprocesses.
+def _cli_env(user_email: str | None = None, user_token: str | None = None) -> dict[str, str]:
+    """Build env dict for Databricks CLI subprocesses (bundle init / bundle deploy).
 
-    On Databricks App: uses the forwarded user token (from the logged-in user's
-    session) for authentication. Falls back to a stored PAT if available.
-    Locally: inherits the environment as-is (profile from ~/.databrickscfg).
+    Uses the app's service principal credentials (DATABRICKS_CLIENT_ID +
+    DATABRICKS_CLIENT_SECRET injected by the Databricks Apps runtime) — these
+    are already in os.environ and the CLI/SDK picks them up automatically.
+    The OBO token doesn't have the jobs scope needed for bundle deploy
+    (Auth team has indicated jobs OBO scope is not planned — see TASKS.md).
+
+    The triggering user is captured in job tags / parameters and the app's
+    own metadata for audit, not via job ownership.
     """
     env = os.environ.copy()
     if "HOME" not in env:
         env["HOME"] = "/tmp"
     env["DATABRICKS_BUNDLE_ENGINE"] = "direct"
-    if IS_DATABRICKS_APP:
-        # PAT first — OBO tokens lack jobs/workspace scopes
-        token = None
-        if user_email:
-            try:
-                from server.token_store import get_pat
-                token = get_pat(user_email)
-                logger.info("_cli_env: user_email=%s, got stored PAT=%s", user_email, bool(token))
-            except Exception:
-                logger.warning("Failed to look up stored PAT (Lakebase may be unavailable)")
-        if not token:
-            token = user_token
-            logger.info("_cli_env: user_email=%s, falling back to forwarded token=%s", user_email, bool(token))
-        if not token:
-            raise HTTPException(
-                401,
-                "Deploy requires a user token. Either:\n"
-                "1. Ask your workspace admin to enable User Authorization on this app "
-                "(adds X-Forwarded-Access-Token header), or\n"
-                "2. Open Settings (gear icon) and save your Personal Access Token.",
-            )
-        env["DATABRICKS_TOKEN"] = token
-        env.pop("DATABRICKS_CLIENT_ID", None)
-        env.pop("DATABRICKS_CLIENT_SECRET", None)
     return env
 
 
@@ -74,20 +55,13 @@ def _get_user_email(request: Request) -> str:
 
 
 def _get_user_workspace_client(user_email: str):
-    """Return a WorkspaceClient authenticated with the user's stored PAT.
+    """Return the SP-authenticated WorkspaceClient for job status / cancellation.
 
-    Used for job status polling and cancellation. Falls back to the
-    service principal client in local mode or when no PAT is stored.
+    The SP owns deployed jobs (created via bundle deploy by the SP), so it can
+    poll and cancel them directly. user_email is retained in the signature for
+    audit logging callers.
     """
-    if not IS_DATABRICKS_APP:
-        return get_workspace_client()
-
-    from server.token_store import get_pat
-    pat = get_pat(user_email)
-    if not pat:
-        return get_workspace_client()
-
-    return get_user_client(pat)
+    return get_workspace_client()
 
 
 def _profile_args() -> list[str]:
@@ -165,13 +139,6 @@ def _user_report_dir(user_email: str, report_name: str) -> str:
 @router.post("/scaffold/{session_id}")
 async def scaffold_report(session_id: str, request: Request):
     """Scaffold a new report from the template, then overwrite with generated code."""
-    fwd_token = request.headers.get("X-Forwarded-Access-Token")
-    fwd_email = request.headers.get("X-Forwarded-Email")
-    logger.info(
-        "scaffold: X-Forwarded-Email=%s, has_X-Forwarded-Access-Token=%s, headers=%s",
-        fwd_email, bool(fwd_token),
-        [k for k in request.headers.keys() if "forward" in k.lower() or "auth" in k.lower()],
-    )
     user_email = _get_user_email(request)
     state = _get_session_state(session_id)
 
@@ -238,7 +205,7 @@ async def scaffold_report(session_id: str, request: Request):
             capture_output=True,
             text=True,
             check=True,
-            env=_cli_env(user_email, user_token=fwd_token),
+            env=_cli_env(),
         )
     except subprocess.CalledProcessError as e:
         detail = e.stderr or e.stdout or f"exit code {e.returncode}"
@@ -336,7 +303,6 @@ def _background_bundle_run(
 async def deploy_and_run(session_id: str, request: Request):
     """Deploy the report bundle and trigger a run (non-blocking)."""
     user_email = _get_user_email(request)
-    user_token = request.headers.get("X-Forwarded-Access-Token")
     state = _get_session_state(session_id)
     report_dir = _user_report_dir(user_email, state.name)
 
@@ -344,7 +310,7 @@ async def deploy_and_run(session_id: str, request: Request):
         raise HTTPException(400, "Report not scaffolded yet. Call /api/scaffold first.")
 
     state.deployment = DeploymentStatus.DEPLOYING
-    env = _cli_env(user_email, user_token=user_token)
+    env = _cli_env()
 
     notification_email = user_email or "noreply@databricks.com"
 

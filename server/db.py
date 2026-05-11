@@ -31,7 +31,6 @@ CREATE SCHEMA IF NOT EXISTS {DB_SCHEMA};
 
 CREATE TABLE IF NOT EXISTS {DB_SCHEMA}.user_settings (
     user_email TEXT PRIMARY KEY,
-    encrypted_pat TEXT NOT NULL DEFAULT '',
     cluster_id TEXT NOT NULL DEFAULT '',
     serving_endpoint TEXT NOT NULL DEFAULT '',
     updated_at TIMESTAMP DEFAULT NOW()
@@ -49,7 +48,8 @@ CREATE TABLE IF NOT EXISTS {DB_SCHEMA}.saved_reports (
 
 CREATE INDEX IF NOT EXISTS idx_saved_reports_user ON {DB_SCHEMA}.saved_reports(user_email);
 
-ALTER TABLE {DB_SCHEMA}.user_settings ADD COLUMN IF NOT EXISTS serving_endpoint TEXT NOT NULL DEFAULT '';
+-- Migration: drop the PAT column for installs that pre-date SP-as-orchestrator.
+ALTER TABLE {DB_SCHEMA}.user_settings DROP COLUMN IF EXISTS encrypted_pat;
 """
 
 

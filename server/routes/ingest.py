@@ -12,7 +12,7 @@ import os
 from fastapi import APIRouter, HTTPException, Request
 
 from server.agent import _sessions
-from server.config import IS_DATABRICKS_APP, get_user_client, get_workspace_client
+from server.config import get_workspace_client
 from server.models import IngestStatus
 
 logger = logging.getLogger(__name__)
@@ -41,31 +41,14 @@ def _get_ingest_notebook_root() -> str:
 
 
 def _get_client(request: Request):
-    """Return a WorkspaceClient for job operations.
+    """Return the SP-authenticated WorkspaceClient for job operations.
 
-    Priority: stored PAT > OBO token > error.
-    OBO tokens lack the 'jobs' scope, so PAT must come first.
+    The app's SP submits and triggers ingest jobs directly via its OAuth
+    client credentials (DATABRICKS_CLIENT_ID + DATABRICKS_CLIENT_SECRET
+    injected by the Apps runtime). Triggering user is captured in job tags
+    / parameters for audit.
     """
-    if not IS_DATABRICKS_APP:
-        return get_workspace_client()
-
-    email = request.headers.get("X-Forwarded-Email", "")
-    token = None
-    if email:
-        from server.token_store import get_pat
-        token = get_pat(email)
-
-    if not token:
-        token = request.headers.get("X-Forwarded-Access-Token")
-
-    if not token:
-        raise HTTPException(
-            401,
-            "Ingest requires a user token. Please open Settings (gear icon) "
-            "and save your Personal Access Token.",
-        )
-
-    return get_user_client(token)
+    return get_workspace_client()
 
 
 
