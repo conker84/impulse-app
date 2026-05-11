@@ -12,7 +12,7 @@ import logging
 
 from fastapi import APIRouter, HTTPException, Request
 
-from server.config import IS_DATABRICKS_APP, WAREHOUSE_ID, get_workspace_client
+from server.config import IS_DATABRICKS_APP, get_workspace_client, resolve_warehouse_id
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +42,7 @@ def _execute_sql(request: Request, statement: str) -> list[dict]:
         w = get_workspace_client()
 
     result = w.statement_execution.execute_statement(
-        warehouse_id=WAREHOUSE_ID,
+        warehouse_id=resolve_warehouse_id(),
         statement=statement,
         wait_timeout="30s",
     )

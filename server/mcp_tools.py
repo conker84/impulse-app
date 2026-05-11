@@ -412,8 +412,8 @@ def call_mcp_tool(mcp_tool_name: str, arguments: dict[str, Any], user_token: str
     Deployed: uses end-user's OBO token (user authorization).
     """
     if mcp_tool_name == "execute_sql" and "warehouse_id" in arguments:
-        from server.config import WAREHOUSE_ID
-        arguments = {**arguments, "warehouse_id": WAREHOUSE_ID}
+        from server.config import resolve_warehouse_id
+        arguments = {**arguments, "warehouse_id": resolve_warehouse_id()}
 
     try:
         if IS_DATABRICKS_APP:

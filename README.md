@@ -204,12 +204,12 @@ databricks secrets put-acl impulse <sp-client-id> READ \
 
 | Variable | Description |
 |----------|-------------|
-| `DATABRICKS_WAREHOUSE_ID` | SQL Warehouse ID — the only customer-specific value |
 | `IMPULSE_FRAMEWORK_WHEEL_FILENAME` | Filename of the Impulse framework wheel bundled in `report_template/template/lib/`. Bumping the wheel = drop the new file in `lib/` and update this value |
-| `LAKEBASE_INSTANCE_NAME` | *(optional)* Override the Lakebase instance to connect to. Defaults to `${DATABRICKS_APP_NAME}` so it always matches the app name the bundle created |
+| `DATABRICKS_WAREHOUSE_ID` | *(optional)* Pin a specific SQL warehouse. By default, the app looks up the bundle-created warehouse by name (same as `DATABRICKS_APP_NAME`) |
+| `LAKEBASE_INSTANCE_NAME` | *(optional)* Override the Lakebase instance to connect to. Defaults to `${DATABRICKS_APP_NAME}` |
 | `INGEST_NOTEBOOK_ROOT` | *(optional)* Override the workspace path for ingest notebooks. Default `/Workspace/Shared/<app>/ingest` |
 
-The chat model defaults to the first endpoint from the curated list (`CURATED_MODELS` in `server/config.py`) that exists in the workspace. End users override per-account via Settings. No env var to configure.
+The bundle creates the SQL warehouse + Lakebase instance both named the same as the app. The app discovers them at runtime via the SDK — no IDs in env vars. The chat model defaults to the first endpoint from the curated list (`CURATED_MODELS` in `server/config.py`) that exists in the workspace; end users override per-account via Settings.
 
 ### Step 5: Grant permissions
 

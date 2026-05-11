@@ -11,7 +11,30 @@ IS_DATABRICKS_APP = bool(
     or os.environ.get("DATABRICKS_CLIENT_ID")
 )
 DATABRICKS_PROFILE = os.environ.get("DATABRICKS_PROFILE", "DEFAULT")
-WAREHOUSE_ID = os.environ.get("DATABRICKS_WAREHOUSE_ID", "")
+
+
+@lru_cache()
+def resolve_warehouse_id() -> str:
+    """Look up the SQL warehouse the bundle created for this app.
+
+    The bundle names the warehouse identically to the app (DATABRICKS_APP_NAME),
+    so we can find it by name at runtime. Override via DATABRICKS_WAREHOUSE_ID
+    env var for non-default deployments.
+    """
+    explicit = os.environ.get("DATABRICKS_WAREHOUSE_ID", "").strip()
+    if explicit:
+        return explicit
+    app_name = os.environ.get("DATABRICKS_APP_NAME", "")
+    if not app_name:
+        return ""
+    try:
+        w = get_workspace_client()
+        for wh in w.warehouses.list():
+            if wh.name == app_name:
+                return wh.id
+    except Exception as e:
+        logger.warning("Could not resolve SQL warehouse by app name %r: %s", app_name, e)
+    return ""
 
 
 def resolve_serving_endpoint(user_preference: str | None = None) -> str:
@@ -85,7 +108,7 @@ REPORTS_ROOT = os.environ.get(
     else os.path.join(_app_dir, "reports"),
 )
 
-logger.info("IS_DATABRICKS_APP=%s, WAREHOUSE_ID=%s", IS_DATABRICKS_APP, WAREHOUSE_ID)
+logger.info("IS_DATABRICKS_APP=%s", IS_DATABRICKS_APP)
 
 
 @lru_cache()
@@ -123,6 +146,6 @@ def get_sql_connection_params() -> dict:
     cfg = get_workspace_client().config
     return {
         "host": cfg.host,
-        "warehouse_id": WAREHOUSE_ID,
+        "warehouse_id": resolve_warehouse_id(),
         "config": cfg,
     }
