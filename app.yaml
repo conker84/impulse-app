@@ -2,3 +2,18 @@ name: impulse-v3
 env:
   - name: IMPULSE_FRAMEWORK_WHEEL_FILENAME
     value: "mda_framework_v2-0.0.4-py3-none-any.whl"
+
+  # Optional: override dev/stg/prd targets of customer-scaffolded report bundles.
+  # Defaults: hosts = current workspace; groups = "users"; notification emails =
+  # the deploying user. Set these only if you want scaffolded reports to deploy
+  # to a different workspace per target.
+  #
+  # - { name: DAB_DEV_HOST, value: "https://..." }
+  # - { name: DAB_DEV_GROUP, value: "users" }
+  # - { name: DAB_DEV_NOTIFICATION_EMAIL, value: "you@example.com" }
+  # - { name: DAB_STG_HOST, value: "https://..." }
+  # - { name: DAB_STG_GROUP, value: "users" }
+  # - { name: DAB_PRD_HOST, value: "https://..." }
+  # - { name: DAB_PRD_GROUP, value: "users" }
+  # - { name: DAB_PRD_SP_NAME, value: "<sp-application-id>" }
+  # - { name: DAB_PRD_NOTIFICATION_EMAIL, value: "you@example.com" }
