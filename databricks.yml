@@ -1,18 +1,9 @@
 bundle:
-  name: impulse-revamp
+  name: impulse
 
-# Bundle variables — customer values supplied either via:
-#   1. install.sh (reads from app.yaml / profiles.yaml + interactive prompts), or
-#   2. --var flags on the bundle deploy command line, or
-#   3. setting the *.default field here per fork.
 variables:
   app_name:
-    description: |
-      Name for the deployed app + Lakebase instance. Both share this name.
-      Default is "impulse-v3" — chosen so the deploy-revamp branch deploy
-      can't collide with the existing "impulse" / "impulse-v2" apps or the
-      existing Lakebase instances on fe-vm-maximhammer. For a production
-      deploy on a clean workspace, pass --var app_name=impulse.
+    description: Name for the app, Lakebase instance, and SQL warehouse (they all share it). Pass --var app_name=foo to override.
     default: impulse-v3
   catalog:
     description: Unity Catalog containing the customer's silver-layer impulse tables (channel_metrics, container_metrics, channels, etc.)
@@ -23,21 +14,11 @@ variables:
     default: users
 
 resources:
-  # Lakebase Postgres for app metadata (user_settings, saved_reports).
-  # `database_instances` API silently creates an Autoscaling backend under
-  # the hood (Databricks-side change rolled out 2026-03-12 — see TASKS.md).
-  # The logical database `impulse` is created by install.sh via psql post-
-  # deploy because `database_catalogs` (the DAB resource that creates it
-  # declaratively) also registers a UC catalog, which requires CREATE
-  # CATALOG on the metastore — a permission this app doesn't actually need.
   database_instances:
     impulse_db:
       name: ${var.app_name}
       capacity: CU_1
 
-  # Serverless SQL warehouse the app uses for all SQL queries (the OBO-forwarded
-  # user identity provides per-user UC scoping). Named the same as the app for
-  # easy operational mapping. Auto-stops after 10 idle minutes to control cost.
   sql_warehouses:
     impulse_warehouse:
       name: ${var.app_name}
@@ -65,22 +46,16 @@ resources:
         - catalog.tables:read
         - serving.serving-endpoints
       resources:
-        # Lakebase binding — Databricks auto-provisions a Postgres role for
-        # the app's SP and grants CONNECT + CREATE on the database.
-        # Lakebase binding — Databricks auto-provisions a Postgres role for
-        # the app's SP and grants CONNECT + CREATE on the bound database.
-        # We bind to `databricks_postgres` (the default DB that exists on
-        # every Lakebase instance) so the bundle deploys in one shot — no
-        # extra step to create a logical DB. App data lives under a SP-owned
-        # schema `impulse` inside `databricks_postgres`.
+        # Binding to `databricks_postgres` (the default DB on every Lakebase
+        # instance) so the bundle deploys in one shot — DAB has no resource
+        # to create a logical Postgres DB without also creating a UC catalog.
+        # The SP gets CONNECT + CREATE; app data lives under SP-owned schema
+        # `impulse` inside `databricks_postgres`. See TASKS.md follow-up.
         - name: lakebase
           database:
             instance_name: ${resources.database_instances.impulse_db.name}
             database_name: databricks_postgres
             permission: CAN_CONNECT_AND_CREATE
-        # Read SQL warehouse via the user's OBO token; the binding just
-        # exposes the connection info to the app at runtime. The warehouse
-        # is bundle-created above with the same name as the app.
         - name: sql
           sql_warehouse:
             id: ${resources.sql_warehouses.impulse_warehouse.id}
