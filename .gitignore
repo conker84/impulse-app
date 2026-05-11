@@ -15,3 +15,6 @@ frontend/dist/
 # in git (task #9) and let customers commit their own profiles.yaml in their
 # fork. Bundle deploy uploads whatever's in the repo tree.
 profiles.yaml
+
+# install.sh writes the customer's catalog/schema choices here for re-runs.
+.install.config
