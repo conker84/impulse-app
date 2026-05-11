@@ -12,7 +12,7 @@ import re
 import uuid
 from typing import Any
 
-from server.config import SERVING_ENDPOINT, get_workspace_client
+from server.config import get_workspace_client, resolve_serving_endpoint
 
 logger = logging.getLogger(__name__)
 from server.mcp_tools import call_mcp_tool, discover_mcp_tools
@@ -1046,7 +1046,7 @@ def run_agent(
 
     for _ in range(_MAX_TOOL_ROUNDS):
         response = client.chat.completions.create(
-            model=serving_endpoint or SERVING_ENDPOINT,
+            model=resolve_serving_endpoint(serving_endpoint),
             messages=messages_for_api,
             tools=all_tools,
             max_tokens=4096,

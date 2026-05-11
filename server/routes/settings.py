@@ -11,7 +11,7 @@ import logging
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from server.config import IS_DATABRICKS_APP, SERVING_ENDPOINT, get_available_models
+from server.config import IS_DATABRICKS_APP, get_available_models, resolve_serving_endpoint
 from server.token_store import (
     get_cluster_id, get_serving_endpoint,
     store_cluster_id, store_serving_endpoint,
@@ -45,7 +45,7 @@ async def token_status(request: Request):
             "local_mode": True,
             "has_token": True,
             "cluster_id": "",
-            "serving_endpoint": SERVING_ENDPOINT,
+            "serving_endpoint": resolve_serving_endpoint(),
             "available_models": available_models,
         }
 
@@ -55,7 +55,7 @@ async def token_status(request: Request):
         "has_token": True,
         "user_email": email,
         "cluster_id": get_cluster_id(email),
-        "serving_endpoint": get_serving_endpoint(email) or SERVING_ENDPOINT,
+        "serving_endpoint": resolve_serving_endpoint(get_serving_endpoint(email)),
         "available_models": available_models,
     }
 

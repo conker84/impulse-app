@@ -12,13 +12,22 @@ IS_DATABRICKS_APP = bool(
 )
 DATABRICKS_PROFILE = os.environ.get("DATABRICKS_PROFILE", "DEFAULT")
 WAREHOUSE_ID = os.environ.get("DATABRICKS_WAREHOUSE_ID", "")
-SERVING_ENDPOINT = os.environ.get("SERVING_ENDPOINT", "databricks-claude-sonnet-4-6")
+
 
 def resolve_serving_endpoint(user_preference: str | None = None) -> str:
-    """Resolve model: user preference -> env var -> hardcoded default."""
+    """Resolve model: user preference -> first available endpoint in workspace.
+
+    No env var needed. End users pick their model in Settings (persisted
+    per-user in Lakebase); the only time this matters is the initial default
+    for users who haven't picked yet, in which case we use the first model
+    in the curated list that actually exists in the workspace.
+    """
     if user_preference:
         return user_preference
-    return SERVING_ENDPOINT
+    available = get_available_models()
+    if available:
+        return available[0]["id"]
+    return "databricks-claude-sonnet-4-6"  # last-resort fallback
 
 
 CURATED_MODELS = [
@@ -76,7 +85,7 @@ REPORTS_ROOT = os.environ.get(
     else os.path.join(_app_dir, "reports"),
 )
 
-logger.info("IS_DATABRICKS_APP=%s, WAREHOUSE_ID=%s, ENDPOINT=%s", IS_DATABRICKS_APP, WAREHOUSE_ID, SERVING_ENDPOINT)
+logger.info("IS_DATABRICKS_APP=%s, WAREHOUSE_ID=%s", IS_DATABRICKS_APP, WAREHOUSE_ID)
 
 
 @lru_cache()
