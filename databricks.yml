@@ -36,6 +36,12 @@ resources:
       name: ${var.app_name}
       source_code_path: ${workspace.file_path}
       compute_size: LARGE
+      config:
+        command:
+          - uvicorn
+          - app:app
+          - --host=0.0.0.0
+          - --port=8000
       user_api_scopes:
         - sql
         - dashboards.genie

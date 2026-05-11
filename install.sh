@@ -230,6 +230,16 @@ for sql in stmts:
 sys.exit(1 if failed else 0)
 PY
 
+echo ""
+echo "=== Starting app ==="
+# `bundle deploy` creates the app shell and uploads source; `bundle run`
+# triggers an actual app deployment (= start compute + serve traffic). The
+# command waits until the app reports "started successfully".
+DATABRICKS_BUNDLE_ENGINE=direct databricks bundle run impulse_app \
+  --var catalog="$CATALOG" \
+  --var schema="$SCHEMA" \
+  --var end_user_group="$END_USER_GROUP"
+
 # Final summary.
 APP_URL=$(databricks apps get "$APP_NAME" -o json \
   | python3 -c "import sys, json; print(json.load(sys.stdin).get('url', 'pending — check workspace UI'))")
