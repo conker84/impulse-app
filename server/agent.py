@@ -924,10 +924,13 @@ def _get_openai_client(user_token: str | None = None):
     w = get_workspace_client()
     host = w.config.host
 
-    # LLM inference uses the app service principal — serving endpoint
-    # scopes (serving.serving-endpoints, serving.serving-endpoints-data-plane)
-    # break the OAuth consent flow when set as user_api_scopes.
-    token = w.config.token
+    # Prefer the user's OBO token (forwarded via X-Forwarded-Access-Token) so
+    # FMAPI calls execute as the user. Requires `serving.serving-endpoints` in
+    # user_api_scopes — token-exchange fix shipped 2026-04-29. Fall back to SP
+    # creds for local development and CLI-profile auth.
+    token = user_token
+    if not token:
+        token = w.config.token
     if not token:
         try:
             result = w.config.authenticate()

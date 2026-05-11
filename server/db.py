@@ -19,8 +19,17 @@ logger = logging.getLogger(__name__)
 LAKEBASE_PROJECT = os.environ.get("LAKEBASE_PROJECT", "impulse")
 _ENDPOINT_PATH = f"projects/{LAKEBASE_PROJECT}/branches/production/endpoints/primary"
 
-_SCHEMA_SQL = """\
-CREATE TABLE IF NOT EXISTS user_settings (
+# All tables live in a SP-owned `impulse` schema. The app SP creates the schema
+# at startup (it gets CREATE on the database via the `apps[].resources[].database`
+# binding's CAN_CONNECT_AND_CREATE) and becomes the schema owner, which lets it
+# DDL/DML freely without separate GRANTs. Avoids the `public`-schema gotcha
+# where Postgres 15+ revokes CREATE from PUBLIC by default.
+DB_SCHEMA = "impulse"
+
+_SCHEMA_SQL = f"""\
+CREATE SCHEMA IF NOT EXISTS {DB_SCHEMA};
+
+CREATE TABLE IF NOT EXISTS {DB_SCHEMA}.user_settings (
     user_email TEXT PRIMARY KEY,
     encrypted_pat TEXT NOT NULL DEFAULT '',
     cluster_id TEXT NOT NULL DEFAULT '',
@@ -28,7 +37,7 @@ CREATE TABLE IF NOT EXISTS user_settings (
     updated_at TIMESTAMP DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS saved_reports (
+CREATE TABLE IF NOT EXISTS {DB_SCHEMA}.saved_reports (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_email TEXT NOT NULL,
     report_name TEXT NOT NULL,
@@ -38,9 +47,9 @@ CREATE TABLE IF NOT EXISTS saved_reports (
     UNIQUE (user_email, report_name)
 );
 
-CREATE INDEX IF NOT EXISTS idx_saved_reports_user ON saved_reports(user_email);
+CREATE INDEX IF NOT EXISTS idx_saved_reports_user ON {DB_SCHEMA}.saved_reports(user_email);
 
-ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS serving_endpoint TEXT NOT NULL DEFAULT '';
+ALTER TABLE {DB_SCHEMA}.user_settings ADD COLUMN IF NOT EXISTS serving_endpoint TEXT NOT NULL DEFAULT '';
 """
 
 
@@ -84,7 +93,7 @@ def get_connection(dbname: str | None = None) -> psycopg.Connection:
 
     user, password = _get_db_credential()
 
-    return psycopg.connect(
+    conn = psycopg.connect(
         host=host,
         port=port,
         dbname=db,
@@ -92,7 +101,10 @@ def get_connection(dbname: str | None = None) -> psycopg.Connection:
         password=password,
         sslmode="require",
         autocommit=False,
+        # Ensure unqualified table refs resolve to our SP-owned schema.
+        options=f"-c search_path={DB_SCHEMA},public",
     )
+    return conn
 
 
 def init_schema() -> None:

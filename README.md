@@ -83,7 +83,7 @@ Delta Lake (silver layer: channels table, RLE format)
 | `frontend/dist/` | Production build (served as static files) |
 | `skills/` | Domain-specific knowledge loaded into the agent's system prompt |
 | `ingest/` | MDF4-to-Silver ingest pipeline notebooks |
-| `.template/` | DAB template for report scaffolding (Go template syntax) |
+| `report_template/` | Runtime DAB template the app runs `bundle init` against to scaffold each user-defined report (Go template syntax). Bundles the Impulse framework wheel at `report_template/template/lib/`. Not the customer-install template — that lives at `template/` (DAB convention). |
 
 ## Prerequisites
 
@@ -212,7 +212,7 @@ databricks secrets put-acl impulse <sp-client-id> READ \
 | `LAKEBASE_PROJECT` | Lakebase project name (e.g. `impulse`) |
 | `SECRET_SCOPE` | Databricks secret scope for the Fernet key (default `impulse`) |
 | `SECRET_KEY_NAME` | Secret key name within the scope (default `fernet-key`) |
-| `IMPULSE_FRAMEWORK_WHEEL_FILENAME` | Filename of the Impulse framework wheel bundled in `.template/template/lib/`. Bumping the wheel = drop the new file in `lib/` and update this value |
+| `IMPULSE_FRAMEWORK_WHEEL_FILENAME` | Filename of the Impulse framework wheel bundled in `report_template/template/lib/`. Bumping the wheel = drop the new file in `lib/` and update this value |
 | `INGEST_NOTEBOOK_ROOT` | *(optional)* Override the workspace path for ingest notebooks. Default is derived from the deploying user + app name |
 
 ### Step 5: Grant permissions
@@ -223,7 +223,7 @@ databricks secrets put-acl impulse <sp-client-id> READ \
 |----------|-----------|--------------|
 | Lakebase database | OAuth role + `ALL PRIVILEGES` | See Step 2 |
 | Secret scope (`SECRET_SCOPE`) | `READ` | `databricks secrets put-acl <scope> <sp-client-id> READ` |
-| Foundation Model API endpoint | `CAN QUERY` *(only if not already inherited)* | Most workspaces grant `EXECUTE` on `system.ai.*` to all account users by default — in that case the SP gets implicit access. For workspaces that don't, or when using a custom (non-system) serving endpoint, grant explicitly via the AI Gateway / Serving page |
+| ~~Foundation Model API endpoint~~ | ~~`CAN QUERY`~~ | **No longer needed.** FMAPI calls now use the user's OBO token via `serving.serving-endpoints` scope (token-exchange fix shipped 2026-04-29). End users need their own FMAPI access — usually inherited via `EXECUTE` on `system.ai.*` granted to all account users. |
 
 > SQL Warehouse and Unity Catalog permissions on the SP are **not needed** — those operations use the user's OBO token.
 
@@ -282,12 +282,12 @@ Set `DATABRICKS_PROFILE` to override the CLI profile used.
 | Identity | Used for |
 |----------|----------|
 | **User OBO token** (automatic via User Authorization) | SQL queries, UC browsing, MCP tools, file uploads |
-| **App Service Principal** (auto-provisioned) | LLM calls (FMAPI), Lakebase read/write, Fernet key retrieval, MCP tool discovery |
+| **App Service Principal** (auto-provisioned) | Lakebase read/write, Fernet key retrieval, MCP tool discovery |
 | **User's PAT** (entered in Settings UI) | Job deploy and job run only (ingest + report deploy) |
 
 The app uses **User Authorization (OBO)** as the primary auth mechanism. When a user accesses the app, Databricks issues an OBO token that is forwarded via the `X-Forwarded-Access-Token` header. This token carries the user's identity and permissions for all data operations.
 
-LLM inference (Foundation Model API) uses the app service principal because the serving endpoint scopes (`serving.serving-endpoints`, `serving.serving-endpoints-data-plane`) break the OAuth consent flow when set as `user_api_scopes`.
+LLM inference (Foundation Model API) uses the user's OBO token via the `serving.serving-endpoints` scope (consent-flow fix shipped 2026-04-29). End users see their own usage in audit logs.
 
 A PAT is only required for the two job operations (MF4 ingest and report deploy) because OBO tokens lack the `jobs` scope.
 
@@ -297,10 +297,11 @@ The app requires these scopes (set at app creation time via the deploy script):
 
 ```
 sql, dashboards.genie, files.files, catalog.connections,
-catalog.catalogs:read, catalog.schemas:read, catalog.tables:read
+catalog.catalogs:read, catalog.schemas:read, catalog.tables:read,
+serving.serving-endpoints
 ```
 
-Serving endpoint scopes (`serving.serving-endpoints`, `serving.serving-endpoints-data-plane`) are intentionally NOT included — they break the OAuth consent flow. FMAPI calls use the app service principal instead.
+`serving.serving-endpoints` is included as of the 2026-04-29 token-exchange fix — FMAPI calls now use the user's OBO token. `serving.serving-endpoints-data-plane` is NOT included (still has an open MAS / model-serving scope mismatch; this app doesn't use MAS).
 
 `test/deploy.sh` sets these scopes on every deploy (the `USER_API_SCOPES` constant near the top of the script is the source of truth).
 
@@ -310,12 +311,12 @@ When running locally, all operations use your `~/.databrickscfg` profile. No Lak
 
 ## Impulse Framework
 
-The app depends on the Impulse framework library which is developed in a separate repository. A pre-built wheel is bundled at `.template/template/lib/` and automatically included in every scaffolded report project.
+The app depends on the Impulse framework library which is developed in a separate repository. A pre-built wheel is bundled at `report_template/template/lib/` and automatically included in every scaffolded report project.
 
 **Updating the framework version:**
 
 1. Build a new wheel in the framework repo: `uv build --wheel`
-2. Drop the new `.whl` in `.template/template/lib/`
+2. Drop the new `.whl` in `report_template/template/lib/`
 3. Update `IMPULSE_FRAMEWORK_WHEEL_FILENAME` in `app.yaml` to match the new filename
 4. Commit and redeploy
 

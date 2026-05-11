@@ -204,7 +204,7 @@ async def scaffold_report(session_id: str, request: Request):
         raise HTTPException(
             500,
             f"Impulse framework wheel '{wheel_filename}' not found at {wheel_path}. "
-            "Drop the .whl in .template/template/lib/ and update IMPULSE_FRAMEWORK_WHEEL_FILENAME in app.yaml.",
+            "Drop the .whl in report_template/template/lib/ and update IMPULSE_FRAMEWORK_WHEEL_FILENAME in app.yaml.",
         )
 
     config = {

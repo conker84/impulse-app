@@ -13,7 +13,7 @@ Scaffold a new Impulse framework report using the Databricks bundle template.
 
 - The Databricks CLI must be installed.
 - A Databricks CLI profile must be configured. Check `~/.databrickscfg` for available profiles. If no profile exists, ask the user to set one up first using the [databricks-config](../databricks-config/) skill (`/databricks-config`).
-- The working directory must be the repository root containing the `Makefile` and `.template/` directory.
+- The working directory must be the repository root containing the `Makefile` and `report_template/` directory.
 
 ## Steps
 
@@ -23,7 +23,7 @@ Scaffold a new Impulse framework report using the Databricks bundle template.
    - If multiple profiles exist, ask the user which profile to use.
 2. Ask the user for the **report name**. It must be lowercase with underscores (e.g. `oil_pressure_report`). No spaces or hyphens.
 3. Verify that a folder with that name does not already exist at the repository root.
-4. Read the template schema from `.template/databricks_template_schema.json` to get the current default values for all parameters.
+4. Read the template schema from `report_template/databricks_template_schema.json` to get the current default values for all parameters.
 5. **Always prompt the user** with an explicit choice before proceeding:
    - Ask: *"Do you want to use the default template values for this report, or configure the new report (dev/stg/prd hosts, groups, Impulse framework version)?"*
    - Do **not** assume defaults or skip this step. Wait for the user to answer.
@@ -43,7 +43,7 @@ Scaffold a new Impulse framework report using the Databricks bundle template.
 6. Build a config JSON file containing all parameter values (report name + all collected values) and run:
    ```bash
    echo '<config_json>' > config_<report_name>.json && \
-   databricks bundle init .template --output-dir <report_name> --config-file config_<report_name>.json --profile <profile_name> && \
+   databricks bundle init report_template --output-dir <report_name> --config-file config_<report_name>.json --profile <profile_name> && \
    rm config_<report_name>.json
    ```
    The config JSON must include all properties from the template schema, e.g.:

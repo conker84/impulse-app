@@ -21,7 +21,7 @@ def resolve_serving_endpoint(user_preference: str | None = None) -> str:
     return SERVING_ENDPOINT
 
 
-AVAILABLE_MODELS = [
+CURATED_MODELS = [
     {"id": "databricks-claude-haiku-4-5", "label": "Claude Haiku 4.5 (fast)"},
     {"id": "databricks-claude-sonnet-4-6", "label": "Claude Sonnet 4.6 (balanced)"},
     {"id": "databricks-claude-opus-4-6", "label": "Claude Opus 4.6 (best reasoning)"},
@@ -33,9 +33,29 @@ AVAILABLE_MODELS = [
 ]
 
 
+@lru_cache()
 def get_available_models() -> list[dict]:
-    """Return the curated list of chat-capable Foundation Model API endpoints."""
-    return AVAILABLE_MODELS
+    """Return chat-capable FMAPI endpoints actually available in this workspace.
+
+    Intersects the curated list (for nice labels + chat-capability filtering)
+    with the workspace's serving_endpoints inventory. Falls back to the full
+    curated list if the workspace API is unreachable (e.g., local dev).
+    """
+    try:
+        w = get_workspace_client()
+        available_names = {ep.name for ep in w.serving_endpoints.list()}
+        filtered = [m for m in CURATED_MODELS if m["id"] in available_names]
+        if not filtered:
+            logger.warning(
+                "None of the curated models exist in this workspace; "
+                "returning the full curated list as a fallback. "
+                "Workspace endpoints: %s", sorted(available_names)
+            )
+            return CURATED_MODELS
+        return filtered
+    except Exception as e:
+        logger.warning("Could not list serving endpoints (%s); returning curated list", e)
+        return CURATED_MODELS
 _app_dir = os.path.join(os.path.dirname(__file__), "..")
 SKILLS_ROOT = os.environ.get(
     "SKILLS_ROOT",
@@ -45,9 +65,9 @@ SKILLS_ROOT = os.environ.get(
 )
 TEMPLATE_ROOT = os.environ.get(
     "TEMPLATE_ROOT",
-    os.path.join(_app_dir, ".template")
-    if os.path.isdir(os.path.join(_app_dir, ".template"))
-    else os.path.join(_app_dir, "..", "nameda", ".template"),
+    os.path.join(_app_dir, "report_template")
+    if os.path.isdir(os.path.join(_app_dir, "report_template"))
+    else os.path.join(_app_dir, "..", "nameda", "report_template"),
 )
 REPORTS_ROOT = os.environ.get(
     "REPORTS_ROOT",

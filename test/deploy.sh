@@ -89,7 +89,7 @@ if [ "$SYNC_ONLY" = true ]; then
   exit 0
 fi
 
-USER_API_SCOPES='["sql","dashboards.genie","files.files","catalog.connections","catalog.catalogs:read","catalog.schemas:read","catalog.tables:read"]'
+USER_API_SCOPES='["sql","dashboards.genie","files.files","catalog.connections","catalog.catalogs:read","catalog.schemas:read","catalog.tables:read","serving.serving-endpoints"]'
 
 # Create app if it doesn't exist yet
 if ! databricks apps get "$APP_NAME" --profile "$PROFILE" -o json > /dev/null 2>&1; then
