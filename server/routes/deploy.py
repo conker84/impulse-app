@@ -162,17 +162,18 @@ async def scaffold_report(session_id: str, request: Request):
 
     ws_host = get_workspace_client().config.host
 
-    wheel_filename = os.environ.get(
-        "IMPULSE_FRAMEWORK_WHEEL_FILENAME",
-        "mda_framework_v2-0.0.4-py3-none-any.whl",
-    )
-    wheel_path = os.path.join(TEMPLATE_ROOT, "template", "lib", wheel_filename)
-    if not os.path.isfile(wheel_path):
+    # Auto-discover the wheel bundled in report_template/template/lib/.
+    # Exactly one .whl is expected; drop a new wheel into lib/ to bump.
+    import glob
+    lib_dir = os.path.join(TEMPLATE_ROOT, "template", "lib")
+    wheels = sorted(glob.glob(os.path.join(lib_dir, "*.whl")))
+    if len(wheels) != 1:
         raise HTTPException(
             500,
-            f"Impulse framework wheel '{wheel_filename}' not found at {wheel_path}. "
-            "Drop the .whl in report_template/template/lib/ and update IMPULSE_FRAMEWORK_WHEEL_FILENAME in app.yaml.",
+            f"Expected exactly one .whl in {lib_dir}, found {len(wheels)}: {wheels}. "
+            "Drop a single Impulse framework wheel into report_template/template/lib/.",
         )
+    wheel_filename = os.path.basename(wheels[0])
 
     config = {
         "report_name": state.name,

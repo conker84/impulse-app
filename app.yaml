@@ -1,3 +1,2 @@
-env:
-  - name: IMPULSE_FRAMEWORK_WHEEL_FILENAME
-    value: "mda_framework_v2-0.0.4-py3-none-any.whl"
+# All app configuration lives in databricks.yml. This file is here only as
+# the Databricks Apps runtime manifest marker.
