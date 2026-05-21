@@ -1,8 +1,4 @@
-"""User settings endpoints — cluster and model preferences.
-
-The PAT-management routes were removed when the app moved to SP-as-orchestrator
-for job ops (see TASKS.md).
-"""
+"""User settings endpoints — cluster and model preferences."""
 
 from __future__ import annotations
 
@@ -12,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from server.config import IS_DATABRICKS_APP, get_available_models, resolve_serving_endpoint
-from server.token_store import (
+from server.user_settings import (
     get_cluster_id, get_serving_endpoint,
     store_cluster_id, store_serving_endpoint,
 )
@@ -32,18 +28,13 @@ def _resolve_user_email(request: Request) -> str:
     return email
 
 
-@router.get("/token-status")
-async def token_status(request: Request):
-    """Return user preferences (cluster ID, serving endpoint, available models).
-
-    Endpoint name is legacy — kept for frontend compat. PAT fields are
-    unconditionally true since no PAT is needed anymore.
-    """
+@router.get("/user-status")
+async def user_status(request: Request):
+    """Return user preferences (cluster ID, serving endpoint, available models)."""
     available_models = get_available_models()
     if not IS_DATABRICKS_APP:
         return {
             "local_mode": True,
-            "has_token": True,
             "cluster_id": "",
             "serving_endpoint": resolve_serving_endpoint(),
             "available_models": available_models,
@@ -52,7 +43,6 @@ async def token_status(request: Request):
     email = _resolve_user_email(request)
     return {
         "local_mode": False,
-        "has_token": True,
         "user_email": email,
         "cluster_id": get_cluster_id(email),
         "serving_endpoint": resolve_serving_endpoint(get_serving_endpoint(email)),

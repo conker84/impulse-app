@@ -62,9 +62,6 @@ CREATE TABLE IF NOT EXISTS {DB_SCHEMA}.saved_reports (
 );
 
 CREATE INDEX IF NOT EXISTS idx_saved_reports_user ON {DB_SCHEMA}.saved_reports(user_email);
-
--- Migration: drop the PAT column for installs that pre-date SP-as-orchestrator.
-ALTER TABLE {DB_SCHEMA}.user_settings DROP COLUMN IF EXISTS encrypted_pat;
 """
 
 

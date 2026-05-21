@@ -115,7 +115,7 @@ App metadata lives in `databricks_postgres.impulse.*` inside the Lakebase instan
 
 ## Run Locally
 
-Local mode uses your Databricks CLI profile for authentication. No Lakebase, no PAT storage, no settings UI — sessions are in-memory only.
+Local mode uses your Databricks CLI profile for authentication. No Lakebase, no settings UI — sessions are in-memory only.
 
 ```bash
 # Install dependencies

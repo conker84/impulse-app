@@ -19,6 +19,11 @@
 #   - You're authenticated to the target workspace (`databricks auth login`)
 #   - You have CREATE permissions on the target catalog (or it pre-exists)
 #
+# Local tools required on the machine running this script:
+#   - Databricks CLI (>= 0.290)
+#   - Node.js + npm (>= 18) — to build the React frontend
+#   - Python 3
+#
 # Re-run safe: if you've installed before, this updates the existing deploy.
 # Resource names are derived from `app_name` in databricks.yml (default
 # `impulse-v3`).
@@ -81,6 +86,8 @@ if [ "$CHECK_ONLY" = true ]; then
     databricks warehouses list || failed=$((failed+1))
   check "Serving endpoints (FMAPI)" \
     databricks serving-endpoints list || failed=$((failed+1))
+  check "npm installed (for frontend build)" \
+    command -v npm || failed=$((failed+1))
   if [ -n "$CATALOG" ]; then
     check "Target catalog exists: $CATALOG" \
       databricks catalogs get "$CATALOG" || failed=$((failed+1))
@@ -129,6 +136,19 @@ if [ -z "$APP_NAME" ]; then
   echo "ERROR: could not resolve app_name from databricks.yml" >&2
   exit 1
 fi
+
+echo ""
+echo "=== Build frontend ==="
+if ! command -v npm >/dev/null 2>&1; then
+  echo "ERROR: npm not found on PATH. Install Node.js (>=18) and re-run." >&2
+  exit 1
+fi
+if [ ! -d "frontend/node_modules" ]; then
+  echo "  Installing npm deps (one-time, ~30s)..."
+  (cd frontend && npm install --silent)
+fi
+echo "  Building production bundle..."
+(cd frontend && npm run build)
 
 echo ""
 echo "=== Bundle deploy ==="

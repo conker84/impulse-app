@@ -1,7 +1,6 @@
 """Per-user preferences (cluster ID, serving endpoint) backed by Lakebase.
 
-The encrypted-PAT layer was removed when the app moved to SP-as-orchestrator
-for job ops (see TASKS.md). In local mode every function is a no-op.
+In local mode every function is a no-op.
 """
 
 from __future__ import annotations

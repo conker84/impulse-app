@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
-import { getTokenStatus, saveClusterSetting, saveModelSetting } from "../api";
-import type { TokenStatusResponse } from "../api";
+import { getUserStatus, saveClusterSetting, saveModelSetting } from "../api";
+import type { UserStatusResponse } from "../api";
 
 interface Props {
   open: boolean;
@@ -8,7 +8,7 @@ interface Props {
 }
 
 export default function SettingsModal({ open, onClose }: Props) {
-  const [status, setStatus] = useState<TokenStatusResponse | null>(null);
+  const [status, setStatus] = useState<UserStatusResponse | null>(null);
   const [clusterId, setClusterId] = useState("");
   const [selectedModel, setSelectedModel] = useState("");
   const [savingModel, setSavingModel] = useState(false);
@@ -18,7 +18,7 @@ export default function SettingsModal({ open, onClose }: Props) {
 
   const refresh = useCallback(async () => {
     try {
-      const s = await getTokenStatus();
+      const s = await getUserStatus();
       setStatus(s);
     } catch {
       setError("Failed to load settings");

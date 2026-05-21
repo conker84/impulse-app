@@ -19,7 +19,7 @@ from server.models import (
     WizardStep,
 )
 from server.report_store import delete_report, list_reports, load_report, save_report
-from server.token_store import get_cluster_id
+from server.user_settings import get_cluster_id
 
 logger = logging.getLogger(__name__)
 

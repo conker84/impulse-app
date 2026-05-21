@@ -18,6 +18,12 @@ The script prompts for your UC catalog + schema (where your silver-layer data li
 
 ## Prerequisites
 
+### Local tools (on the machine running `install.sh`)
+
+- Databricks CLI (>= 0.290)
+- Node.js + npm (>= 18) — `install.sh` builds the React frontend before deploy
+- Python 3 (used by `install.sh` for the post-deploy GRANT step)
+
 ### Workspace features
 
 Your workspace admin must have enabled:
