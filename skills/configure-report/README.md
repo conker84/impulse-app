@@ -40,8 +40,8 @@ configure-report/
 
 For detailed parameter documentation, refer to the Impulse framework docs (available locally):
 
-- `<impulse_framework_path>/mda_reporting/docs/getting_started.md` — overview and basic workflow
-- `<impulse_framework_path>/mda_reporting/docs/report/report.md` — full config parameter reference
-- `<impulse_framework_path>/mda_reporting/docs/filtering/filtering.md` — vehicle and channel filtering
-- `<impulse_framework_path>/mda_reporting/docs/persistence/persistence.md` — data persistence options
-- `<impulse_framework_path>/mda_reporting/docs/visualizations/` — visualization type documentation
+- `<impulse_framework_path>/impulse_reporting/docs/getting_started.md` — overview and basic workflow
+- `<impulse_framework_path>/impulse_reporting/docs/report/report.md` — full config parameter reference
+- `<impulse_framework_path>/impulse_reporting/docs/filtering/filtering.md` — vehicle and channel filtering
+- `<impulse_framework_path>/impulse_reporting/docs/persistence/persistence.md` — data persistence options
+- `<impulse_framework_path>/impulse_reporting/docs/visualizations/` — visualization type documentation

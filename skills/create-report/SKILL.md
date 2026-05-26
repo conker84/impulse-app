@@ -25,7 +25,7 @@ Scaffold a new Impulse framework report using the Databricks bundle template.
 3. Verify that a folder with that name does not already exist at the repository root.
 4. Read the template schema from `report_template/databricks_template_schema.json` to get the current default values for all parameters.
 5. **Always prompt the user** with an explicit choice before proceeding:
-   - Ask: *"Do you want to use the default template values for this report, or configure the new report (dev/stg/prd hosts, groups, Impulse framework version)?"*
+   - Ask: *"Do you want to use the default template values for this report, or configure the new report (dev/stg/prd hosts, groups)?"*
    - Do **not** assume defaults or skip this step. Wait for the user to answer.
    - **If the user chooses "use defaults"** (or equivalent): use all values from the template schema and proceed to step 6.
    - **If the user chooses "configure"** (or equivalent): present the template parameters and collect values as follows.
@@ -37,8 +37,7 @@ Scaffold a new Impulse framework report using the Databricks bundle template.
      - **prd_host**: Host URL of the PRD environment
      - **prd_group**: Group granted 'Manage' permissions for Databricks jobs in PRD
      - **prd_sp_name**: App ID of the Service Principal in PRD
-     - **mda_framework_version**: Version of the Impulse framework to use
-     Present the defaults in a summary table and let the user confirm or override each value (or accept all). Only prompt individually for parameters the user wants to change.
+     Present the defaults in a summary table and let the user confirm or override each value (or accept all). Only prompt individually for parameters the user wants to change. The framework version is pinned in `report_template/template/resources/jobs.yml.tmpl` (not a per-report template parameter) — see the project README's "Impulse Framework" section.
 
 6. Build a config JSON file containing all parameter values (report name + all collected values) and run:
    ```bash
@@ -56,8 +55,7 @@ Scaffold a new Impulse framework report using the Databricks bundle template.
      "stg_group": "...",
      "prd_host": "https://adb-...",
      "prd_group": "...",
-     "prd_sp_name": "...",
-     "mda_framework_version": "0.1.26"
+     "prd_sp_name": "..."
    }
    ```
 7. Confirm the new folder was created and show the user the generated structure.
@@ -70,7 +68,6 @@ After scaffolding, the new report folder contains:
 <report_name>/
 ├── databricks.yml                 # Bundle config (dev/stg/prd targets)
 ├── azure-pipelines.yaml           # CI/CD pipeline
-├── mda_framework_version.json     # Framework version pinning
 ├── pyproject.toml                 # Python project config
 ├── src/
 │   ├── 00_setup.py                # Package installation and imports

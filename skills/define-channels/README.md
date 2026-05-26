@@ -46,5 +46,5 @@ define-signals/
 
 For detailed API documentation, refer to the Impulse framework query engine docs (available locally):
 
-- `<impulse_framework_path>/mda_query_engine/docs/signal_definition.md` — signal definition overview
-- `<impulse_framework_path>/mda_query_engine/docs/api/model/` — full API docs for all data model classes
+- `<impulse_framework_path>/impulse_query_engine/docs/signal_definition.md` — signal definition overview
+- `<impulse_framework_path>/impulse_query_engine/docs/api/model/` — full API docs for all data model classes

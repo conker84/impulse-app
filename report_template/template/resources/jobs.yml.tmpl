@@ -14,10 +14,12 @@ resources:
           spec:
             client: "5"
             dependencies:
-              # Pulls the Impulse framework (package `mda_reporting`) from
-              # github.com/databrickslabs/impulse at deploy time. Pin to a tag
-              # or commit SHA once the framework starts publishing releases.
-              - "mda_reporting @ git+https://github.com/databrickslabs/impulse@main"
+              # Pulls the Impulse framework (PyPI name `databricks-impulse`,
+              # import path `impulse_reporting`) from github.com/databrickslabs/impulse
+              # at deploy time. Pinned to a commit SHA for reproducibility; bump
+              # this when adopting a newer framework version (and re-run any
+              # affected report deploys).
+              - "databricks-impulse @ git+https://github.com/databrickslabs/impulse@a2340f7"
       permissions:
         - level: CAN_MANAGE
           group_name: ${var.manage_group}

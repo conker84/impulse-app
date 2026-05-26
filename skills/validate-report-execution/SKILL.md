@@ -140,7 +140,7 @@ Read [references/error-patterns.md](references/error-patterns.md) for the full c
 | **Type mismatch** | `Cannot apply ... to Intervals/SampleSeries` | Expression type wrong for histogram type — check signal definitions |
 | **Config error** | `KeyError`, `JSONDecodeError` | Malformed or missing fields in `dev_config.json` |
 | **Cluster error** | `CLOUD_PROVIDER_LAUNCH_ERROR`, `DRIVER_UNREACHABLE` | Transient — retry the run |
-| **Framework error** | `mda_reporting` traceback | Check Impulse framework version in `mda_framework_version.json` |
+| **Framework error** | `impulse_reporting` traceback | Check the Impulse framework pin (`@<commit-sha>`) in `report_template/template/resources/jobs.yml.tmpl` against an available version on github.com/databrickslabs/impulse |
 
 #### 4c. Present diagnosis to user (GATE 1)
 

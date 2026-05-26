@@ -177,7 +177,7 @@ DRIVER_UNREACHABLE
 
 **Fix:**
 - Check if `00_setup.py` has dependency conflicts
-- Check `mda_framework_version.json` matches an available package version
+- Check the framework pin in `report_template/template/resources/jobs.yml.tmpl` (`@<commit-sha>`) resolves on github.com/databrickslabs/impulse
 - Try a larger node type or reduce `max_batch_size` in config
 
 ## Impulse framework Errors
@@ -186,15 +186,17 @@ DRIVER_UNREACHABLE
 
 **Pattern:**
 ```
-ERROR: Could not find a version that satisfies the requirement mda-reporting==X.Y.Z
+ERROR: Could not find a version that satisfies the requirement databricks-impulse @ git+https://github.com/databrickslabs/impulse@...
 ```
 
-**Cause:** The version in `mda_framework_version.json` doesn't exist in the package index.
+**Cause:** The commit SHA or tag in `report_template/template/resources/jobs.yml.tmpl` doesn't exist on `github.com/databrickslabs/impulse`.
 
-**Fix:** Check available versions and update `mda_framework_version.json`:
+**Fix:** Confirm the pin against the upstream repo and update if needed:
 ```bash
-pip index versions mda-reporting 2>/dev/null || echo "Check package index manually"
+# Resolve the pin to a real commit; empty output = the ref doesn't exist
+git ls-remote https://github.com/databrickslabs/impulse <ref>
 ```
+Then edit the `@<commit-sha>` suffix in `report_template/template/resources/jobs.yml.tmpl` and re-deploy the affected report bundle.
 
 ### Solver errors
 

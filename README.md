@@ -163,9 +163,9 @@ When running locally, all operations use your `~/.databrickscfg` profile. No Lak
 
 ## Impulse Framework
 
-The app depends on the Impulse framework (Python package `mda_reporting`) at https://github.com/databrickslabs/impulse. Each scaffolded report job's environment pulls the framework via pip directly from GitHub — no wheel binary is vendored in this repo.
+The app depends on the Impulse framework (PyPI name `databricks-impulse`, import path `impulse_reporting`) at https://github.com/databrickslabs/impulse. Each scaffolded report job's environment pulls the framework via pip directly from GitHub — no wheel binary is vendored in this repo.
 
-**Pinning the framework version:** edit `report_template/template/resources/jobs.yml.tmpl` and change `@main` to a specific commit SHA or tag (once the framework starts publishing releases).
+**Pinning the framework version:** edit `report_template/template/resources/jobs.yml.tmpl` and change the `@<commit-sha>` suffix to the desired commit SHA or tag. Currently pinned to `a2340f7` (the rename-to-impulse commit on `main`). Bump and re-deploy affected reports when adopting a newer framework version.
 
 ## Schema Profile
 
