@@ -1,0 +1,79 @@
+# Impulse schema profile — maps your silver-layer table + column names to
+# the canonical names the wizard uses internally.
+#
+# Every field has a default that produces the upstream impulse-app behavior,
+# so a profile only needs to specify what DIVERGES from the default. Copy
+# this file to `profiles.yaml` at the repo root, edit, then run install.sh.
+#
+# Full field reference: server/schema_profile.py (or README "Schema Profile"
+# section).
+#
+# ---
+#
+# Minimal example — defaults are fine, only the name is set:
+#
+# name: my-customer
+#
+# ---
+#
+# Full annotated example — every field shown with its default. Uncomment +
+# edit the ones that don't match your silver-layer schema:
+
+name: my-customer
+
+# === Container metrics (one row per recording) ===
+# container_table: container_metrics       # resolved against ${var.catalog}.${var.schema}
+# container_id_col: container_id
+# container_start_col: start_dt
+# container_stop_col: stop_dt
+
+# === Channel metrics (one row per (container, channel)) ===
+# channel_table: channel_metrics
+# channel_container_id_col: container_id   # FK back to container table
+# channel_id_col: channel_id               # opaque per-channel identifier
+# channel_name_col: channel_name           # display name
+# channel_secondary_id_col: null           # disambiguator if channel_name repeats per container
+# channel_unit_col: null                   # if null, unit comes from aliases table (when set)
+# channel_min_col: min
+# channel_max_col: max
+# channel_mean_col: mean
+# channel_sample_count_col: sample_count
+# channel_sample_rate_expr: sample_rate    # SQL expression; null means unknown
+
+# === Tags (optional native tag tables) ===
+# container_tags_table: container_tags     # set to null to synthesize from container_table
+# channel_tags_table: channel_tags         # set to null to synthesize from channel_table
+
+# === Vehicle dimension ===
+# vehicle_source: tag                      # one of: tag | column | constant
+# vehicle_column: null                     # required if vehicle_source = column
+# vehicle_constant: null                   # required if vehicle_source = constant
+
+# === Aliases (friendly-name lookup) ===
+# aliases_table: null                      # set to enable the chat skill's alias-search path
+# aliases_alias_col: channel_alias_name
+# aliases_unit_col: unit
+# aliases_description_col: description
+
+# === Time-series source (per-sample data) ===
+# timeseries_table: channels
+# timeseries_time_col: tstart              # nanosecond timestamps or "CAST(time * 1e9 AS BIGINT)" for seconds
+# timeseries_end_time_col: tend            # for RLE; set null for sample-based
+# timeseries_value_col: value
+# timeseries_container_match_col: null     # defaults to channel_container_id_col
+# timeseries_channel_match_expr: null      # defaults to channel_id_col; can be a SQL expression
+
+# === Framework / solver ===
+# framework_solver: DeltaSolver
+# framework_data_type: RLE
+# framework_measurement_dimensions:
+#   - container_id
+#   - vehicle_key
+#   - start_ts
+#   - stop_ts
+
+# === Generated-code kwargs ===
+# Maps the generated code's `query.channel(**kwargs)` call. Override to emit
+# different kwarg names for solvers that take different signatures.
+# channel_call_kwargs:
+#   channel_name: channel_name

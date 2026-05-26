@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 from server.agent import run_agent
 from server.config import IS_DATABRICKS_APP, resolve_serving_endpoint
 from server.models import ChatMessage, ChatRequest, ChatResponse
-from server.token_store import get_serving_endpoint
+from server.user_settings import get_serving_endpoint
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["chat"])

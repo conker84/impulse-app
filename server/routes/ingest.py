@@ -12,7 +12,7 @@ import os
 from fastapi import APIRouter, HTTPException, Request
 
 from server.agent import _sessions
-from server.config import IS_DATABRICKS_APP, get_user_client, get_workspace_client
+from server.config import get_workspace_client
 from server.models import IngestStatus
 
 logger = logging.getLogger(__name__)
@@ -23,50 +23,32 @@ def _get_ingest_notebook_root() -> str:
     """Resolve the workspace path to the ingest notebooks.
 
     The notebooks must live in a workspace location where they are imported as
-    NOTEBOOK objects (not files). The ``databricks sync`` command handles this
-    when the source files start with ``# Databricks notebook source``.
+    NOTEBOOK objects (not files). The bundle deploy uploads them as workspace
+    files with the # Databricks notebook source header, so they're registered
+    as NOTEBOOKs.
 
-    The app SP needs CAN_READ on this workspace folder — granted once during
-    setup via ``permissions.set('directories', ...)``.
-
-    Resolution order: explicit ``INGEST_NOTEBOOK_ROOT`` env var, otherwise
-    derived from the deploying user's workspace folder + the active app name.
+    The path is a workspace-shared location (not user-scoped) so the path
+    stays stable across deployers. The bundle grants the app SP CAN_READ on
+    this folder declaratively. Override via INGEST_NOTEBOOK_ROOT env var when
+    testing or for non-default layouts.
     """
     env_path = os.environ.get("INGEST_NOTEBOOK_ROOT")
     if env_path:
         return env_path
 
     app_name = os.environ.get("DATABRICKS_APP_NAME", "impulse")
-    user = get_workspace_client().current_user.me().userName
-    return f"/Workspace/Users/{user}/{app_name}-app/ingest"
+    return f"/Workspace/Shared/{app_name}/ingest"
 
 
 def _get_client(request: Request):
-    """Return a WorkspaceClient for job operations.
+    """Return the SP-authenticated WorkspaceClient for job operations.
 
-    Priority: stored PAT > OBO token > error.
-    OBO tokens lack the 'jobs' scope, so PAT must come first.
+    The app's SP submits and triggers ingest jobs directly via its OAuth
+    client credentials (DATABRICKS_CLIENT_ID + DATABRICKS_CLIENT_SECRET
+    injected by the Apps runtime). Triggering user is captured in job tags
+    / parameters for audit.
     """
-    if not IS_DATABRICKS_APP:
-        return get_workspace_client()
-
-    email = request.headers.get("X-Forwarded-Email", "")
-    token = None
-    if email:
-        from server.token_store import get_pat
-        token = get_pat(email)
-
-    if not token:
-        token = request.headers.get("X-Forwarded-Access-Token")
-
-    if not token:
-        raise HTTPException(
-            401,
-            "Ingest requires a user token. Please open Settings (gear icon) "
-            "and save your Personal Access Token.",
-        )
-
-    return get_user_client(token)
+    return get_workspace_client()
 
 
 

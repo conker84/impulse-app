@@ -4,7 +4,7 @@ Scaffold a new Impulse framework report in this repository using the Databricks 
 
 ## Overview
 
-This skill walks through creating a new report folder from the `.template/` blueprint. It validates that a Databricks CLI profile is available, asks for a report name, runs the scaffolding command, and guides the user through next steps like configuring vehicles, defining signals, and building chapters.
+This skill walks through creating a new report folder from the `report_template/` blueprint. It validates that a Databricks CLI profile is available, asks for a report name, runs the scaffolding command, and guides the user through next steps like configuring vehicles, defining signals, and building chapters.
 
 ## What's Included
 

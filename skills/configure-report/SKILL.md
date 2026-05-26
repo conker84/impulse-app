@@ -19,7 +19,7 @@ Examples:
 ## Prerequisites
 
 - The report folder must already exist (scaffolded via `/create-report` or manually).
-- The Impulse framework documentation should be available locally. If you need to look up details about configuration parameters, ask the user for the path to the Impulse framework base folder. The relevant docs are at `<impulse_framework_path>/mda_reporting/docs/`.
+- The Impulse framework documentation should be available locally. If you need to look up details about configuration parameters, ask the user for the path to the Impulse framework base folder. The relevant docs are at `<impulse_framework_path>/impulse_reporting/docs/`.
 
 ## Steps
 
@@ -208,7 +208,7 @@ Detailed parameter documentation is available in the `references/` folder. Load 
 - [references/query_solver_options.md](references/query_solver_options.md) — solver types, config versions, batch sizing, dev vs prd tuning
 - [references/session_metric_table.md](references/session_metric_table.md) — columns, incremental processing, column mappings
 
-For additional detail beyond what the references cover, the Impulse framework documentation may be available locally. Ask the user for the path to the Impulse framework base folder. The relevant docs are at `<impulse_framework_path>/mda_reporting/docs/`.
+For additional detail beyond what the references cover, the Impulse framework documentation may be available locally. Ask the user for the path to the Impulse framework base folder. The relevant docs are at `<impulse_framework_path>/impulse_reporting/docs/`.
 
 ## Edge Cases
 

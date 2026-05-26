@@ -273,28 +273,16 @@ export interface AvailableModel {
   label: string;
 }
 
-export interface TokenStatusResponse {
+export interface UserStatusResponse {
   local_mode: boolean;
-  has_token: boolean;
   user_email?: string;
   cluster_id?: string;
   serving_endpoint?: string;
   available_models?: AvailableModel[];
 }
 
-export async function getTokenStatus(): Promise<TokenStatusResponse> {
-  return request("/settings/token-status");
-}
-
-export async function saveToken(pat: string): Promise<{ status: string; user_email?: string }> {
-  return request("/settings/token", {
-    method: "POST",
-    body: JSON.stringify({ pat }),
-  });
-}
-
-export async function deleteToken(): Promise<{ status: string }> {
-  return request("/settings/token", { method: "DELETE" });
+export async function getUserStatus(): Promise<UserStatusResponse> {
+  return request("/settings/user-status");
 }
 
 export async function saveModelSetting(

@@ -810,7 +810,7 @@ async def set_cluster_config(session_id: str, payload: ClusterConfigPayload, req
     if payload.use_all_purpose_cluster and not cluster_id:
         from server.config import IS_DATABRICKS_APP
         if IS_DATABRICKS_APP:
-            from server.token_store import get_cluster_id
+            from server.user_settings import get_cluster_id
             email = request.headers.get("X-Forwarded-Email", "")
             if email:
                 cluster_id = get_cluster_id(email)
@@ -1021,7 +1021,7 @@ async def suggest_bins(session_id: str, payload: SuggestBinsPayload, request: Re
 
     from server.agent import _get_openai_client
     from server.config import IS_DATABRICKS_APP, resolve_serving_endpoint
-    from server.token_store import get_serving_endpoint as _get_ep
+    from server.user_settings import get_serving_endpoint as _get_ep
 
     email = request.headers.get("X-Forwarded-Email", "") if IS_DATABRICKS_APP else ""
     user_pref = _get_ep(email) if email else ""

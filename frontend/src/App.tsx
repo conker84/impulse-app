@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import type { ChatMessage, Histogram1DDefinition, Histogram2DDefinition, ReportState, StatisticsDefinition, WizardStep } from "./types";
-import { sendChat, scaffoldReport, deployReport, advanceStep, goBack, goToStep, setMetadata, selectCandidates, fetchVehicleCandidates, selectVehicles, updateVehicleTimestamps, getDeployStatus, cancelRun, getTokenStatus, setClusterConfig, loadReport, saveReport, suggestBins, addHistogram, addHistogram2D, addStatistics, deleteAggregation, updateAggregation, updateHistogram2D, updateStatistics, setSourceData, uploadMf4Files, triggerIngest, getIngestStatus, fetchChannelCatalog, fetchDataTimeRange, deleteSignal, updateSignal, addVirtualSignal, deleteVehicle } from "./api";
-import type { DeployStatusResponse, TokenStatusResponse } from "./api";
+import { sendChat, scaffoldReport, deployReport, advanceStep, goBack, goToStep, setMetadata, selectCandidates, fetchVehicleCandidates, selectVehicles, updateVehicleTimestamps, getDeployStatus, cancelRun, getUserStatus, setClusterConfig, loadReport, saveReport, suggestBins, addHistogram, addHistogram2D, addStatistics, deleteAggregation, updateAggregation, updateHistogram2D, updateStatistics, setSourceData, uploadMf4Files, triggerIngest, getIngestStatus, fetchChannelCatalog, fetchDataTimeRange, deleteSignal, updateSignal, addVirtualSignal, deleteVehicle } from "./api";
+import type { DeployStatusResponse, UserStatusResponse } from "./api";
 import type { DataSourceConfig } from "./types";
 import ChatPanel from "./components/ChatPanel";
 import PreviewPanel from "./components/PreviewPanel";
@@ -91,12 +91,12 @@ export default function App() {
   const [vizDataSources, setVizDataSources] = useState<DataSourceConfig | null>(null);
   const [vizReportName, setVizReportName] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [tokenStatus, setTokenStatus] = useState<TokenStatusResponse | null>(null);
+  const [userStatus, setUserStatus] = useState<UserStatusResponse | null>(null);
   const [ingestTasks, setIngestTasks] = useState<{ task_key: string; life_cycle_state: string; result_state: string | null }[]>([]);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    getTokenStatus().then(setTokenStatus).catch(() => {});
+    getUserStatus().then(setUserStatus).catch(() => {});
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
@@ -485,13 +485,6 @@ export default function App() {
 
   const handleTriggerIngest = useCallback(async () => {
     if (!sessionId) return;
-    if (tokenStatus && !tokenStatus.local_mode && !tokenStatus.has_token) {
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: "⚠️ **A Personal Access Token (PAT) is required to run the ingest job.** Please open Settings (gear icon) and save your PAT first." },
-      ]);
-      return;
-    }
     try {
       const resp = await triggerIngest(sessionId);
       setReportState(resp.report_state);
@@ -819,13 +812,6 @@ export default function App() {
 
   const handleDeploy = useCallback(async () => {
     if (!sessionId) return;
-    if (tokenStatus && !tokenStatus.local_mode && !tokenStatus.has_token) {
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: "⚠️ **A Personal Access Token (PAT) is required to deploy and run the report job.** Please open Settings (gear icon) and save your PAT first." },
-      ]);
-      return;
-    }
 
     setDeploying(true);
     setJobStatus(null);
@@ -870,16 +856,16 @@ export default function App() {
       setReportState((prev) => ({ ...prev, deployment: "failed" }));
       setDeploying(false);
     }
-  }, [sessionId, startPolling, tokenStatus]);
+  }, [sessionId, startPolling]);
 
   const currentStepIdx = WIZARD_STEPS.findIndex((s) => s.key === reportState.wizard_step);
 
-  const showSettingsIcon = !tokenStatus?.local_mode;
+  const showSettingsIcon = !userStatus?.local_mode;
 
   const settingsBtn = showSettingsIcon ? (
     <button className="settings-btn-inline" onClick={() => setSettingsOpen(true)} title="Settings">
       <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
-        <path d="M8.5 1.5a1.5 1.5 0 013 0v.7a6.5 6.5 0 011.7.7l.5-.5a1.5 1.5 0 012.12 2.12l-.5.5c.3.5.5 1.1.7 1.7h.7a1.5 1.5 0 010 3h-.7c-.2.6-.4 1.2-.7 1.7l.5.5a1.5 1.5 0 01-2.12 2.12l-.5-.5c-.5.3-1.1.5-1.7.7v.7a1.5 1.5 0 01-3 0v-.7a6.5 6.5 0 01-1.7-.7l-.5.5a1.5 1.5 0 01-2.12-2.12l.5-.5A6.5 6.5 0 014 10.5h-.7a1.5 1.5 0 010-3h.7c.2-.6.4-1.2.7-1.7l-.5-.5A1.5 1.5 0 016.3 3.18l.5.5c.5-.3 1.1-.5 1.7-.7V1.5zM10 7a3 3 0 100 6 3 3 0 000-6z" fill={tokenStatus?.has_token ? "currentColor" : "var(--warning)"}/>
+        <path d="M8.5 1.5a1.5 1.5 0 013 0v.7a6.5 6.5 0 011.7.7l.5-.5a1.5 1.5 0 012.12 2.12l-.5.5c.3.5.5 1.1.7 1.7h.7a1.5 1.5 0 010 3h-.7c-.2.6-.4 1.2-.7 1.7l.5.5a1.5 1.5 0 01-2.12 2.12l-.5-.5c-.5.3-1.1.5-1.7.7v.7a1.5 1.5 0 01-3 0v-.7a6.5 6.5 0 01-1.7-.7l-.5.5a1.5 1.5 0 01-2.12-2.12l.5-.5A6.5 6.5 0 014 10.5h-.7a1.5 1.5 0 010-3h.7c.2-.6.4-1.2.7-1.7l-.5-.5A1.5 1.5 0 016.3 3.18l.5.5c.5-.3 1.1-.5 1.7-.7V1.5zM10 7a3 3 0 100 6 3 3 0 000-6z" fill="currentColor"/>
       </svg>
     </button>
   ) : undefined;
@@ -891,7 +877,7 @@ export default function App() {
           open={settingsOpen}
           onClose={() => {
             setSettingsOpen(false);
-            getTokenStatus().then(setTokenStatus).catch(() => {});
+            getUserStatus().then(setUserStatus).catch(() => {});
           }}
         />
         <LandingScreen onNewReport={handleNewReport} onLoadReport={handleLoadReport} onVisualize={handleVisualize} onTimeSeries={() => setView("timeseries")} settingsButton={settingsBtn} />
@@ -934,8 +920,8 @@ export default function App() {
         open={settingsOpen}
         onClose={() => {
           setSettingsOpen(false);
-          getTokenStatus().then((ts) => {
-            setTokenStatus(ts);
+          getUserStatus().then((ts) => {
+            setUserStatus(ts);
             if (reportState.use_all_purpose_cluster && ts.cluster_id) {
               setReportState((prev) => ({ ...prev, all_purpose_cluster_id: ts.cluster_id || "" }));
               if (sessionId) {

@@ -27,11 +27,11 @@ def get_connection(token: str | None = None) -> Connection:
                None in local dev mode (uses CLI profile).
     """
     from databricks.sql import connect as dbsql_connect
-    from server.config import IS_DATABRICKS_APP, WAREHOUSE_ID, get_workspace_client
+    from server.config import IS_DATABRICKS_APP, get_workspace_client, resolve_warehouse_id
 
     cfg = get_workspace_client().config
     host = cfg.host.rstrip("/").replace("https://", "")
-    http_path = f"/sql/1.0/warehouses/{WAREHOUSE_ID}"
+    http_path = f"/sql/1.0/warehouses/{resolve_warehouse_id()}"
 
     if IS_DATABRICKS_APP and token:
         return dbsql_connect(

@@ -14,7 +14,11 @@ resources:
           spec:
             client: "5"
             dependencies:
-              - ../lib/{{.wheel_filename}}
+              # Pulls the Impulse framework (PyPI name `databricks-impulse`,
+              # import path `impulse_reporting`) from github.com/databrickslabs/impulse
+              # at deploy time. Tracks `main` — each deploy resolves to whatever
+              # is on the upstream main branch at that moment.
+              - "databricks-impulse @ git+https://github.com/databrickslabs/impulse@main"
       permissions:
         - level: CAN_MANAGE
           group_name: ${var.manage_group}
