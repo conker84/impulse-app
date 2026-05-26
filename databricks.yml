@@ -47,10 +47,26 @@ resources:
       compute_size: LARGE
       config:
         command:
-          - uvicorn
-          - app:app
-          - --host=0.0.0.0
-          - --port=8000
+          # The Apps runtime ships Databricks CLI v0.251.0, whose bundled
+          # Terraform download fails with `openpgp: key expired` (HashiCorp
+          # rotated the signing key). v0.251.1 is a drop-in patch with the
+          # new key (github.com/databricks/cli/issues/5022). Install it to
+          # ~/.local/bin on first boot, prepend to PATH, then exec uvicorn.
+          # Cached install — re-run is a no-op once the binary is in place.
+          - bash
+          - -c
+          - |
+            set -e
+            if [ "$(databricks --version 2>/dev/null | awk '{print $3}')" != "v0.251.1" ]; then
+              echo "[startup] installing patched databricks CLI v0.251.1..."
+              curl -fsSL "https://github.com/databricks/cli/releases/download/v0.251.1/databricks_cli_0.251.1_linux_amd64.zip" -o /tmp/cli.zip
+              mkdir -p "$HOME/.local/bin"
+              unzip -oq /tmp/cli.zip -d "$HOME/.local/bin"
+              rm /tmp/cli.zip
+              echo "[startup] installed: $($HOME/.local/bin/databricks --version)"
+            fi
+            export PATH="$HOME/.local/bin:$PATH"
+            exec uvicorn app:app --host=0.0.0.0 --port=8000
       user_api_scopes:
         - sql
         - dashboards.genie
