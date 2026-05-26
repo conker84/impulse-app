@@ -1,6 +1,15 @@
 bundle:
   name: impulse
 
+# frontend/dist/ is gitignored (secret scanner false-positives on minified
+# third-party JS) but the built bundle MUST ship with the app — otherwise
+# app.py falls through to the FastAPI JSON root and the UI never renders.
+# install.sh runs `npm run build` immediately before `bundle deploy` so the
+# directory exists at upload time.
+sync:
+  include:
+    - frontend/dist/**
+
 variables:
   app_name:
     description: Name for the app, Lakebase instance, and SQL warehouse (they all share it). Pass --var app_name=foo to override.
