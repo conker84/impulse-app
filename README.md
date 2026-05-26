@@ -165,7 +165,7 @@ When running locally, all operations use your `~/.databrickscfg` profile. No Lak
 
 The app depends on the Impulse framework (PyPI name `databricks-impulse`, import path `impulse_reporting`) at https://github.com/databrickslabs/impulse. Each scaffolded report job's environment pulls the framework via pip directly from GitHub — no wheel binary is vendored in this repo.
 
-**Pinning the framework version:** edit `report_template/template/resources/jobs.yml.tmpl` and change the `@<commit-sha>` suffix to the desired commit SHA or tag. Currently pinned to `a2340f7` (the rename-to-impulse commit on `main`). Bump and re-deploy affected reports when adopting a newer framework version.
+**Framework version:** the scaffolded report jobs track upstream `main` (`@main` in `report_template/template/resources/jobs.yml.tmpl`). Each report deploy resolves to whatever's on impulse main at that moment. To freeze a specific report against a known framework version, edit the `@main` suffix on that report's own `resources/jobs.yml` post-scaffold.
 
 ## Schema Profile
 

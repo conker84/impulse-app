@@ -16,10 +16,9 @@ resources:
             dependencies:
               # Pulls the Impulse framework (PyPI name `databricks-impulse`,
               # import path `impulse_reporting`) from github.com/databrickslabs/impulse
-              # at deploy time. Pinned to a commit SHA for reproducibility; bump
-              # this when adopting a newer framework version (and re-run any
-              # affected report deploys).
-              - "databricks-impulse @ git+https://github.com/databrickslabs/impulse@a2340f7"
+              # at deploy time. Tracks `main` — each deploy resolves to whatever
+              # is on the upstream main branch at that moment.
+              - "databricks-impulse @ git+https://github.com/databrickslabs/impulse@main"
       permissions:
         - level: CAN_MANAGE
           group_name: ${var.manage_group}
