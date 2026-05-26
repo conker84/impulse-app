@@ -57,15 +57,16 @@ resources:
           - -c
           - |
             set -e
-            if [ "$(databricks --version 2>/dev/null | awk '{print $3}')" != "v0.251.1" ]; then
-              echo "[startup] installing patched databricks CLI v0.251.1..."
+            CLI_DIR=/tmp/databricks-cli
+            if [ "$($CLI_DIR/databricks --version 2>/dev/null | awk '{print $3}')" != "v0.251.1" ]; then
+              echo "[startup] installing patched databricks CLI v0.251.1 to $CLI_DIR..."
               curl -fsSL "https://github.com/databricks/cli/releases/download/v0.251.1/databricks_cli_0.251.1_linux_amd64.zip" -o /tmp/cli.zip
-              mkdir -p "$HOME/.local/bin"
-              unzip -oq /tmp/cli.zip -d "$HOME/.local/bin"
+              mkdir -p "$CLI_DIR"
+              unzip -oq /tmp/cli.zip -d "$CLI_DIR"
               rm /tmp/cli.zip
-              echo "[startup] installed: $($HOME/.local/bin/databricks --version)"
+              echo "[startup] installed: $($CLI_DIR/databricks --version)"
             fi
-            export PATH="$HOME/.local/bin:$PATH"
+            export PATH="$CLI_DIR:$PATH"
             exec uvicorn app:app --host=0.0.0.0 --port=8000
       user_api_scopes:
         - sql
