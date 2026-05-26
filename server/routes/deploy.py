@@ -299,6 +299,16 @@ async def deploy_and_run(session_id: str, request: Request):
     state.deployment = DeploymentStatus.DEPLOYING
     env = _cli_env()
 
+    try:
+        version = subprocess.run(
+            ["databricks", "--version"], capture_output=True, text=True, env=env, timeout=10,
+        )
+        logger.info("DIAG: databricks --version → %s | DATABRICKS_BUNDLE_ENGINE=%r",
+                    version.stdout.strip() or version.stderr.strip(),
+                    env.get("DATABRICKS_BUNDLE_ENGINE"))
+    except Exception:
+        logger.exception("DIAG: failed to read databricks CLI version")
+
     notification_email = user_email or "noreply@databricks.com"
 
     var_args = ["--var", f"notification_email={notification_email}"]
