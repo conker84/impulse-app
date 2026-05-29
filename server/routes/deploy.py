@@ -229,6 +229,14 @@ _RUN_URL_RE = re.compile(r"https://[^\s]+#job/\d+/run/\d+")
 _RUN_ID_RE = re.compile(r"/run/(\d+)")
 
 
+def _persist(state) -> None:
+    try:
+        from server.report_store import save_report
+        save_report(getattr(state, "user_email", "") or "", state)
+    except Exception:
+        logger.warning("Background save_report failed (non-fatal)", exc_info=True)
+
+
 def _background_bundle_run(
     session_id: str,
     report_dir: str,
@@ -265,17 +273,25 @@ def _background_bundle_run(
                 if rid_match:
                     state.run_id = rid_match.group(1)
                 logger.info("Captured run URL: %s (run_id=%s)", state.run_url, state.run_id)
+                _persist(state)
 
         proc.wait(timeout=86400)
 
         if proc.returncode == 0:
             state.deployment = DeploymentStatus.COMPLETED
             logger.info("Bundle run completed successfully for %s", state_name)
+        elif not state.run_id:
+            state.deployment = DeploymentStatus.FAILED
+            logger.warning(
+                "Bundle run CLI exited with code %d for %s and no run was created — marking failed.",
+                proc.returncode, state_name,
+            )
+            logger.debug("Last output: %s", "".join(output_lines[-20:]))
         else:
             logger.warning(
-                "Bundle run CLI exited with code %d for %s — this may be a CLI issue, "
-                "not a job failure. The actual job status is polled via the Databricks API.",
-                proc.returncode, state_name,
+                "Bundle run CLI exited with code %d for %s — a run exists (%s); "
+                "actual job status is polled via the Databricks API.",
+                proc.returncode, state_name, state.run_id,
             )
             logger.debug("Last output: %s", "".join(output_lines[-20:]))
     except subprocess.TimeoutExpired:
@@ -284,6 +300,8 @@ def _background_bundle_run(
     except Exception:
         state.deployment = DeploymentStatus.FAILED
         logger.exception("Bundle run exception for %s", state_name)
+    finally:
+        _persist(state)
 
 
 @router.post("/deploy/{session_id}")
@@ -387,6 +405,20 @@ async def deploy_status(session_id: str):
     }
 
     if not state.run_id:
+        non_terminal = state.deployment in (
+            DeploymentStatus.SCAFFOLDING,
+            DeploymentStatus.DEPLOYING,
+            DeploymentStatus.RUNNING,
+        )
+        started = state.deploy_started_at
+        if non_terminal and (started is None or (time.time() - started) > 180):
+            state.deployment = DeploymentStatus.FAILED
+            return {
+                **base,
+                "status": state.deployment.value,
+                "tasks": [],
+                "message": "Previous deploy was interrupted before a job run was created. Please re-trigger.",
+            }
         return {**base, "tasks": [], "message": "Job is starting..."}
 
     try:
