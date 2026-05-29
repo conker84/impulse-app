@@ -14,6 +14,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from server.mcp_tools import execute_sql
+from server.schema_profile import get_profile
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +110,7 @@ async def get_histogram_data(body: HistogramDataRequest, request: Request):
         is_distance = meta["type"] == "histogram_distance"
         value_expr = "SUM(f.hist_value)"
         value_alias = "hist_value"
+        value_divisor = (get_profile().duration_scale_to_seconds or 1.0) if is_duration else 1.0
 
         sql = (
             f"WITH agg AS ("
@@ -142,7 +144,7 @@ async def get_histogram_data(body: HistogramDataRequest, request: Request):
                 "bin_name": row[1] or "",
                 "lower_bound": float(row[2]) if row[2] else 0,
                 "upper_bound": float(row[3]) if row[3] else 0,
-                "hist_value": float(row[4]) if row[4] else 0,
+                "hist_value": (float(row[4]) / value_divisor) if row[4] else 0,
                 "relative_pct": float(row[5]) if row[5] else 0,
             })
 
@@ -366,13 +368,14 @@ async def get_histogram2d_data(body: Histogram2DDataRequest, request: Request):
         x_labels_set: dict[int, str] = {}
         y_labels_set: dict[int, str] = {}
         cells: list[tuple[int, int, float]] = []
+        value_divisor = get_profile().duration_scale_to_seconds or 1.0
 
         for row in result.get("rows", []):
             x_id = int(row[0]) if row[0] else 0
             y_id = int(row[1]) if row[1] else 0
             x_name = row[2] or str(x_id)
             y_name = row[3] or str(y_id)
-            value = float(row[4]) if row[4] else 0.0
+            value = (float(row[4]) / value_divisor) if row[4] else 0.0
             x_labels_set[x_id] = x_name
             y_labels_set[y_id] = y_name
             cells.append((x_id, y_id, value))

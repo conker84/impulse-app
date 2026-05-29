@@ -63,6 +63,13 @@ name: my-customer
 # timeseries_container_match_col: null     # defaults to channel_container_id_col
 # timeseries_channel_match_expr: null      # defaults to channel_id_col; can be a SQL expression
 
+# === Duration histogram value scaling ===
+# Duration-histogram values are computed in the data's native time unit (impulse
+# normalizes timestamps to nanoseconds). This divisor converts them to seconds
+# for display. Default 1e9 = nanoseconds -> seconds; use 1e6 for microseconds,
+# 1e3 for milliseconds, or 1 if durations are already in seconds.
+# duration_scale_to_seconds: 1e9
+
 # === Framework / solver ===
 # framework_solver: DeltaSolver
 # framework_data_type: RLE
