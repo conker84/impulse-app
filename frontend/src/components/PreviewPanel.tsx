@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo, useDeferredValue } from "react";
 import type { AggregationDefinition, AvailableChannel, Histogram1DDefinition, Histogram2DDefinition, ReportState, SignalCandidate, SourceDataConfig, StatisticsDefinition, VehicleCandidate, WizardStep } from "../types";
 import type { DeployStatusResponse } from "../api";
 import { listCatalogs, listSchemas, listVolumes } from "../api";
@@ -992,6 +992,14 @@ function MetadataForm({
   );
 }
 
+const RENDER_LIMIT = 200;
+
+// Unique identity for a catalog row. The backend groups channels by
+// (channel_name, unit), so this pair uniquely identifies a row — using it as the
+// React key prevents duplicate-key reconciliation bugs when the same channel_name
+// appears with multiple units.
+const channelKey = (ch: AvailableChannel) => `${ch.channel_name} ${ch.unit}`;
+
 function ChannelBrowser({
   channels,
   existingNames,
@@ -1002,32 +1010,50 @@ function ChannelBrowser({
   onAdd: (selected: { alias: string; var_name: string; channel_name: string; description: string }[]) => void;
 }) {
   const [filter, setFilter] = useState("");
-  const [checked, setChecked] = useState<Set<number>>(new Set());
+  const [checked, setChecked] = useState<Set<string>>(new Set());
   const [collapsed, setCollapsed] = useState(false);
+
+  // Defer the heavy list filtering so the input stays responsive on large catalogs.
+  const deferredFilter = useDeferredValue(filter);
+
+  // Map every row to its stable key so selections can be resolved on add,
+  // independent of what is currently filtered or rendered.
+  const byKey = useMemo(() => {
+    const m = new Map<string, AvailableChannel>();
+    for (const ch of channels) m.set(channelKey(ch), ch);
+    return m;
+  }, [channels]);
+
+  const matches = useMemo(() => {
+    const q = deferredFilter.trim().toLowerCase();
+    if (!q) return channels;
+    return channels.filter(
+      (ch) =>
+        ch.channel_name.toLowerCase().includes(q) ||
+        ch.unit.toLowerCase().includes(q)
+    );
+  }, [channels, deferredFilter]);
+
+  // Cap how many rows are mounted into the DOM. The filter still scans the full
+  // catalog; we just never render more than RENDER_LIMIT nodes, which keeps the
+  // list responsive whether there are 10k, 50k, or more channels.
+  const shown = matches.length > RENDER_LIMIT ? matches.slice(0, RENDER_LIMIT) : matches;
 
   if (channels.length === 0) return null;
 
-  const filtered = filter
-    ? channels.filter(
-        (ch) =>
-          ch.channel_name.toLowerCase().includes(filter.toLowerCase()) ||
-          ch.unit.toLowerCase().includes(filter.toLowerCase())
-      )
-    : channels;
-
-  const toggle = (idx: number) => {
+  const toggle = (key: string) => {
     setChecked((prev) => {
       const next = new Set(prev);
-      if (next.has(idx)) next.delete(idx);
-      else next.add(idx);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   };
 
   const handleAdd = () => {
     const selected = Array.from(checked)
-      .map((i) => filtered[i])
-      .filter(Boolean)
+      .map((key) => byKey.get(key))
+      .filter((ch): ch is AvailableChannel => Boolean(ch))
       .map((ch) => {
         const varName = ch.channel_name
           .replace(/[^a-zA-Z0-9_]/g, "_")
@@ -1067,21 +1093,19 @@ function ChannelBrowser({
             className="channel-filter"
             placeholder="Filter by name or unit..."
             value={filter}
-            onChange={(e) => {
-              setFilter(e.target.value);
-              setChecked(new Set());
-            }}
+            onChange={(e) => setFilter(e.target.value)}
           />
           <div className="candidate-list" style={{ maxHeight: 280 }}>
-            {filtered.map((ch, i) => {
+            {shown.map((ch) => {
+              const key = channelKey(ch);
               const alreadyAdded = existingNames.has(ch.channel_name);
               return (
-                <label key={ch.channel_name} className={`candidate-row ${alreadyAdded ? "disabled" : ""}`}>
+                <label key={key} className={`candidate-row ${alreadyAdded ? "disabled" : ""}`}>
                   <input
                     type="checkbox"
-                    checked={checked.has(i)}
+                    checked={checked.has(key)}
                     disabled={alreadyAdded}
-                    onChange={() => toggle(i)}
+                    onChange={() => toggle(key)}
                   />
                   <div className="candidate-info">
                     <div className="candidate-alias">{ch.channel_name}</div>
@@ -1099,9 +1123,14 @@ function ChannelBrowser({
                 </label>
               );
             })}
-            {filtered.length === 0 && (
+            {matches.length === 0 && (
               <div style={{ padding: 12, opacity: 0.5, textAlign: "center" }}>
                 No channels match "{filter}"
+              </div>
+            )}
+            {matches.length > RENDER_LIMIT && (
+              <div style={{ padding: 12, opacity: 0.5, textAlign: "center", fontSize: 12 }}>
+                Showing first {RENDER_LIMIT} of {matches.length.toLocaleString()} matches — keep typing to narrow.
               </div>
             )}
           </div>
