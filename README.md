@@ -251,7 +251,7 @@ The aliases table is expected to expose the physical channel-name column (and op
 
 | Field | Default | Purpose |
 |---|---|---|
-| `duration_scale_to_seconds` | `1e9` | Divisor applied to duration-histogram values (1D and 2D) before display, converting the framework's native time unit to seconds. Impulse normalizes timestamps to nanoseconds, so the default `1e9` yields seconds. Set `1e6` for microseconds, `1e3` for milliseconds, or `1` if durations are already in seconds. Display-only — it does not change the stored gold-layer values. |
+| `duration_scale_to_seconds` | `1e9` | Divisor applied to duration-histogram values (1D and 2D) before display. The framework does no unit conversion, so duration values come out in the same unit as the stored `tstart`/`tend` timestamps; this divisor converts them to seconds. The impulse convention (and the rest of the app) assumes nanoseconds, so the default `1e9` yields seconds — set `1e6` if your timestamps are microseconds, `1e3` for milliseconds, or `1` if already seconds. Display-only — it does not change the stored gold-layer values. |
 
 #### Framework / solver
 
