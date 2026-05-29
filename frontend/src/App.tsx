@@ -145,40 +145,43 @@ export default function App() {
     }
   }, [reportState.wizard_step, sessionId]);
 
-  const startPolling = useCallback(() => {
-    if (pollRef.current) clearInterval(pollRef.current);
-    pollRef.current = setInterval(async () => {
-      if (!sessionId) return;
-      try {
-        const status = await getDeployStatus(sessionId);
-        setJobStatus(status);
-        if (status.run_url) {
-          setReportState((prev) => ({ ...prev, run_url: status.run_url }));
-        }
-        if (status.status === "completed" || status.status === "failed") {
-          if (pollRef.current) clearInterval(pollRef.current);
-          pollRef.current = null;
-          setReportState((prev) => ({
-            ...prev,
-            deployment: status.status as ReportState["deployment"],
-          }));
-          setDeploying(false);
-          if (status.status === "failed") {
-            setMessages((prev) => [...prev, { role: "assistant", content: `Report job failed. ${status.result_state || ""}` }]);
-          } else {
-            setMessages((prev) => [...prev, {
-              role: "assistant",
-              content: "Report job completed successfully. Click \"View Results\" to see your data.",
-            }]);
-          }
-          // Auto-save so run_url and deployment status persist for re-open
-          if (sessionId) saveReport(sessionId).catch(() => {});
-        }
-      } catch {
-        // ignore transient errors during polling
+  const pollOnce = useCallback(async (sid?: string) => {
+    const sessionIdToUse = sid ?? sessionId;
+    if (!sessionIdToUse) return;
+    try {
+      const status = await getDeployStatus(sessionIdToUse);
+      setJobStatus(status);
+      if (status.run_url) {
+        setReportState((prev) => ({ ...prev, run_url: status.run_url }));
       }
-    }, 30000);
+      if (status.status === "completed" || status.status === "failed") {
+        if (pollRef.current) clearInterval(pollRef.current);
+        pollRef.current = null;
+        setReportState((prev) => ({
+          ...prev,
+          deployment: status.status as ReportState["deployment"],
+        }));
+        setDeploying(false);
+        if (status.status === "failed") {
+          setMessages((prev) => [...prev, { role: "assistant", content: `Report job failed. ${status.result_state || ""}` }]);
+        } else {
+          setMessages((prev) => [...prev, {
+            role: "assistant",
+            content: "Report job completed successfully. Click \"View Results\" to see your data.",
+          }]);
+        }
+        if (sessionIdToUse) saveReport(sessionIdToUse).catch(() => {});
+      }
+    } catch {
+      // ignore transient errors during polling
+    }
   }, [sessionId]);
+
+  const startPolling = useCallback((sid?: string) => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    void pollOnce(sid);
+    pollRef.current = setInterval(() => { void pollOnce(sid); }, 30000);
+  }, [pollOnce]);
 
   const handleSend = useCallback(
     async (text: string) => {
@@ -743,10 +746,14 @@ export default function App() {
       setSessionId(resp.session_id);
       setReportState(resp.report_state);
       setView("editor");
+      const dep = resp.report_state.deployment;
+      if (dep === "scaffolding" || dep === "deploying" || dep === "running") {
+        startPolling(resp.session_id);
+      }
     } catch (err) {
       alert(`Failed to load report: ${err instanceof Error ? err.message : String(err)}`);
     }
-  }, [resetEditor]);
+  }, [resetEditor, startPolling]);
 
   const handleBackToLanding = useCallback(() => {
     resetEditor();

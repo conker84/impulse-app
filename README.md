@@ -247,6 +247,12 @@ The aliases table is expected to expose the physical channel-name column (and op
 | `timeseries_container_match_col` | `null` → `channel_container_id_col` | Column on the timeseries table matched against the requested `container_id`. Only set if it differs from the channel-metrics container column. |
 | `timeseries_channel_match_expr` | `null` → `channel_id_col` | SQL expression on the timeseries table matched against the requested `channel_id`. Use a column for trivial cases; use an expression when the timeseries table keys differently from `channel_metrics` (e.g. `"concat_ws(':', split(signal_name, ':')[0], split(signal_name, ':')[2])"` for a 3-part signal_name → 2-part match). |
 
+#### Duration histogram values
+
+| Field | Default | Purpose |
+|---|---|---|
+| `duration_scale_to_seconds` | `1e9` | Divisor applied to duration-histogram values for display (converts to seconds). Default `1e9` (nanoseconds); `1e6` for microseconds, `1e3` for milliseconds, `1` for seconds. |
+
 #### Framework / solver
 
 | Field | Default | Purpose |

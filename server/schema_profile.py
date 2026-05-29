@@ -46,6 +46,8 @@ class SchemaProfile(BaseModel):
     timeseries_container_match_col: str | None = None
     timeseries_channel_match_expr: str | None = None
 
+    duration_scale_to_seconds: float = 1e9
+
     framework_solver: str = "DeltaSolver"
     framework_data_type: str = "RLE"
     framework_measurement_dimensions: list[str] = Field(
