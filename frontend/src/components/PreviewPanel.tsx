@@ -994,10 +994,6 @@ function MetadataForm({
 
 const RENDER_LIMIT = 200;
 
-// Unique identity for a catalog row. The backend groups channels by
-// (channel_name, unit), so this pair uniquely identifies a row — using it as the
-// React key prevents duplicate-key reconciliation bugs when the same channel_name
-// appears with multiple units.
 const channelKey = (ch: AvailableChannel) => `${ch.channel_name} ${ch.unit}`;
 
 function ChannelBrowser({
@@ -1013,11 +1009,8 @@ function ChannelBrowser({
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [collapsed, setCollapsed] = useState(false);
 
-  // Defer the heavy list filtering so the input stays responsive on large catalogs.
   const deferredFilter = useDeferredValue(filter);
 
-  // Map every row to its stable key so selections can be resolved on add,
-  // independent of what is currently filtered or rendered.
   const byKey = useMemo(() => {
     const m = new Map<string, AvailableChannel>();
     for (const ch of channels) m.set(channelKey(ch), ch);
@@ -1034,9 +1027,6 @@ function ChannelBrowser({
     );
   }, [channels, deferredFilter]);
 
-  // Cap how many rows are mounted into the DOM. The filter still scans the full
-  // catalog; we just never render more than RENDER_LIMIT nodes, which keeps the
-  // list responsive whether there are 10k, 50k, or more channels.
   const shown = matches.length > RENDER_LIMIT ? matches.slice(0, RENDER_LIMIT) : matches;
 
   if (channels.length === 0) return null;

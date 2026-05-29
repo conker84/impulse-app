@@ -64,11 +64,8 @@ name: my-customer
 # timeseries_channel_match_expr: null      # defaults to channel_id_col; can be a SQL expression
 
 # === Duration histogram value scaling ===
-# Duration-histogram values come out in the same unit as the stored tstart/tend
-# timestamps — the framework does no unit conversion. This divisor converts them
-# to seconds for display. The impulse convention (and the rest of the app)
-# assumes nanoseconds, so the default 1e9 = ns -> seconds; use 1e6 for
-# microseconds, 1e3 for milliseconds, or 1 if timestamps are already in seconds.
+# Divisor applied to duration-histogram values for display (converts to seconds).
+# Default 1e9 (nanoseconds); 1e6 = microseconds, 1e3 = milliseconds, 1 = seconds.
 # duration_scale_to_seconds: 1e9
 
 # === Framework / solver ===
