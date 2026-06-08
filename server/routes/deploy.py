@@ -15,6 +15,7 @@ import subprocess
 import threading
 import time
 
+import yaml
 from fastapi import APIRouter, HTTPException, Request
 
 from server.agent import _sessions
@@ -86,35 +87,33 @@ def _strip_txt_suffix(report_dir: str) -> None:
 
 
 def _apply_all_purpose_cluster(report_dir: str) -> None:
-    """Modify jobs.yml to run report_generation on an existing all-purpose cluster.
-
-    The template defaults to serverless (no cluster config on the task).
-    This patches in ``existing_cluster_id: ${var.existing_cluster_id}``
-    so the DAB variable controls which cluster is used.
-    """
     jobs_path = os.path.join(report_dir, "resources", "jobs.yml")
     if not os.path.isfile(jobs_path):
         logger.warning("jobs.yml not found at %s — skipping cluster swap", jobs_path)
         return
 
     with open(jobs_path) as f:
-        lines = f.readlines()
+        doc = yaml.safe_load(f)
 
-    new_lines: list[str] = []
-    for i, line in enumerate(lines):
-        new_lines.append(line)
-        if line.strip() == "- task_key: report_generation":
-            # Find the indentation of the next line (depends_on) to match it
-            if i + 1 < len(lines):
-                next_line = lines[i + 1]
-                indent = next_line[: len(next_line) - len(next_line.lstrip())]
-            else:
-                indent = "          "
-            new_lines.append(f"{indent}existing_cluster_id: ${{var.existing_cluster_id}}\n")
+    for job in (doc or {}).get("resources", {}).get("jobs", {}).values():
+        environments = job.pop("environments", None) or []
+        deps = [
+            dep
+            for env in environments
+            for dep in (env.get("spec", {}) or {}).get("dependencies", []) or []
+        ]
+        for task in job.get("tasks", []) or []:
+            if task.get("task_key") != "report_generation":
+                continue
+            task.pop("environment_key", None)
+            task["existing_cluster_id"] = "${var.existing_cluster_id}"
+            if deps:
+                task["libraries"] = [{"pypi": {"package": dep}} for dep in deps]
 
     with open(jobs_path, "w") as f:
-        f.writelines(new_lines)
-    logger.info("Patched jobs.yml to use existing_cluster_id for report_generation")
+        yaml.safe_dump(doc, f, sort_keys=False, default_flow_style=False)
+
+    logger.info("Patched jobs.yml for classic compute (existing_cluster_id + libraries)")
 
 
 router = APIRouter(prefix="/api", tags=["deploy"])
