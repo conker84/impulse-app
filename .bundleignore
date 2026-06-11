@@ -20,6 +20,10 @@ frontend/.vite/
 # Per-user scratch
 reports/
 test/
+tests/
+.pytest_cache/
+.coverage
+junit.xml
 TASKS.md
 CLAUDE.md
 PROJECT.md
