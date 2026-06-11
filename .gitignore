@@ -1,6 +1,10 @@
 __pycache__/
 *.pyc
 .venv/
+.pytest_cache/
+.coverage
+htmlcov/
+junit.xml
 node_modules/
 .claude/
 reports/
@@ -11,6 +15,7 @@ CLAUDE.md
 uv.lock
 .vscode/
 frontend/dist/
+frontend/coverage/
 # profiles.yaml is customer-specific schema mapping; ship profiles.yaml.example
 # in git (task #9) and let customers commit their own profiles.yaml in their
 # fork. Bundle deploy uploads whatever's in the repo tree.

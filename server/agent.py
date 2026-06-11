@@ -844,6 +844,7 @@ _TOOL_STEP_MAP: dict[str, set[WizardStep]] = {
 }
 
 _STEP_LABELS = {
+    WizardStep.SOURCE_DATA: "Source Data",
     WizardStep.REPORT_NAME: "Report Name",
     WizardStep.VEHICLES: "Vehicles",
     WizardStep.CHANNELS: "Channels",

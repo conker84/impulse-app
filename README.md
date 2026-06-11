@@ -132,6 +132,27 @@ cd frontend && npm run dev    # runs on :5173, proxies /api to :8001
 
 Set `DATABRICKS_PROFILE` to override the CLI profile used.
 
+## Testing
+
+The backend has a pytest suite covering the deterministic business-logic modules
+(models, schema profile/adapter, code generation, skill loading, time-series
+cache). These tests need no Databricks workspace, network, or Lakebase.
+
+```bash
+# From the repo root, with the venv created above:
+uv pip install --group dev          # installs pytest + pytest-cov
+python -m pytest                    # run the suite
+
+# With coverage for the tested modules:
+python -m pytest --cov=server --cov-report=term-missing
+```
+
+Tests live in `tests/` and are excluded from bundle deploys via `.bundleignore`.
+When adding a new pure-logic helper to `server/`, add a matching `tests/test_*.py`.
+I/O glue (routes, `db.py`, `mcp_tools.py`, `agent.py`, `ts_connector.py`) is not
+covered here — it requires a live workspace and is better exercised by integration
+tests.
+
 ## Authentication & Permissions
 
 ### Identity Model

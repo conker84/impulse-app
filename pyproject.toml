@@ -16,3 +16,24 @@ dependencies = [
     "tsdownsample>=0.1.0",
     "numpy>=1.24.0",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=5.0.0",
+    # Emits native GitHub Actions annotations on failing test lines, so failures
+    # show up inline in the Checks tab / PR diff. Auto-activates under Actions.
+    "pytest-github-actions-annotate-failures>=0.2.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
+
+[tool.coverage.run]
+source = ["server"]
+omit = ["server/routes/*"]
