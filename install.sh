@@ -3,21 +3,22 @@
 # Impulse app — customer install.
 #
 # What this does:
-#   1. Prompts (or reads from .install.config) for UC catalog + schema where your
-#      silver-layer data lives, and the workspace group that should get app access.
+#   1. Prompts (or reads from .install.config) for the workspace group that
+#      should get access to the app + warehouse.
 #   2. Runs `databricks bundle deploy` which creates: Lakebase instance, SQL
 #      warehouse (Medium serverless, 10-min auto-stop), the app itself, all
 #      bindings + grants for the app's service principal.
-#   3. Grants the app's service principal USE CATALOG + USE SCHEMA + SELECT
-#      on your silver-layer tables (current and future) via the bundle-created
-#      warehouse.
+#   3. Note: the app reads your silver-layer data as the *logged-in user* (via
+#      their OBO token), so the app's service principal needs no UC grants —
+#      each end user's own UC permissions govern what they can query. The
+#      catalog + schema holding the silver tables are chosen in the app UI at
+#      runtime, so they are not collected here.
 #
 # Prerequisites — your workspace admin must have done:
 #   - Databricks Apps enabled
 #   - Lakebase enabled
 #   - Serverless SQL warehouses enabled
 #   - You're authenticated to the target workspace (`databricks auth login`)
-#   - You have CREATE permissions on the target catalog (or it pre-exists)
 #
 # Local tools required on the machine running this script:
 #   - Databricks CLI (>= 0.290)
@@ -39,15 +40,11 @@ fi
 CONFIG_FILE=".install.config"
 
 # Persisted values from a previous run, if any.
-CATALOG=""
-SCHEMA=""
 END_USER_GROUP="users"
 # shellcheck disable=SC1090
 [ -f "$CONFIG_FILE" ] && source "$CONFIG_FILE"
 
 # Allow overrides via env vars (useful for CI / non-interactive).
-CATALOG="${IMPULSE_CATALOG:-$CATALOG}"
-SCHEMA="${IMPULSE_SCHEMA:-$SCHEMA}"
 END_USER_GROUP="${IMPULSE_END_USER_GROUP:-$END_USER_GROUP}"
 
 prompt() {
@@ -88,16 +85,6 @@ if [ "$CHECK_ONLY" = true ]; then
     databricks serving-endpoints list || failed=$((failed+1))
   check "npm installed (for frontend build)" \
     command -v npm || failed=$((failed+1))
-  if [ -n "$CATALOG" ]; then
-    check "Target catalog exists: $CATALOG" \
-      databricks catalogs get "$CATALOG" || failed=$((failed+1))
-    if [ -n "$SCHEMA" ]; then
-      check "Target schema exists: $CATALOG.$SCHEMA" \
-        databricks schemas get "$CATALOG.$SCHEMA" || failed=$((failed+1))
-    fi
-  else
-    echo "  (set IMPULSE_CATALOG to also probe the target catalog/schema)"
-  fi
   echo ""
   if [ "$failed" -gt 0 ]; then
     echo "$failed check(s) failed. See INSTALL.md → Troubleshooting." >&2
@@ -108,18 +95,12 @@ if [ "$CHECK_ONLY" = true ]; then
 fi
 
 echo "=== Customer values ==="
-prompt CATALOG "Unity Catalog containing your silver-layer impulse tables"
-prompt SCHEMA  "Schema within $CATALOG containing channel_metrics / container_metrics / channels"
 prompt END_USER_GROUP "Workspace group to grant app + warehouse access to"
 
-[ -z "$CATALOG" ] && { echo "ERROR: catalog required" >&2; exit 1; }
-[ -z "$SCHEMA" ]  && { echo "ERROR: schema required" >&2; exit 1; }
 [ -z "$END_USER_GROUP" ] && END_USER_GROUP="users"
 
 # Persist for next run.
 cat > "$CONFIG_FILE" <<EOF
-CATALOG=$CATALOG
-SCHEMA=$SCHEMA
 END_USER_GROUP=$END_USER_GROUP
 EOF
 
@@ -153,102 +134,22 @@ echo "  Building production bundle..."
 echo ""
 echo "=== Bundle deploy ==="
 echo "  app_name:       $APP_NAME"
-echo "  catalog:        $CATALOG"
-echo "  schema:         $SCHEMA"
 echo "  end_user_group: $END_USER_GROUP"
 echo ""
 
 # DATABRICKS_BUNDLE_ENGINE=direct works around the bundled Terraform's expired
 # GPG key (CLI bug; see TASKS.md). Drop this once the CLI ships a fixed key.
 DATABRICKS_BUNDLE_ENGINE=direct databricks bundle deploy \
-  --var catalog="$CATALOG" \
-  --var schema="$SCHEMA" \
   --var end_user_group="$END_USER_GROUP"
 
-# Post-deploy: grant the app SP UC access to the customer's silver-layer schema.
-# DAB has no resource to grant on pre-existing UC objects (CLI #3556), so this
-# is the one piece that lives in the script.
-
-echo ""
-echo "=== Post-deploy UC grants for app SP ==="
-
-SP_ID=$(databricks apps get "$APP_NAME" -o json \
-  | python3 -c "import sys, json; print(json.load(sys.stdin).get('service_principal_client_id', ''))")
-echo "  SP: $SP_ID"
-if [ -z "$SP_ID" ]; then
-  echo "  ERROR: app $APP_NAME has no service_principal_client_id yet" >&2
-  exit 1
-fi
-
-WAREHOUSE_ID=$(databricks warehouses list -o json \
-  | APP_NAME="$APP_NAME" python3 -c "
-import os, sys, json
-target = os.environ['APP_NAME']
-for w in json.load(sys.stdin):
-    if w.get('name') == target:
-        print(w['id'])
-        break")
-echo "  Warehouse: $WAREHOUSE_ID"
-if [ -z "$WAREHOUSE_ID" ]; then
-  echo "  ERROR: could not find the bundle-created warehouse named $APP_NAME" >&2
-  exit 1
-fi
-
-# Use Python (single block, no shell escaping) to issue the 4 GRANTs against
-# the bundle-created warehouse. Each statement is sent via the CLI's API
-# proxy with a temp-file JSON payload — no shell-quoting hazards.
-SP_ID="$SP_ID" CATALOG="$CATALOG" SCHEMA="$SCHEMA" WAREHOUSE_ID="$WAREHOUSE_ID" \
-  python3 - <<'PY'
-import json, os, subprocess, sys, tempfile
-
-sp = os.environ["SP_ID"]
-cat = os.environ["CATALOG"]
-sch = os.environ["SCHEMA"]
-wh  = os.environ["WAREHOUSE_ID"]
-
-stmts = [
-    # UC permissions are hierarchical — granting SELECT ON SCHEMA cascades
-    # to all current and future tables in that schema. No need for the
-    # Postgres-style ALL TABLES IN SCHEMA / FUTURE TABLES IN SCHEMA syntax.
-    f"GRANT USE CATALOG ON CATALOG `{cat}` TO `{sp}`",
-    f"GRANT USE SCHEMA ON SCHEMA `{cat}`.`{sch}` TO `{sp}`",
-    f"GRANT SELECT ON SCHEMA `{cat}`.`{sch}` TO `{sp}`",
-]
-
-failed = 0
-for sql in stmts:
-    print(f"  -> {sql}")
-    payload = {"warehouse_id": wh, "statement": sql, "wait_timeout": "30s"}
-    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
-        json.dump(payload, f)
-        path = f.name
-    try:
-        result = subprocess.run(
-            ["databricks", "api", "post", "/api/2.0/sql/statements",
-             "--json", f"@{path}", "-o", "json"],
-            capture_output=True, text=True,
-        )
-    finally:
-        os.unlink(path)
-    if result.returncode != 0:
-        print(f"     FAIL: {result.stderr.strip()[:200]}")
-        failed += 1
-        continue
-    try:
-        d = json.loads(result.stdout)
-    except Exception:
-        print(f"     FAIL: non-JSON response: {result.stdout.strip()[:200]}")
-        failed += 1
-        continue
-    status = d.get("status", {})
-    state = status.get("state", "?")
-    err = status.get("error", {}).get("message", "")
-    print(f"     {state}{(' — ' + err) if err else ''}")
-    if state not in ("SUCCEEDED", "PENDING"):
-        failed += 1
-
-sys.exit(1 if failed else 0)
-PY
+# No post-deploy UC grants needed: the app reads silver-layer data exclusively
+# via the logged-in user's OBO token (X-Forwarded-Access-Token; see
+# server/mcp_tools.py:execute_sql, which has no service-principal fallback), so
+# UC access is governed by each end user's own permissions — the app's service
+# principal never queries the silver tables. This also means the *deploying*
+# user needs no GRANT authority on the customer's catalog/schema. End users do
+# still need USE CATALOG / USE SCHEMA / SELECT on the schema themselves — see the
+# reminder printed at the end of this script.
 
 echo ""
 echo "=== Starting app ==="
@@ -256,8 +157,6 @@ echo "=== Starting app ==="
 # triggers an actual app deployment (= start compute + serve traffic). The
 # command waits until the app reports "started successfully".
 DATABRICKS_BUNDLE_ENGINE=direct databricks bundle run impulse_app \
-  --var catalog="$CATALOG" \
-  --var schema="$SCHEMA" \
   --var end_user_group="$END_USER_GROUP"
 
 # Final summary.
@@ -269,6 +168,7 @@ echo "=== Install complete ==="
 echo "  App URL: $APP_URL"
 echo ""
 echo "Reminder — end users also need (one-time, by your workspace admin):"
-echo "  - USE CATALOG / USE SCHEMA / SELECT on $CATALOG.$SCHEMA"
+echo "  - USE CATALOG / USE SCHEMA / SELECT on the catalog + schema that holds"
+echo "    your silver-layer impulse tables (whichever you point the app at)"
 echo "  - Membership in '$END_USER_GROUP' (the bundle already granted that group"
 echo "    CAN_USE on the app + warehouse)"
