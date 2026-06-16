@@ -14,10 +14,6 @@ variables:
   app_name:
     description: Name for the app, Lakebase instance, and SQL warehouse (they all share it). Pass --var app_name=foo to override.
     default: impulse-v3
-  catalog:
-    description: Unity Catalog containing the customer's silver-layer impulse tables (channel_metrics, container_metrics, channels, etc.)
-  schema:
-    description: Schema within ${var.catalog} containing the impulse tables
   end_user_group:
     description: Workspace group granted CAN_USE on the app + warehouse
     default: users

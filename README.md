@@ -101,11 +101,11 @@ databricks auth login --host https://<workspace>.cloud.databricks.com --profile 
 ./install.sh
 ```
 
-`install.sh` runs `databricks bundle deploy` (which creates the Lakebase instance, SQL warehouse, app, and all bindings) and then grants the app's service principal `USE_CATALOG` / `USE_SCHEMA` / `SELECT` on your silver-layer schema. Re-runs are idempotent.
+`install.sh` runs `databricks bundle deploy` (which creates the Lakebase instance, SQL warehouse, app, and all bindings), then `databricks bundle run` to start the app. It issues **no** Unity Catalog grants — the app reads your silver-layer data as the logged-in user (OBO), so data access is governed by each end user's own UC permissions. Re-runs are idempotent.
 
 ### Resource names
 
-The bundle creates everything with the name set by the `app_name` variable in `databricks.yml` (default `impulse-v3`):
+The bundle creates everything with the name set by the `app_name` variable in `databricks.yml` (this repo's default is `impulse-v3`):
 
 - App: `impulse-v3`
 - Lakebase instance: `impulse-v3`

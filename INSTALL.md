@@ -12,7 +12,7 @@ databricks auth login --host https://<your-workspace>.cloud.databricks.com --pro
 ./install.sh
 ```
 
-The script prompts for your UC catalog + schema (where your silver-layer data lives), runs `databricks bundle deploy`, and grants the app's service principal read access to your tables. Five-ish minutes end-to-end.
+The script prompts for the workspace group that should get app access, then runs `databricks bundle deploy` to create the Lakebase instance, SQL warehouse, and app. Five-ish minutes end-to-end. The app reads your silver-layer data as the logged-in user (OBO), so there are no service-principal grants to issue at install time.
 
 ---
 
@@ -22,7 +22,7 @@ The script prompts for your UC catalog + schema (where your silver-layer data li
 
 - Databricks CLI (>= 0.290)
 - Node.js + npm (>= 18) — `install.sh` builds the React frontend before deploy
-- Python 3 (used by `install.sh` for the post-deploy GRANT step)
+- Python 3 (used by `install.sh` to parse `databricks.yml` and the app URL)
 
 ### Workspace features
 
@@ -38,7 +38,7 @@ If any of these is missing, `databricks bundle deploy` will 403 with a clear mes
 
 ### Your silver-layer data (already in Unity Catalog)
 
-The app reads measurement data from a Unity Catalog schema you provide. Default expected tables:
+The app reads measurement data from a Unity Catalog schema. You pick the catalog + schema **in the app UI at runtime** — they are not set at install time. Default expected tables:
 
 | Table | Purpose | Required columns (default names) |
 |---|---|---|
@@ -63,49 +63,36 @@ If you're using already-ingested silver-layer data (i.e., you skip the ingest UI
 
 ### Permissions on the target catalog
 
-Your workspace admin needs at least one of:
-
-- `USE CATALOG` + the right to `GRANT` on the catalog + schema (so `install.sh` can issue the SP grants), OR
-- The deploying user is the catalog/schema owner
-
-`install.sh` runs four GRANT statements as the authenticated user. If you don't have GRANT permission, the script will fail at the post-deploy step; the bundle resources will already be created but the SP won't have data access until the grants are run manually by someone who does.
+**None needed at deploy time.** The app queries your silver-layer tables as the *logged-in user* via their OBO token, so `install.sh` issues no Unity Catalog grants and the deploying user needs no `GRANT` rights on the customer catalog. Data access is governed entirely by each end user's own UC permissions — see [End-user access](#end-user-access-one-time-by-your-workspace-admin) below.
 
 ---
 
 ## What `install.sh` does, step by step
 
-1. **Reads or prompts** for: UC catalog, UC schema, workspace group with app access. Persists answers to `.install.config` for re-runs.
+1. **Reads or prompts** for the workspace group that should get app access. Persists the answer to `.install.config` for re-runs.
 
-2. **Runs `databricks bundle deploy`** — creates, in your workspace:
-   - Lakebase instance named `impulse-v3` (default; configurable in `databricks.yml`'s `app_name` variable)
+2. **Runs `databricks bundle deploy`** — creates the following in your workspace (all named after the `app_name` variable in `databricks.yml`; this repo's default is `impulse-v3`):
+   - Lakebase instance `impulse-v3`
    - Logical Postgres database `databricks_postgres.impulse.*` for app metadata (user settings, saved reports)
-   - SQL warehouse named `impulse-v3` (Medium, serverless, 10-min auto-stop)
+   - SQL warehouse `impulse-v3` (Medium, serverless, 10-min auto-stop)
    - The app `impulse-v3`, with resource bindings that auto-provision the app's service principal as a Postgres role with `CONNECT + CREATE` on the database, and `CAN_USE` on the warehouse
    - All `permissions` blocks granting your chosen end-user group `CAN_USE` on the app + warehouse
 
-3. **Fetches** the app's service principal client ID from the deployed app.
+3. **Runs `databricks bundle run`** to start the app, then **prints** the app URL and a reminder about end-user access (see below).
 
-4. **Runs four SQL GRANT statements** via the bundle-created warehouse:
-   ```sql
-   GRANT USE CATALOG ON CATALOG <catalog> TO `<sp-client-id>`;
-   GRANT USE SCHEMA ON SCHEMA <catalog>.<schema> TO `<sp-client-id>`;
-   GRANT SELECT ON ALL TABLES IN SCHEMA <catalog>.<schema> TO `<sp-client-id>`;
-   GRANT SELECT ON FUTURE TABLES IN SCHEMA <catalog>.<schema> TO `<sp-client-id>`;
-   ```
-
-5. **Prints** the app URL and a reminder about end-user grants (see below).
+> The app's service principal is never granted access to your silver-layer tables — it doesn't query them. All data reads happen as the logged-in user (OBO).
 
 ---
 
-## End-user grants (one-time, by your workspace admin)
+## End-user access (one-time, by your workspace admin)
 
-After install, end users need (one-time, granted at the same level for whichever workspace group `install.sh` set as `end_user_group` — default `users`):
+The app reads silver-layer data as the **logged-in user** (OBO), so each end user needs their own Unity Catalog permissions on the data — this is the *only* data access path (the app's service principal never queries your tables):
 
-- `USE CATALOG` on the catalog you chose
-- `USE SCHEMA` on the schema you chose
+- `USE CATALOG` on the silver-layer catalog
+- `USE SCHEMA` on the silver-layer schema
 - `SELECT` on the silver-layer tables they need to read
 
-The bundle has already granted that group `CAN_USE` on the app + warehouse, so you only need the UC table-level grants. If your workspace already grants `SELECT ON ALL TABLES IN SCHEMA` to all account users (common for data-team-owned schemas), this is a no-op.
+Grant these to whichever workspace group you set as `end_user_group` (default `users`). The bundle has already granted that group `CAN_USE` on the app + warehouse. If your workspace already grants `SELECT ON ALL TABLES IN SCHEMA` to all account users (common for data-team-owned schemas), this is a no-op.
 
 ---
 
@@ -115,24 +102,22 @@ The bundle has already granted that group `CAN_USE` on the app + warehouse, so y
 ./install.sh --check
 ```
 
-Runs read-only API probes against your authenticated workspace to confirm Apps + Lakebase + warehouses + FMAPI are all enabled and that your target catalog/schema exist (if `IMPULSE_CATALOG` / `IMPULSE_SCHEMA` are set). Exits non-zero with a count of failed checks. Useful in CI before doing a real deploy.
+Runs read-only API probes against your authenticated workspace to confirm Apps + Lakebase + warehouses + FMAPI are all enabled and `npm` is available. Exits non-zero with a count of failed checks. Useful in CI before doing a real deploy.
 
 ## Non-interactive / CI install
 
 ```bash
-export IMPULSE_CATALOG=my_catalog
-export IMPULSE_SCHEMA=my_schema
 export IMPULSE_END_USER_GROUP=data-users
 ./install.sh
 ```
 
-`install.sh` reads these env vars and skips the prompts.
+`install.sh` reads this env var and skips the prompt.
 
 ---
 
 ## Re-running / upgrading
 
-`./install.sh` is idempotent: `databricks bundle deploy` is idempotent (no destroy/recreate of Lakebase data), and the four SQL GRANTs are idempotent (re-granting is a no-op).
+`./install.sh` is idempotent: `databricks bundle deploy` is idempotent (no destroy/recreate of Lakebase data).
 
 When you `git pull` a new version of the app, just re-run `./install.sh`.
 
@@ -142,12 +127,12 @@ When you `git pull` a new version of the app, just re-run `./install.sh`.
 
 **`PERMISSION_DENIED: feature is not enabled for organization …`** — your workspace doesn't have the required feature flag. Check the Prerequisites section. Common culprits: user token passthrough (OBO), Lakebase.
 
-**`HTTP 403 ... You do not have GRANT ON CATALOG`** — your authenticated user doesn't have permission to grant on the customer catalog. Either authenticate as a user with grant rights, or have your admin run the four GRANT statements that `install.sh` printed.
+**`User does not have permission to add resource lakebase to app … (403 PERMISSION_DENIED)`** — the deploying user needs `CAN_MANAGE` on the Lakebase **database instance** being bound to the app. The instance's creator has this automatically; if it was pre-provisioned by someone else, have its owner/an admin grant you `CAN_MANAGE` on the instance (Databricks → Compute → Database Instances → the instance → Permissions), or deploy with an `app_name` whose instance doesn't exist yet so the bundle creates it under your identity.
 
 **`Invalid update mask. ... resources[N].sql_warehouse.id`** — happens if you try to change the bundle-created warehouse's binding on an existing app. The Databricks Apps API forbids editing certain binding fields. Solution: delete the app (`databricks apps delete impulse-v3`), wait for `DELETING` to clear, then re-run `install.sh`.
 
 **`openpgp: key expired`** — the CLI's bundled Terraform binary has an expired signing key. `install.sh` already sets `DATABRICKS_BUNDLE_ENGINE=direct` to work around this; if you see it anyway, you may be running an older CLI — try `databricks --version` and upgrade if it's significantly behind 0.290.0.
 
-**App appears but compute stays `STOPPED`** — `databricks bundle deploy` creates the app shell but doesn't start it. Start the app from the Databricks Apps UI (or `databricks apps deploy impulse-v3 --source-code-path …` — not needed in the bundle flow). The first start takes a few minutes while compute provisions.
+**App appears but compute stays `STOPPED`** — `databricks bundle deploy` creates the app shell; `install.sh` then runs `databricks bundle run` to start it. If it's still stopped, start the app from the Databricks Apps UI. The first start takes a few minutes while compute provisions.
 
 **`profiles.yaml` not picked up** — make sure it's named exactly `profiles.yaml` (no `.example` suffix), at the repo root. `git status` should NOT show it (it's gitignored locally; the bundle uploads it from your working tree).
