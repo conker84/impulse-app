@@ -85,6 +85,8 @@ if [ "$CHECK_ONLY" = true ]; then
     databricks serving-endpoints list || failed=$((failed+1))
   check "npm installed (for frontend build)" \
     command -v npm || failed=$((failed+1))
+  check "psql installed (for Lakebase role provisioning)" \
+    command -v psql || failed=$((failed+1))
   echo ""
   if [ "$failed" -gt 0 ]; then
     echo "$failed check(s) failed. See INSTALL.md → Troubleshooting." >&2
@@ -150,6 +152,49 @@ DATABRICKS_BUNDLE_ENGINE=direct databricks bundle deploy \
 # user needs no GRANT authority on the customer's catalog/schema. End users do
 # still need USE CATALOG / USE SCHEMA / SELECT on the schema themselves — see the
 # reminder printed at the end of this script.
+
+echo ""
+echo "=== Provision Lakebase role for the app's service principal ==="
+# Lakebase is NOT bound as an app `database` resource (see databricks.yml): that
+# bind makes the Apps control plane grant the app SP CONNECT/CREATE on the
+# Postgres DB, which 403s for a non-admin deployer. We do it directly instead —
+# the deploying identity created the instance, so it owns `databricks_postgres`
+# (databricks_superuser) and can provision the app SP's role itself. The app
+# (server/db.py) connects via the SDK with its own SP credential afterwards.
+if ! command -v psql >/dev/null 2>&1; then
+  echo "ERROR: psql not found on PATH. Install the PostgreSQL client and re-run." >&2
+  exit 1
+fi
+
+APP_SP_CLIENT_ID=$(databricks apps get "$APP_NAME" -o json \
+  | python3 -c "import sys,json; print(json.load(sys.stdin).get('service_principal_client_id',''))")
+[ -z "$APP_SP_CLIENT_ID" ] && { echo "ERROR: could not resolve app service principal client id" >&2; exit 1; }
+
+LAKEBASE_HOST=""
+for _ in $(seq 1 40); do
+  LAKEBASE_HOST=$(databricks database get-database-instance "$APP_NAME" -o json \
+    | python3 -c "import sys,json; print(json.load(sys.stdin).get('read_write_dns','') or '')")
+  [ -n "$LAKEBASE_HOST" ] && break
+  sleep 15
+done
+[ -z "$LAKEBASE_HOST" ] && { echo "ERROR: Lakebase instance '$APP_NAME' has no read_write_dns yet" >&2; exit 1; }
+
+PG_TOKEN=$(databricks database generate-database-credential \
+  --json "{\"request_id\":\"$(uuidgen)\",\"instance_names\":[\"$APP_NAME\"]}" -o json \
+  | python3 -c "import sys,json; print(json.load(sys.stdin).get('token',''))")
+PG_USER=$(databricks current-user me -o json \
+  | python3 -c "import sys,json; print(json.load(sys.stdin).get('userName',''))")
+[ -z "$PG_TOKEN" ] && { echo "ERROR: could not generate a Lakebase credential" >&2; exit 1; }
+
+echo "  Granting app SP $APP_SP_CLIENT_ID CONNECT/CREATE on databricks_postgres..."
+PGPASSWORD="$PG_TOKEN" psql \
+  "host=$LAKEBASE_HOST port=5432 dbname=databricks_postgres user=$PG_USER sslmode=require" \
+  -v ON_ERROR_STOP=1 -q <<SQL
+CREATE EXTENSION IF NOT EXISTS databricks_auth;
+SELECT databricks_create_role('$APP_SP_CLIENT_ID', 'SERVICE_PRINCIPAL');
+GRANT CONNECT, CREATE ON DATABASE databricks_postgres TO "$APP_SP_CLIENT_ID";
+SQL
+echo "  Done — app SP can now connect to Lakebase."
 
 echo ""
 echo "=== Starting app ==="

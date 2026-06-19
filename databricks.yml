@@ -73,12 +73,14 @@ resources:
         - catalog.schemas:read
         - catalog.tables:read
         - serving.serving-endpoints
+      # NOTE: Lakebase is deliberately NOT bound here as an app `database`
+      # resource. That binding makes the Apps control plane grant the app SP
+      # CONNECT/CREATE on the Postgres DB, a step that 403s for a non-admin
+      # deployer ("cannot grant permissions for added resource: lakebase").
+      # install.sh instead provisions the app SP's Postgres role directly (the
+      # deployer owns databricks_postgres as the instance creator), and the app
+      # (server/db.py) connects via the SDK with its own SP credential.
       resources:
-        - name: lakebase
-          database:
-            instance_name: ${resources.database_instances.impulse_db.name}
-            database_name: databricks_postgres
-            permission: CAN_CONNECT_AND_CREATE
         - name: sql
           sql_warehouse:
             id: ${resources.sql_warehouses.impulse_warehouse.id}
