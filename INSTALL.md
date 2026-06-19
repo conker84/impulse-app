@@ -23,6 +23,13 @@ The script prompts for the workspace group that should get app access, then runs
 - Databricks CLI (>= 0.290)
 - Node.js + npm (>= 18) — `install.sh` builds the React frontend before deploy
 - Python 3 (used by `install.sh` to parse `databricks.yml` and the app URL)
+- `psql` (PostgreSQL client) — `install.sh` uses it to provision the app's Lakebase role (step 3 below)
+
+> **Deployer permissions:** you do **not** need to be a workspace admin. You need
+> the `allow-cluster-create` entitlement (to create the SQL warehouse — there is no
+> separate "create warehouse" entitlement) and the default ability to create Lakebase
+> instances. As the instance's creator you automatically own its `databricks_postgres`
+> database, which is what lets `install.sh` provision the app's Lakebase role without admin.
 
 ### Workspace features
 
@@ -72,13 +79,14 @@ If you're using already-ingested silver-layer data (i.e., you skip the ingest UI
 1. **Reads or prompts** for the workspace group that should get app access. Persists the answer to `.install.config` for re-runs.
 
 2. **Runs `databricks bundle deploy`** — creates the following in your workspace (all named after the `app_name` variable in `databricks.yml`; this repo's default is `impulse-v3`):
-   - Lakebase instance `impulse-v3`
-   - Logical Postgres database `databricks_postgres.impulse.*` for app metadata (user settings, saved reports)
+   - Lakebase instance `impulse-v3` (its default `databricks_postgres` database holds app metadata — user settings, saved reports — under a SP-owned `impulse` schema)
    - SQL warehouse `impulse-v3` (Medium, serverless, 10-min auto-stop)
-   - The app `impulse-v3`, with resource bindings that auto-provision the app's service principal as a Postgres role with `CONNECT + CREATE` on the database, and `CAN_USE` on the warehouse
-   - All `permissions` blocks granting your chosen end-user group `CAN_USE` on the app + warehouse
+   - The app `impulse-v3`, bound to the warehouse (`CAN_USE`)
+   - `permissions` blocks granting your chosen end-user group `CAN_USE` on the app + warehouse
 
-3. **Runs `databricks bundle run`** to start the app, then **prints** the app URL and a reminder about end-user access (see below).
+3. **Provisions the app's Lakebase role** — connects to `databricks_postgres` as the deploying identity (which owns it, having just created the instance) and grants the app's service principal `CONNECT + CREATE`. This is done directly rather than via an app `database` resource binding, whose control-plane grant 403s for non-admin deployers. Requires `psql`.
+
+4. **Runs `databricks bundle run`** to start the app, then **prints** the app URL and a reminder about end-user access (see below).
 
 > The app's service principal is never granted access to your silver-layer tables — it doesn't query them. All data reads happen as the logged-in user (OBO).
 
@@ -127,7 +135,7 @@ When you `git pull` a new version of the app, just re-run `./install.sh`.
 
 **`PERMISSION_DENIED: feature is not enabled for organization …`** — your workspace doesn't have the required feature flag. Check the Prerequisites section. Common culprits: user token passthrough (OBO), Lakebase.
 
-**`User does not have permission to add resource lakebase to app … (403 PERMISSION_DENIED)`** — the deploying user needs `CAN_MANAGE` on the Lakebase **database instance** being bound to the app. The instance's creator has this automatically; if it was pre-provisioned by someone else, have its owner/an admin grant you `CAN_MANAGE` on the instance (Databricks → Compute → Database Instances → the instance → Permissions), or deploy with an `app_name` whose instance doesn't exist yet so the bundle creates it under your identity.
+**`cannot grant permissions for added resource: lakebase` / app can't reach Lakebase** — `install.sh` provisions the app's Postgres role itself (step 3) rather than binding Lakebase as an app `database` resource, because that control-plane grant 403s for non-admin deployers even when they hold `CAN_MANAGE` on the instance. The grant step needs the deploying identity to **own** `databricks_postgres` — automatic when the bundle creates the instance under it. If the instance was pre-created by someone else, have that owner (or a `databricks_superuser`) run the grant, or deploy with an `app_name` whose instance doesn't exist yet so the bundle creates it under your identity. The step also needs `psql` and network access to the instance's `read_write_dns` on port 5432.
 
 **`Invalid update mask. ... resources[N].sql_warehouse.id`** — happens if you try to change the bundle-created warehouse's binding on an existing app. The Databricks Apps API forbids editing certain binding fields. Solution: delete the app (`databricks apps delete impulse-v3`), wait for `DELETING` to clear, then re-run `install.sh`.
 
