@@ -23,3 +23,9 @@ profiles.yaml
 
 # install.sh writes the customer's catalog/schema choices here for re-runs.
 .install.config
+
+frontend/coverage/
+
+# test coverage artifacts
+.coverage
+coverage/
