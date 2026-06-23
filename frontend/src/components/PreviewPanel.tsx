@@ -932,6 +932,14 @@ function MetadataForm({
   const [formDesc, setFormDesc] = useState(state.description);
   const [formCreator, setFormCreator] = useState(state.creator);
 
+  // Keep the form in sync when the report metadata changes externally
+  // (e.g. the chat agent fills it via the `set_report_metadata` tool).
+  useEffect(() => {
+    setFormName(state.name);
+    setFormDesc(state.description);
+    setFormCreator(state.creator);
+  }, [state.name, state.description, state.creator]);
+
   const handleSave = () => {
     if (!formName.trim()) return;
     onSaveMetadata({ name: formName, description: formDesc, creator: formCreator });
