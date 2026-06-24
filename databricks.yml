@@ -13,11 +13,7 @@ sync:
 variables:
   app_name:
     description: Name for the app, Lakebase instance, and SQL warehouse (they all share it). Pass --var app_name=foo to override.
-    default: impulse-${user.name}
-  catalog:
-    description: Unity Catalog containing the customer's silver-layer impulse tables (channel_metrics, container_metrics, channels, etc.)
-  schema:
-    description: Schema within ${var.catalog} containing the impulse tables
+    default: impulse-dev
   end_user_group:
     description: Workspace group granted CAN_USE on the app + warehouse
     default: users
@@ -46,6 +42,16 @@ resources:
       source_code_path: ${workspace.file_path}
       compute_size: LARGE
       config:
+        # Wire the warehouse + Lakebase instance directly from the bundle's
+        # resource refs so the app does not depend on runtime name-matching.
+        # mode: development prefixes the warehouse name (e.g. "[dev user] foo"),
+        # which broke resolve_warehouse_id()'s exact-name lookup; the explicit
+        # id env var (preferred by config.py) sidesteps that entirely.
+        env:
+          - name: DATABRICKS_WAREHOUSE_ID
+            value: ${resources.sql_warehouses.impulse_warehouse.id}
+          - name: LAKEBASE_INSTANCE_NAME
+            value: ${resources.database_instances.impulse_db.name}
         command:
           # The Apps runtime ships Databricks CLI v0.251.0, whose bundled
           # Terraform download fails with `openpgp: key expired` (HashiCorp
