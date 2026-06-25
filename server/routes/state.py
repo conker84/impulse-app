@@ -410,7 +410,7 @@ async def channel_catalog(session_id: str, request: Request):
     session.state.available_channels = channels
 
     # Auto-populate data sources if not already set
-    _auto_populate_silver_data_sources(session)
+    _auto_populate_silver_data_sources(session.state)
 
     return {
         "channels": [c.model_dump() for c in channels],
@@ -418,10 +418,10 @@ async def channel_catalog(session_id: str, request: Request):
     }
 
 
-def _auto_populate_silver_data_sources(session: _Session) -> None:
+def _auto_populate_silver_data_sources(state: ReportState) -> None:
     from server.schema_adapter import SchemaAdapter
 
-    sd = session.state.source_data
+    sd = state.source_data
     catalog = sd.silver_catalog
     schema = sd.silver_schema
     if not catalog or not schema:
@@ -429,7 +429,7 @@ def _auto_populate_silver_data_sources(session: _Session) -> None:
 
     adapter = SchemaAdapter.from_active_profile(catalog, schema)
     p = adapter.profile
-    ds = session.state.data_sources
+    ds = state.data_sources
 
     if not ds.channels:
         ds.channels = [adapter.timeseries_path()]
@@ -578,7 +578,7 @@ def _auto_resolve_data_sources(session: _Session, vehicle_ids: list[str], user_t
     mapping_table = _get_mapping_table()
     if not mapping_table:
         # Silver layer mode: data sources already auto-populated
-        _auto_populate_silver_data_sources(session)
+        _auto_populate_silver_data_sources(session.state)
         return
 
     from server.mcp_tools import execute_sql

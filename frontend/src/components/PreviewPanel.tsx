@@ -1277,6 +1277,14 @@ function VehiclesStep({
     }
   }, [state.vehicle_candidates.length, state.vehicles.length, fetched, onFetchCandidates]);
 
+  // When a vehicle gets added (e.g. by the agent, which clears candidates), collapse
+  // the picker so it matches the UI selection path and re-shows "+ Add More Vehicles".
+  useEffect(() => {
+    if (state.vehicle_candidates.length === 0 && state.vehicles.length > 0) {
+      setShowCandidates(false);
+    }
+  }, [state.vehicle_candidates.length, state.vehicles.length]);
+
   const handleLoadMore = () => {
     setLoading(true);
     setShowCandidates(true);

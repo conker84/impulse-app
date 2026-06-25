@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import uuid
 from typing import Any
@@ -30,6 +31,7 @@ from server.models import (
     SignalDefinition,
     StatisticsDefinition,
     VehicleConfig,
+    WIZARD_ORDER,
     WizardStep,
 )
 from server.schema_profile import get_profile
@@ -497,6 +499,22 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "advance_step",
+            "description": (
+                "Advance the wizard to the NEXT step — the same action as clicking the "
+                "'Next Step' button. Call this whenever the user signals they want to move on, "
+                "e.g. 'next step', 'go ahead', 'proceed', 'continue', 'move on', 'next', "
+                "'let's go', 'I'm done with this step', 'take me to the next one'. "
+                "It first checks the current step is complete; if something is missing it "
+                "returns what's needed instead of advancing. Do not call it on the final "
+                "(Ready) step."
+            ),
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "load_skill",
             "description": (
                 "Load the full documentation for an Impulse skill. Call this BEFORE performing "
@@ -542,7 +560,13 @@ def _get_all_tools(user_token: str | None = None) -> tuple[list[dict], dict[str,
         logger.info("Cached %d MCP tools", len(mcp_specs))
 
     mcp_specs, mcp_names = _mcp_tools_cache
-    return TOOLS + mcp_specs, mcp_names
+    tools = TOOLS
+    # `set_data_sources` is a mapping-table-era tool. In silver mode (no mapping
+    # table) the app auto-resolves data sources from the profile, so exposing it
+    # only lets the model overwrite the correct tables with guesses — don't offer it.
+    if not os.environ.get("IMPULSE_MAPPING_TABLE", "").strip():
+        tools = [t for t in TOOLS if t["function"]["name"] != "set_data_sources"]
+    return tools + mcp_specs, mcp_names
 
 
 # ---------------------------------------------------------------------------
@@ -793,6 +817,17 @@ def _exec_set_vehicle(state: ReportState, vehicle_id: str, start_ts: str, col_na
         existing.col_name = col_name
         return f"Updated vehicle '{vehicle_id}'."
     state.vehicles.append(VehicleConfig(vehicle_id=vehicle_id, col_name=col_name, start_ts=start_ts, stop_ts=stop_ts))
+    # Mirror the UI's select_vehicles route, which does BOTH on add: clear the
+    # candidates (hides the "Available Vehicles" picker) AND auto-populate the
+    # silver data sources. Skipping the latter left later agent turns with no
+    # container_metrics table in their context, so they couldn't resolve the
+    # proper data.
+    state.vehicle_candidates = []
+    try:
+        from server.routes.state import _auto_populate_silver_data_sources
+        _auto_populate_silver_data_sources(state)
+    except Exception:
+        logger.exception("Auto-populate data sources failed (non-fatal)")
     return f"Added vehicle '{vehicle_id}' starting from {start_ts}."
 
 
@@ -824,6 +859,27 @@ def _exec_preview_code(state: ReportState) -> str:
     parts.append("### report.py\n```python\n" + generate_report_notebook(state) + "\n```\n")
     parts.append("### dev_config.json\n```json\n" + json.dumps(generate_config_json(state), indent=2) + "\n```\n")
     return "\n".join(parts)
+
+
+def _exec_advance_step(state: ReportState) -> str:
+    """Advance the wizard to the next step — the agent-side equivalent of the
+    'Next Step' button. Validates the current step with the same check the
+    button uses (imported lazily to avoid a circular import with routes.state)."""
+    from server.routes.state import _check_step_filled
+
+    error = _check_step_filled(state, state.wizard_step)
+    if error:
+        return f"Can't move on yet — {error}"
+
+    idx = WIZARD_ORDER.index(state.wizard_step)
+    if idx >= len(WIZARD_ORDER) - 1:
+        return (
+            "You're already on the final step (Ready). Review the report and click "
+            "'Deploy & Run' when you're ready."
+        )
+
+    state.wizard_step = WIZARD_ORDER[idx + 1]
+    return f"Moving to the {_STEP_LABELS[state.wizard_step]} step."
 
 
 _TOOL_STEP_MAP: dict[str, set[WizardStep]] = {
@@ -904,6 +960,8 @@ def _dispatch_tool(
         return _exec_set_data_sources(state, **args)
     if name == "preview_code":
         return _exec_preview_code(state)
+    if name == "advance_step":
+        return _exec_advance_step(state)
     if name == "load_skill":
         return load_skill_full(args["skill_name"])
 
@@ -1066,6 +1124,7 @@ def run_agent(
 
         messages_for_api.append(msg.model_dump(exclude_none=True))
 
+        advance_result: str | None = None
         for tc in msg.tool_calls:
             fn_name = tc.function.name
             fn_args = json.loads(tc.function.arguments)
@@ -1084,6 +1143,17 @@ def run_agent(
                 last_sql_result = result
             elif fn_name == "suggest_signal_candidates":
                 called_suggest = True
+            elif fn_name == "advance_step":
+                advance_result = result
+
+        # Advancing is a navigation action: end the turn here. Otherwise the model
+        # would keep acting on the step it just unlocked, but its context (system
+        # prompt, vehicle candidates, resolved data sources) is still from the
+        # previous step — leading it to guess wrong tables. The new step's data
+        # loads in the UI before the next turn.
+        if advance_result is not None:
+            session.messages.append({"role": "assistant", "content": advance_result})
+            return advance_result, session.state, session.session_id
 
     _maybe_auto_suggest_candidates(
         session.state, called_sql, called_suggest, last_sql_result,

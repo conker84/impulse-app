@@ -267,7 +267,7 @@ async def ingest_status(session_id: str, request: Request):
         sd.ingest_status = IngestStatus.SUCCEEDED
         # Auto-populate data sources from the silver layer
         from server.routes.state import _auto_populate_silver_data_sources
-        _auto_populate_silver_data_sources(session)
+        _auto_populate_silver_data_sources(session.state)
     elif result_state in ("FAILED", "TIMEDOUT", "CANCELED"):
         sd.ingest_status = IngestStatus.FAILED
     else:

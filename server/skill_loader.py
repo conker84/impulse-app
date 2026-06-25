@@ -207,8 +207,12 @@ def build_system_prompt(
         f"{signal_context}"
         f"{channel_catalog_context}"
         f"{vehicle_context}"
+        "**Moving between steps:** When the user signals they want to move on — e.g. 'next step', "
+        "'go ahead', 'proceed', 'continue', 'move on', 'next', or 'I'm done' — call the `advance_step` "
+        "tool to advance the wizard for them (no need to tell them to click the button). If the current "
+        "step isn't complete, `advance_step` returns what's missing — relay that to the user.\n\n"
         "**Important:** If the user asks to do something that belongs to a future step, politely explain "
-        "they need to complete the current step first and click 'Next Step' in the UI.\n\n"
+        "they need to complete the current step first (offer to advance with `advance_step` once it's ready).\n\n"
         "You have access to Impulse skills that contain detailed procedures, code patterns, "
         "and data models. **Before performing any skill-specific task, call `load_skill` to load "
         "the relevant skill documentation.** This gives you the precise instructions you need.\n\n"
@@ -245,8 +249,9 @@ def build_system_prompt(
 _STEP_INSTRUCTIONS: dict[str, str] = {
     "report_name": (
         "Ask the user for a **report name** (lowercase, underscores, no spaces) and an optional "
-        "description. Use `set_report_metadata` to save it. Once done, tell the user to click "
-        "'Next Step' to proceed to vehicle selection."
+        "description. Use `set_report_metadata` to save it. When the user is done or says to "
+        "move on, call `advance_step` to proceed to vehicle selection — do not just tell them to "
+        "click 'Next Step'."
     ),
     "channels": (
         "Help the user define **physical and virtual signals**.\n\n"
@@ -306,7 +311,8 @@ _STEP_INSTRUCTIONS: dict[str, str] = {
         "**You MUST reference the exact `var_name` of already-defined signals** in the expression. "
         "Check the 'Currently Defined Signals' section above for the correct variable names.\n\n"
         "### Finishing\n\n"
-        "Once all signals are defined, tell the user to click 'Next Step' to proceed to aggregations."
+        "Once all signals are defined and the user says to move on, call `advance_step` to proceed "
+        "to aggregations — do not just tell them to click 'Next Step'."
     ),
     "aggregations": (
         "Help the user define **aggregations** on the signals from the previous step.\n\n"
@@ -319,7 +325,8 @@ _STEP_INSTRUCTIONS: dict[str, str] = {
         "across one or more signals. Best for quick overviews.\n\n"
         "Suggest appropriate aggregation types and bin ranges based on the signal's physical meaning. "
         "Call `load_skill('define-aggregations')` for detailed guidance on each type.\n\n"
-        "Once all aggregations are defined, tell the user to click 'Next Step' to proceed to the final review."
+        "Once all aggregations are defined and the user says to move on, call `advance_step` to "
+        "proceed to the final review — do not just tell them to click 'Next Step'."
     ),
     "vehicles": (
         "The **Vehicles** step lets users select vehicles and configure analysis timeframes.\n\n"
@@ -349,7 +356,8 @@ _STEP_INSTRUCTIONS: dict[str, str] = {
         "- The `col_name` must match the vehicle ID column in the data. Check the Currently Configured "
         "Vehicles section — if a vehicle is already added, **reuse its `col_name`** when updating it.\n"
         "- If a SQL query fails, do NOT show raw errors. Explain briefly and suggest alternatives.\n"
-        "- Once vehicles and timeframes are set, tell the user to click 'Next Step'.\n\n"
+        "- Once vehicles and timeframes are set and the user says to move on (e.g. 'next', "
+        "'go ahead'), call `advance_step` yourself — do NOT just tell the user to click 'Next Step'.\n\n"
         "For more detail, call `load_skill('select-vehicles')`."
     ),
     "ready": (

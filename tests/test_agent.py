@@ -183,6 +183,27 @@ class TestExecMetadataVehiclesDataSources:
         assert state.vehicles[0].start_ts == "2024-02-01"
         assert state.vehicles[0].col_name == "vin"
 
+    def test_set_vehicle_clears_candidates_on_add(self, state):
+        from server.models import VehicleCandidate
+
+        state.vehicle_candidates = [VehicleCandidate(vehicle_id="v1"), VehicleCandidate(vehicle_id="v2")]
+        _exec_set_vehicle(state, "v1", "2024-01-01")
+        # Mirrors the UI select-vehicles route so the "Available Vehicles" picker hides.
+        assert state.vehicle_candidates == []
+
+    def test_set_vehicle_auto_populates_silver_data_sources(self, state):
+        """Like the UI route, adding a vehicle must resolve the silver data sources
+        so later agent turns keep the container_metrics table in their context."""
+        from server.models import SourceDataMode
+
+        state.source_data.mode = SourceDataMode.EXISTING
+        state.source_data.silver_catalog = "cat"
+        state.source_data.silver_schema = "sch"
+        _exec_set_vehicle(state, "v1", "2024-01-01")
+        assert state.data_sources.container_metrics.startswith("cat.sch.")
+        assert state.data_sources.channel_metrics.startswith("cat.sch.")
+        assert state.data_sources.channels  # non-empty
+
     def test_set_data_sources_applies_defaults(self, state):
         state.name = "rep"
         _exec_set_data_sources(
@@ -292,6 +313,58 @@ class TestDispatchTool:
         out = _dispatch_tool(state, "mcp_foo", {"q": 1}, {"mcp_foo": "foo"})
         assert out == "MCP_OK"
         assert called == {"name": "foo", "args": {"q": 1}}
+
+
+# ---------------------------------------------------------------------------
+# advance_step (agent-side "Next Step")
+# ---------------------------------------------------------------------------
+
+class TestToolGating:
+    def test_set_data_sources_hidden_in_silver_mode(self, monkeypatch):
+        """No mapping table -> set_data_sources must not be offered to the model
+        (it would clobber the auto-resolved silver tables)."""
+        monkeypatch.delenv("IMPULSE_MAPPING_TABLE", raising=False)
+        agent._mcp_tools_cache = ([], {})
+        tools, _ = agent._get_all_tools()
+        names = [t["function"]["name"] for t in tools]
+        assert "set_data_sources" not in names
+
+    def test_set_data_sources_offered_with_mapping_table(self, monkeypatch):
+        monkeypatch.setenv("IMPULSE_MAPPING_TABLE", "cat.sch.mapping")
+        agent._mcp_tools_cache = ([], {})
+        tools, _ = agent._get_all_tools()
+        names = [t["function"]["name"] for t in tools]
+        assert "set_data_sources" in names
+
+
+class TestAdvanceStep:
+    def test_registered_as_tool(self):
+        names = [t["function"]["name"] for t in agent.TOOLS]
+        assert "advance_step" in names
+
+    def test_advances_when_current_step_complete(self, state):
+        state.wizard_step = WizardStep.REPORT_NAME
+        state.name = "demo"
+        msg = _dispatch_tool(state, "advance_step", {}, {})
+        assert state.wizard_step == WizardStep.VEHICLES
+        assert "Vehicles" in msg
+
+    def test_blocks_when_current_step_incomplete(self, state):
+        state.wizard_step = WizardStep.REPORT_NAME
+        state.name = ""  # nothing set
+        msg = _dispatch_tool(state, "advance_step", {}, {})
+        assert state.wizard_step == WizardStep.REPORT_NAME  # unchanged
+        assert "report name" in msg.lower()
+
+    def test_allowed_in_any_step_unlike_gated_tools(self, state):
+        # Not in _TOOL_STEP_MAP, so it isn't blocked by the step gate.
+        assert "advance_step" not in agent._TOOL_STEP_MAP
+
+    def test_noop_on_final_step(self, state):
+        state.wizard_step = WizardStep.READY
+        msg = _dispatch_tool(state, "advance_step", {}, {})
+        assert state.wizard_step == WizardStep.READY
+        assert "final step" in msg.lower()
 
     def test_load_skill_returns_content(self, state):
         state.wizard_step = WizardStep.CHANNELS
@@ -437,6 +510,27 @@ class TestRunAgent:
         assert state.name == "my_report"  # the tool actually ran
         # two LLM rounds: the tool call, then the final text
         assert len(client.chat.completions.calls) == 2
+
+    def test_advance_step_ends_turn_without_acting_on_new_step(self, patch_agent_llm):
+        """After advance_step the turn must end, so the model can't keep acting on
+        the just-unlocked step with stale context (the wrong-tables bug)."""
+        sess = _get_session("sess")
+        sess.state.wizard_step = WizardStep.REPORT_NAME
+        sess.state.name = "demo"  # current step is complete -> advance succeeds
+
+        client = patch_agent_llm([
+            _FakeMsg(tool_calls=[_FakeToolCall("c1", "advance_step", "{}")]),
+            # Would corrupt data sources if the loop kept going — must NOT run.
+            _FakeMsg(tool_calls=[_FakeToolCall("c2", "set_data_sources",
+                '{"container_metrics": "wrong.t.c", "channel_metrics": "wrong.t.cm", "channels": ["wrong.t.ch"]}')]),
+        ])
+
+        text, state, _sid = run_agent("go ahead", session_id="sess")
+        assert state.wizard_step == WizardStep.VEHICLES
+        assert "Vehicles" in text
+        # The turn ended after one LLM round — the second (table-guessing) call never ran.
+        assert len(client.chat.completions.calls) == 1
+        assert state.data_sources.container_metrics == ""
 
     def test_stops_after_max_tool_rounds(self, patch_agent_llm):
         """If the model keeps calling tools forever, the loop bails out after
