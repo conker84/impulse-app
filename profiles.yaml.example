@@ -42,7 +42,11 @@ name: my-customer
 
 # === Tags (optional native tag tables) ===
 # container_tags_table: container_tags     # set to null to synthesize from container_table
+# container_tags_id_col: container_id      # column in container_tags_table that joins to a container;
+#                                          # aliased to container_id (e.g. set to recording_session_id)
 # channel_tags_table: channel_tags         # set to null to synthesize from channel_table
+# channel_tags_container_id_col: container_id  # column in channel_tags_table joining to a container
+# channel_tags_channel_id_col: channel_id      # column in channel_tags_table joining to a channel
 
 # === Vehicle dimension ===
 # vehicle_source: tag                      # one of: tag | column | constant
@@ -76,6 +80,12 @@ name: my-customer
 #   - vehicle_key
 #   - start_ts
 #   - stop_ts
+# RAW physical sample columns for the framework's channels column_name_mapping
+# (KeyValueStoreSolver). Distinct from the viewer's timeseries_time_col /
+# timeseries_value_col, which may be SQL expressions. Default to the canonical
+# names (no mapping emitted) unless your physical columns differ.
+# framework_channel_time_col: timestamp
+# framework_channel_value_col: value
 
 # === Generated-code kwargs ===
 # Maps the generated code's `query.channel(**kwargs)` call. Override to emit

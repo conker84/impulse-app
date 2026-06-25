@@ -9,6 +9,10 @@ bundle:
 sync:
   include:
     - frontend/dist/**
+    # profiles.yaml is gitignored (customer-specific schema mapping), so bundle
+    # sync skips it by default; force-include it or the app falls back to the
+    # built-in SchemaProfile defaults at runtime.
+    - profiles.yaml
 
 variables:
   app_name:

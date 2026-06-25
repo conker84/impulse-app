@@ -228,12 +228,15 @@ The full source of truth is `server/schema_profile.py`. Every field has a defaul
 
 #### Tags
 
-Native key-value tag tables are optional. When `null`, the adapter synthesizes equivalent rows in CTEs from the container/channel tables plus the vehicle dimension config — so the wizard's hardcoded JOINs against `container_tags` / `channel_tags` continue to work.
+Native key-value tag tables are optional. When `null`, the adapter synthesizes equivalent rows in CTEs from the container/channel tables plus the vehicle dimension config. When a physical table is set, the adapter normalizes its join column(s) to the canonical `container_id` / `channel_id` via the `*_id_col` fields below — so tables keyed by a different name (e.g. `recording_session_id`) work without renaming the underlying table.
 
 | Field | Default | Purpose |
 |---|---|---|
 | `container_tags_table` | `container_tags` | Set to `null` to synthesize from `container_table` + `vehicle_*` |
+| `container_tags_id_col` | `container_id` | Column in `container_tags_table` that joins to a container; aliased to `container_id` (e.g. set to `recording_session_id`). Used only when the table is set. |
 | `channel_tags_table` | `channel_tags` | Set to `null` to synthesize from `channel_table` + aliases (for unit) |
+| `channel_tags_container_id_col` | `container_id` | Column in `channel_tags_table` joining to a container; aliased to `container_id`. Used only when the table is set. |
+| `channel_tags_channel_id_col` | `channel_id` | Column in `channel_tags_table` joining to a channel; aliased to `channel_id`. Used only when the table is set. |
 
 #### Vehicle dimension
 
@@ -265,6 +268,7 @@ The aliases table is expected to expose the physical channel-name column (and op
 | `timeseries_table` | `channels` | Suffix or full path of the per-sample data table |
 | `timeseries_time_col` | `tstart` | Column or SQL expression projected as the canonical timestamp (the TS Viewer cache reads `tstart`). For nanosecond-precision timestamps, use a column directly; for seconds-typed columns, multiply: `"CAST(time * 1e9 AS BIGINT)"`. |
 | `timeseries_value_col` | `value` | Column or SQL expression projected as the canonical value. Use a cast when the source is string-typed: `"TRY_CAST(value_double AS DOUBLE)"`. |
+| `timeseries_end_time_col` | `null` (sample-based) | Interval end-time column for RLE (step) data, projected as `tend`. Leave `null` for per-sample data; set a column to opt into step rendering. (The model default is `tend`, but customer profiles loaded from `profiles.yaml` default this to `null`.) |
 | `timeseries_container_match_col` | `null` → `channel_container_id_col` | Column on the timeseries table matched against the requested `container_id`. Only set if it differs from the channel-metrics container column. |
 | `timeseries_channel_match_expr` | `null` → `channel_id_col` | SQL expression on the timeseries table matched against the requested `channel_id`. Use a column for trivial cases; use an expression when the timeseries table keys differently from `channel_metrics` (e.g. `"concat_ws(':', split(signal_name, ':')[0], split(signal_name, ':')[2])"` for a 3-part signal_name → 2-part match). |
 
@@ -281,6 +285,8 @@ The aliases table is expected to expose the physical channel-name column (and op
 | `framework_solver` | `DeltaSolver` | |
 | `framework_data_type` | `RLE` | |
 | `framework_measurement_dimensions` | `["container_id", "vehicle_key", "start_ts", "stop_ts"]` | Columns the framework writes into the `measurement_dimension` gold-layer table |
+| `framework_channel_time_col` | `timestamp` | RAW physical sample-time column the generated `query_engine.solver_config` maps to the canonical `timestamp` (for solvers like `KeyValueStoreSolver`). **Distinct from `timeseries_time_col`**, which is the *viewer's* projection and may be a SQL expression (e.g. `CAST(time * 1e9 AS BIGINT)`) — an expression can't be a `column_name_mapping` key, so the framework needs the raw column name here. Defaults to the canonical name, so no mapping is emitted unless it differs. |
+| `framework_channel_value_col` | `value` | RAW physical sample-value column mapped to canonical `value` in `solver_config`. Same viewer/framework split as above vs. `timeseries_value_col`. |
 | `channel_call_kwargs` | `{"channel_name": "channel_name"}` | Maps generated-code kwarg name → `SignalDefinition` field name. Default emits `query.channel(channel_name=sig.channel_name)`. Override to emit different kwargs (e.g. `{"signal": "signal", "network": "network"}` for solvers that take both). |
 
 ### Examples
@@ -328,6 +334,25 @@ framework_measurement_dimensions:
 channel_call_kwargs:
   signal: signal
   network: network
+```
+
+Customer with physical key-value tag tables keyed by `recording_session_id` (vehicles come from real `key='vehicle_key'` rows). The `*_id_col` fields alias the join columns to the canonical names:
+
+```yaml
+name: example_physical_tags
+
+container_id_col: recording_session_id
+channel_container_id_col: recording_session_id
+channel_id_col: signal_network
+
+container_tags_table: container_tags
+container_tags_id_col: recording_session_id
+
+channel_tags_table: channel_tags
+channel_tags_container_id_col: recording_session_id
+channel_tags_channel_id_col: signal_network
+
+vehicle_source: tag
 ```
 
 ## Troubleshooting

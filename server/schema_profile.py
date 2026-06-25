@@ -28,7 +28,17 @@ class SchemaProfile(BaseModel):
     channel_sample_rate_expr: str | None = "sample_rate"
 
     container_tags_table: str | None = "container_tags"
+    # Column in container_tags_table that joins back to a container. Aliased to
+    # the canonical `container_id` when the physical table uses a different name
+    # (e.g. recording_session_id). Only used when container_tags_table is set.
+    container_tags_id_col: str = "container_id"
+
     channel_tags_table: str | None = "channel_tags"
+    # Columns in channel_tags_table that join back to a (container, channel).
+    # Aliased to canonical container_id / channel_id. Only used when
+    # channel_tags_table is set.
+    channel_tags_container_id_col: str = "container_id"
+    channel_tags_channel_id_col: str = "channel_id"
 
     vehicle_source: Literal["tag", "column", "constant"] = "tag"
     vehicle_column: str | None = None
@@ -53,6 +63,13 @@ class SchemaProfile(BaseModel):
     framework_measurement_dimensions: list[str] = Field(
         default_factory=lambda: ["container_id", "vehicle_key", "start_ts", "stop_ts"]
     )
+    # RAW physical sample columns the framework's solver_config maps to the
+    # canonical `timestamp` / `value`. Distinct from the viewer's
+    # timeseries_time_col / timeseries_value_col, which may be SQL expressions
+    # (e.g. unit conversions) and so cannot serve as column_name_mapping keys.
+    # Defaults equal the canonical names, so no mapping is emitted unless set.
+    framework_channel_time_col: str = "timestamp"
+    framework_channel_value_col: str = "value"
 
     channel_call_kwargs: dict[str, str] = Field(
         default_factory=lambda: {"channel_name": "channel_name"}

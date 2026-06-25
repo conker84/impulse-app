@@ -235,10 +235,92 @@ class TestGenerateConfigJson:
         assert "end_ts" not in uuts[0]
         assert uuts[1]["end_ts"]["value"] == "2024-02-01"
 
-    def test_query_engine_from_profile_defaults(self, report_state):
+    def test_query_engine_from_profile_defaults(self, report_state, monkeypatch):
+        import server.code_generator as cg
+        from server.schema_profile import SchemaProfile
+
+        monkeypatch.setattr(cg, "get_profile", lambda: SchemaProfile())
         cfg = generate_config_json(report_state)
         assert cfg["query_engine"]["solver"] == "DeltaSolver"
         assert cfg["query_engine"]["data_type"] == "RLE"
+
+    def test_default_profile_emits_no_solver_config(self, report_state, monkeypatch):
+        """A profile whose source columns are already canonical needs no mapping."""
+        import server.code_generator as cg
+        from server.schema_profile import SchemaProfile
+
+        monkeypatch.setattr(cg, "get_profile", lambda: SchemaProfile())
+        cfg = generate_config_json(report_state)
+        assert "solver_config" not in cfg["query_engine"]
+
+    def test_solver_config_reflects_profile_column_mappings(self, report_state, monkeypatch):
+        """Renamed source columns in the profile become solver_config
+        column_name_mappings (source -> canonical) in the generated config."""
+        import server.code_generator as cg
+        from server.schema_profile import SchemaProfile
+
+        profile = SchemaProfile(
+            container_id_col="recording_session_id",
+            channel_container_id_col="recording_session_id",
+            channel_id_col="signal_network",
+            timeseries_table="signal_new_with_fields",
+            # Viewer projections are SQL expressions and must NOT leak into the
+            # framework column_name_mapping below.
+            timeseries_time_col="CAST(time * 1e9 AS BIGINT)",
+            timeseries_value_col="TRY_CAST(value_double AS DOUBLE)",
+            timeseries_container_match_col="recording_session_id",
+            timeseries_channel_match_expr="signal_network",
+            framework_channel_time_col="time",
+            framework_channel_value_col="value_double",
+            container_tags_table="container_tags",
+            container_tags_id_col="recording_session_id",
+            channel_tags_table="channel_tags",
+            channel_tags_container_id_col="recording_session_id",
+            channel_tags_channel_id_col="signal_network",
+            framework_solver="KeyValueStoreSolver",
+            framework_data_type="RAW",
+        )
+        monkeypatch.setattr(cg, "get_profile", lambda: profile)
+        cfg = generate_config_json(report_state)
+        solver_config = cfg["query_engine"]["solver_config"]
+        assert solver_config["container_metrics"]["column_name_mapping"] == {
+            "recording_session_id": "container_id",
+        }
+        assert solver_config["channel_metrics"]["column_name_mapping"] == {
+            "signal_network": "channel_id",
+            "recording_session_id": "container_id",
+        }
+        assert solver_config["channels"]["column_name_mapping"] == {
+            "recording_session_id": "container_id",
+            "signal_network": "channel_id",
+            "time": "timestamp",
+            "value_double": "value",
+        }
+        assert solver_config["container_tags"]["column_name_mapping"] == {
+            "recording_session_id": "container_id",
+        }
+        assert solver_config["channel_tags"]["column_name_mapping"] == {
+            "recording_session_id": "container_id",
+            "signal_network": "channel_id",
+        }
+
+    def test_tag_solver_config_omitted_when_tag_tables_absent(self, report_state, monkeypatch):
+        """No tag mapping when the profile has no physical tag tables."""
+        import server.code_generator as cg
+        from server.schema_profile import SchemaProfile
+
+        profile = SchemaProfile(
+            channel_id_col="signal_network",
+            container_tags_table=None,
+            channel_tags_table=None,
+            vehicle_source="constant",
+            vehicle_constant="demo",
+            framework_solver="KeyValueStoreSolver",
+        )
+        monkeypatch.setattr(cg, "get_profile", lambda: profile)
+        solver_config = generate_config_json(report_state)["query_engine"]["solver_config"]
+        assert "container_tags" not in solver_config
+        assert "channel_tags" not in solver_config
 
     def test_optional_tag_tables_included_when_set(self):
         state = ReportState(

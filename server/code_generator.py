@@ -269,6 +269,66 @@ def generate_report_notebook(state: ReportState) -> str:
     return _SEP.join(cells)
 
 
+# Solvers that consume a per-table column_name_mapping (canonical timestamp/value
+# key-value shape). DeltaSolver reads RLE tstart/tend data and does not.
+_SOLVER_CONFIG_SOLVERS = {"KeyValueStoreSolver"}
+
+
+def _build_solver_config(profile) -> dict[str, Any]:
+    """Build the query_engine.solver_config column_name_mapping from the profile.
+
+    The profile stores the SOURCE column name for each canonical concept, so the
+    framework's `source_column -> canonical_name` mappings are the inverse. Only
+    non-identity renames are emitted (a column already named canonically needs no
+    mapping). Emitted only for solvers that consume it (see
+    ``_SOLVER_CONFIG_SOLVERS``); other solvers get no solver_config key.
+    """
+    if profile.framework_solver not in _SOLVER_CONFIG_SOLVERS:
+        return {}
+
+    def mapping(pairs: list[tuple[str | None, str]]) -> dict[str, str]:
+        return {src: canon for src, canon in pairs if src and src != canon}
+
+    container = mapping([
+        (profile.container_id_col, "container_id"),
+    ])
+    channel_metrics = mapping([
+        (profile.channel_container_id_col, "container_id"),
+        (profile.channel_id_col, "channel_id"),
+    ])
+    # The framework reads the RAW channels table, so this mapping must use
+    # physical column names — never the viewer's timeseries_* projections, which
+    # may be SQL expressions (e.g. "CAST(time * 1e9 AS BIGINT)").
+    channels = mapping([
+        (profile.timeseries_container_match_col or profile.channel_container_id_col, "container_id"),
+        (profile.channel_id_col, "channel_id"),
+        (profile.framework_channel_time_col, "timestamp"),
+        (profile.framework_channel_value_col, "value"),
+    ])
+    # Physical key/value tag tables, when present, are keyed by the same
+    # container/channel id columns and need the same canonical renames.
+    container_tags = mapping([
+        (profile.container_tags_id_col, "container_id"),
+    ]) if profile.container_tags_table else {}
+    channel_tags = mapping([
+        (profile.channel_tags_container_id_col, "container_id"),
+        (profile.channel_tags_channel_id_col, "channel_id"),
+    ]) if profile.channel_tags_table else {}
+
+    solver_config: dict[str, Any] = {}
+    if container:
+        solver_config["container_metrics"] = {"column_name_mapping": container}
+    if container_tags:
+        solver_config["container_tags"] = {"column_name_mapping": container_tags}
+    if channel_metrics:
+        solver_config["channel_metrics"] = {"column_name_mapping": channel_metrics}
+    if channel_tags:
+        solver_config["channel_tags"] = {"column_name_mapping": channel_tags}
+    if channels:
+        solver_config["channels"] = {"column_name_mapping": channels}
+    return solver_config
+
+
 def generate_config_json(state: ReportState) -> dict[str, Any]:
     ds = state.data_sources
     profile = get_profile()
@@ -293,6 +353,14 @@ def generate_config_json(state: ReportState) -> dict[str, Any]:
     if ds.channel_tags:
         source["channel_tags_table"] = ds.channel_tags
 
+    query_engine: dict[str, Any] = {
+        "solver": profile.framework_solver,
+        "data_type": profile.framework_data_type,
+    }
+    solver_config = _build_solver_config(profile)
+    if solver_config:
+        query_engine["solver_config"] = solver_config
+
     return {
         "source": source,
         "unity_sink": {
@@ -301,11 +369,8 @@ def generate_config_json(state: ReportState) -> dict[str, Any]:
             "table_prefix": ds.table_prefix or f"{state.name}_report",
         },
         "units_under_test": units_under_test,
-        "query_engine": {
-            "solver": profile.framework_solver,
-            "data_type": profile.framework_data_type,
-            "drop_implausible_data": False,
-        },
+        "query_engine": query_engine,
+        "incremental": {"enabled": False},
         "measurement_dimensions": list(profile.framework_measurement_dimensions),
     }
 

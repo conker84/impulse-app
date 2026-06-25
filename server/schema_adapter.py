@@ -43,7 +43,10 @@ class SchemaAdapter:
     def _container_tags_cte(self) -> str:
         p = self.profile
         if p.container_tags_table:
-            return f"container_tags AS (SELECT * FROM {self._full_path(p.container_tags_table)})"
+            return (
+                f"container_tags AS (SELECT {p.container_tags_id_col} AS container_id, "
+                f"key, value FROM {self._full_path(p.container_tags_table)})"
+            )
 
         cm = self.container_metrics_path()
         cid = p.container_id_col
@@ -70,7 +73,11 @@ class SchemaAdapter:
     def _channel_tags_cte(self) -> str:
         p = self.profile
         if p.channel_tags_table:
-            return f"channel_tags AS (SELECT * FROM {self._full_path(p.channel_tags_table)})"
+            return (
+                f"channel_tags AS (SELECT {p.channel_tags_container_id_col} AS container_id, "
+                f"{p.channel_tags_channel_id_col} AS channel_id, key, value "
+                f"FROM {self._full_path(p.channel_tags_table)})"
+            )
 
         cm = self.channel_metrics_path()
         c_id = p.channel_container_id_col
@@ -152,7 +159,7 @@ class SchemaAdapter:
             )
         ct = self._full_path(p.container_tags_table)
         return (
-            f"SELECT value AS vehicle_id, COUNT(DISTINCT container_id) AS container_count "
+            f"SELECT value AS vehicle_id, COUNT(DISTINCT {p.container_tags_id_col}) AS container_count "
             f"FROM {ct} WHERE key = 'vehicle_key' AND value IS NOT NULL AND value != 'NA' "
             f"GROUP BY value ORDER BY value"
         )
@@ -284,7 +291,7 @@ class SchemaAdapter:
             f"SELECT MIN(c.{p.container_start_col}) AS min_start, "
             f"  MAX(c.{p.container_stop_col}) AS max_stop "
             f"FROM {cm} c "
-            f"JOIN {ct} ct ON c.{p.container_id_col} = ct.container_id "
+            f"JOIN {ct} ct ON c.{p.container_id_col} = ct.{p.container_tags_id_col} "
             f"  AND ct.key = 'vehicle_key' AND ct.value IN ({ids_str})"
         )
 
