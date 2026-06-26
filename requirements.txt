@@ -12,3 +12,4 @@ numpy>=1.24.0
 databricks-sql-connector>=3.0.0
 pyarrow>=14.0.0
 PyYAML>=6.0
+mlflow>=3.1

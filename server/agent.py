@@ -36,6 +36,7 @@ from server.models import (
 )
 from server.schema_profile import get_profile
 from server.skill_loader import build_system_prompt, load_skill_full
+from server import observability as obs
 
 
 def _profile_kwarg_hint() -> str:
@@ -916,6 +917,21 @@ def _dispatch_tool(
     mcp_name_map: dict[str, str],
     user_token: str | None = None,
 ) -> str:
+    # One span per tool call. Capture only the tool name + args — never the
+    # OBO token or the full ReportState.
+    with obs.span(f"tool:{name}", span_type="TOOL", inputs={"tool": name, "args": args}) as _s:
+        result = _dispatch_tool_impl(state, name, args, mcp_name_map, user_token)
+        obs.set_outputs(_s, {"result": result})
+        return result
+
+
+def _dispatch_tool_impl(
+    state: ReportState,
+    name: str,
+    args: dict[str, Any],
+    mcp_name_map: dict[str, str],
+    user_token: str | None = None,
+) -> str:
     allowed_steps = _TOOL_STEP_MAP.get(name)
     if allowed_steps and state.wizard_step not in allowed_steps:
         current = _STEP_LABELS[state.wizard_step]
@@ -1075,8 +1091,33 @@ def run_agent(
     session_id: str | None = None,
     user_token: str | None = None,
     serving_endpoint: str | None = None,
+) -> tuple[str, ReportState, str, str | None]:
+    """Run the agent for one user turn.
+
+    Returns (assistant_text, report_state, session_id, trace_id). trace_id is the
+    MLflow trace for this turn (None when tracing is off) — hand it back to the
+    client so a 👍/👎 can be attached to it. Wrapped in a root span; OpenAI calls
+    autolog and nest under it. Only the message + response are captured — never
+    the OBO token.
+    """
+    with obs.span("run_agent", span_type="AGENT",
+                  inputs={"message": user_message, "session_id": session_id}) as _s:
+        text, state, sid = _run_agent_impl(user_message, session_id, user_token, serving_endpoint)
+        obs.set_tags({
+            "session_id": sid,
+            "wizard_step": state.wizard_step.value,
+            "endpoint": resolve_serving_endpoint(serving_endpoint),
+        })
+        obs.set_outputs(_s, {"response": text})
+        return text, state, sid, obs.span_trace_id(_s)
+
+
+def _run_agent_impl(
+    user_message: str,
+    session_id: str | None = None,
+    user_token: str | None = None,
+    serving_endpoint: str | None = None,
 ) -> tuple[str, ReportState, str]:
-    """Run the agent for one user turn. Returns (assistant_text, report_state, session_id)."""
     session = _get_session(session_id)
     client = _get_openai_client(user_token=user_token)
     system_prompt = build_system_prompt(

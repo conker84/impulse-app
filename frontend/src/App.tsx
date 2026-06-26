@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import type { ChatMessage, Histogram1DDefinition, Histogram2DDefinition, ReportState, StatisticsDefinition, WizardStep } from "./types";
-import { sendChat, scaffoldReport, deployReport, advanceStep, goBack, goToStep, setMetadata, selectCandidates, fetchVehicleCandidates, selectVehicles, updateVehicleTimestamps, getDeployStatus, cancelRun, getUserStatus, setClusterConfig, loadReport, saveReport, suggestBins, addHistogram, addHistogram2D, addStatistics, deleteAggregation, updateAggregation, updateHistogram2D, updateStatistics, setSourceData, uploadMf4Files, triggerIngest, getIngestStatus, fetchChannelCatalog, fetchDataTimeRange, deleteSignal, updateSignal, addVirtualSignal, deleteVehicle } from "./api";
+import { sendChat, sendFeedback, scaffoldReport, deployReport, advanceStep, goBack, goToStep, setMetadata, selectCandidates, fetchVehicleCandidates, selectVehicles, updateVehicleTimestamps, getDeployStatus, cancelRun, getUserStatus, setClusterConfig, loadReport, saveReport, suggestBins, addHistogram, addHistogram2D, addStatistics, deleteAggregation, updateAggregation, updateHistogram2D, updateStatistics, setSourceData, uploadMf4Files, triggerIngest, getIngestStatus, fetchChannelCatalog, fetchDataTimeRange, deleteSignal, updateSignal, addVirtualSignal, deleteVehicle } from "./api";
 import type { DeployStatusResponse, UserStatusResponse } from "./api";
 import type { DataSourceConfig } from "./types";
 import ChatPanel from "./components/ChatPanel";
@@ -191,7 +191,7 @@ export default function App() {
         const resp = await sendChat(text, sessionId);
         setSessionId(resp.session_id);
         setReportState(resp.report_state);
-        setMessages((prev) => [...prev, resp.message]);
+        setMessages((prev) => [...prev, { ...resp.message, trace_id: resp.trace_id }]);
       } catch (err) {
         setMessages((prev) => [
           ...prev,
@@ -202,6 +202,21 @@ export default function App() {
       }
     },
     [sessionId]
+  );
+
+  const handleFeedback = useCallback(
+    async (messageIndex: number, traceId: string, positive: boolean) => {
+      // optimistic: mark the message so the UI reflects the choice immediately
+      setMessages((prev) =>
+        prev.map((m, i) => (i === messageIndex ? { ...m, feedback: positive ? "up" : "down" } : m))
+      );
+      try {
+        await sendFeedback(traceId, positive);
+      } catch {
+        // non-fatal: feedback is best-effort
+      }
+    },
+    []
   );
 
   const handleSelectCandidates = useCallback(
@@ -944,6 +959,7 @@ export default function App() {
       <ChatPanel
         messages={messages}
         onSend={handleSend}
+        onFeedback={handleFeedback}
         loading={loading}
         placeholder={STEP_PLACEHOLDER[reportState.wizard_step]}
         wizardStep={reportState.wizard_step}

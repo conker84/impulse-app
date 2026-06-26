@@ -10,9 +10,10 @@ import traceback
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
+from server import observability as obs
 from server.agent import run_agent
 from server.config import IS_DATABRICKS_APP, resolve_serving_endpoint
-from server.models import ChatMessage, ChatRequest, ChatResponse
+from server.models import ChatMessage, ChatRequest, ChatResponse, FeedbackRequest
 from server.user_settings import get_serving_endpoint
 
 logger = logging.getLogger(__name__)
@@ -29,13 +30,14 @@ async def chat(req: ChatRequest, request: Request):
     user_pref = get_serving_endpoint(email) if email else ""
     endpoint = resolve_serving_endpoint(user_pref)
     try:
-        assistant_text, report_state, session_id = run_agent(
+        assistant_text, report_state, session_id, trace_id = run_agent(
             req.message, req.session_id, user_token=user_token, serving_endpoint=endpoint
         )
         return ChatResponse(
             message=ChatMessage(role="assistant", content=assistant_text),
             report_state=report_state,
             session_id=session_id,
+            trace_id=trace_id,
         )
     except Exception as e:
         logger.exception("Chat endpoint error")
@@ -43,3 +45,11 @@ async def chat(req: ChatRequest, request: Request):
             status_code=500,
             content={"error": str(e), "traceback": traceback.format_exc()},
         )
+
+
+@router.post("/feedback")
+async def feedback(req: FeedbackRequest, request: Request):
+    """Attach a thumbs up/down (+ optional comment) from the user to a chat trace."""
+    email = request.headers.get("X-Forwarded-Email", "") if IS_DATABRICKS_APP else "local-dev"
+    recorded = obs.log_feedback(req.trace_id, req.positive, req.comment, email or "user")
+    return {"recorded": recorded}

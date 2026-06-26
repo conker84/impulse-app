@@ -346,3 +346,10 @@ class ChatResponse(BaseModel):
     message: ChatMessage
     report_state: ReportState
     session_id: str
+    trace_id: str | None = None
+
+
+class FeedbackRequest(BaseModel):
+    trace_id: str
+    positive: bool
+    comment: str | None = None

@@ -15,6 +15,10 @@ from fastapi.staticfiles import StaticFiles
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Enable MLflow tracing for the agent (no-op if mlflow absent or disabled via env).
+from server.observability import init_tracing
+init_tracing()
+
 app = FastAPI(title="Impulse", version="1.0.0")
 
 app.add_middleware(

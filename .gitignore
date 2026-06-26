@@ -29,3 +29,7 @@ frontend/coverage/
 # test coverage artifacts
 .coverage
 coverage/
+
+# MLflow local tracking artifacts (prod traces go to the Databricks experiment)
+mlruns/
+mlflow.db

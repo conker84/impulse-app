@@ -5,6 +5,7 @@ import type { ChatMessage, WizardStep } from "../types";
 interface Props {
   messages: ChatMessage[];
   onSend: (message: string) => void;
+  onFeedback?: (messageIndex: number, traceId: string, positive: boolean) => void;
   loading: boolean;
   placeholder?: string;
   wizardStep?: WizardStep;
@@ -38,7 +39,7 @@ const STEP_HINTS: Record<WizardStep, { title: string; hint: string }> = {
   },
 };
 
-export default function ChatPanel({ messages, onSend, loading, placeholder, wizardStep, settingsButton }: Props) {
+export default function ChatPanel({ messages, onSend, onFeedback, loading, placeholder, wizardStep, settingsButton }: Props) {
   const [input, setInput] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -81,6 +82,28 @@ export default function ChatPanel({ messages, onSend, loading, placeholder, wiza
               <ReactMarkdown>{msg.content}</ReactMarkdown>
             ) : (
               msg.content
+            )}
+            {msg.role === "assistant" && msg.trace_id && onFeedback && (
+              <div className="msg-feedback">
+                <button
+                  className={`fb-btn${msg.feedback === "up" ? " active" : ""}`}
+                  title="Helpful"
+                  aria-label="Helpful"
+                  disabled={!!msg.feedback}
+                  onClick={() => onFeedback(i, msg.trace_id as string, true)}
+                >
+                  &#x1F44D;
+                </button>
+                <button
+                  className={`fb-btn${msg.feedback === "down" ? " active" : ""}`}
+                  title="Not helpful"
+                  aria-label="Not helpful"
+                  disabled={!!msg.feedback}
+                  onClick={() => onFeedback(i, msg.trace_id as string, false)}
+                >
+                  &#x1F44E;
+                </button>
+              </div>
             )}
           </div>
         ))}

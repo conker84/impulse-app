@@ -56,6 +56,10 @@ resources:
             value: ${resources.sql_warehouses.impulse_warehouse.id}
           - name: LAKEBASE_INSTANCE_NAME
             value: ${resources.database_instances.impulse_db.name}
+          # MLflow agent tracing. The experiment must exist and the app service
+          # principal needs CAN_EDIT on it. Set MLFLOW_TRACING_ENABLED=false to disable.
+          - name: MLFLOW_EXPERIMENT
+            value: /Shared/impulse-agent-traces
         command:
           # The Apps runtime ships Databricks CLI v0.251.0, whose bundled
           # Terraform download fails with `openpgp: key expired` (HashiCorp

@@ -337,6 +337,17 @@ class TestToolGating:
         assert "set_data_sources" in names
 
 
+class TestObservability:
+    def test_log_feedback_noop_without_trace_id(self):
+        import server.observability as obs
+        assert obs.log_feedback(None, True) is False
+        assert obs.log_feedback("", False, comment="x") is False
+
+    def test_span_trace_id_none_safe(self):
+        import server.observability as obs
+        assert obs.span_trace_id(None) is None
+
+
 class TestAdvanceStep:
     def test_registered_as_tool(self):
         names = [t["function"]["name"] for t in agent.TOOLS]
@@ -489,9 +500,10 @@ def patch_agent_llm(monkeypatch):
 class TestRunAgent:
     def test_plain_text_response_no_tools(self, patch_agent_llm):
         patch_agent_llm([_FakeMsg(content="Hello there")])
-        text, state, sid = run_agent("hi", session_id="sess")
+        text, state, sid, trace_id = run_agent("hi", session_id="sess")
         assert text == "Hello there"
         assert sid == "sess"
+        assert trace_id is None  # tracing off in tests -> no trace id
         # conversation persisted on the session
         assert agent._sessions["sess"].messages[-1] == {"role": "assistant", "content": "Hello there"}
 
@@ -505,7 +517,7 @@ class TestRunAgent:
             _FakeMsg(content="Report name set."),
         ])
 
-        text, state, sid = run_agent("call the tool", session_id="sess")
+        text, state, sid, _trace = run_agent("call the tool", session_id="sess")
         assert text == "Report name set."
         assert state.name == "my_report"  # the tool actually ran
         # two LLM rounds: the tool call, then the final text
@@ -525,7 +537,7 @@ class TestRunAgent:
                 '{"container_metrics": "wrong.t.c", "channel_metrics": "wrong.t.cm", "channels": ["wrong.t.ch"]}')]),
         ])
 
-        text, state, _sid = run_agent("go ahead", session_id="sess")
+        text, state, _sid, _trace = run_agent("go ahead", session_id="sess")
         assert state.wizard_step == WizardStep.VEHICLES
         assert "Vehicles" in text
         # The turn ended after one LLM round — the second (table-guessing) call never ran.
@@ -545,7 +557,7 @@ class TestRunAgent:
         ]
         client = patch_agent_llm(scripted)
 
-        text, _state, _sid = run_agent("loop forever", session_id="sess")
+        text, _state, _sid, _trace = run_agent("loop forever", session_id="sess")
         assert len(client.chat.completions.calls) == agent._MAX_TOOL_ROUNDS
         # falls back to the last tool result rather than crashing
         assert "Skill: define-channels" in text

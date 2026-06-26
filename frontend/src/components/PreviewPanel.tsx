@@ -1277,10 +1277,16 @@ function VehiclesStep({
     }
   }, [state.vehicle_candidates.length, state.vehicles.length, fetched, onFetchCandidates]);
 
-  // When a vehicle gets added (e.g. by the agent, which clears candidates), collapse
-  // the picker so it matches the UI selection path and re-shows "+ Add More Vehicles".
+  // Keep the picker's visibility in sync with state — needed because this component
+  // remounts when you navigate Back then Next (candidates are still in state, so the
+  // auto-fetch effect above skips, leaving showCandidates stuck at its initial false).
+  //  - candidates present & nothing selected yet -> show the picker
+  //  - candidates cleared & a vehicle added (incl. the agent path) -> collapse it
+  //  - both present (mid "Add More") -> leave whatever the user opened
   useEffect(() => {
-    if (state.vehicle_candidates.length === 0 && state.vehicles.length > 0) {
+    if (state.vehicle_candidates.length > 0 && state.vehicles.length === 0) {
+      setShowCandidates(true);
+    } else if (state.vehicle_candidates.length === 0 && state.vehicles.length > 0) {
       setShowCandidates(false);
     }
   }, [state.vehicle_candidates.length, state.vehicles.length]);

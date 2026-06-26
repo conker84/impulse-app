@@ -217,3 +217,15 @@ describe("resampleTimeSeries", () => {
     expect(body.normalize).toBe(false); // default
   });
 });
+
+describe("sendFeedback", () => {
+  it("POSTs trace_id, positive and optional comment to /api/feedback", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ recorded: true }));
+    const res = await api.sendFeedback("tr-123", true, "great answer");
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/feedback");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body)).toEqual({ trace_id: "tr-123", positive: true, comment: "great answer" });
+    expect(res).toEqual({ recorded: true });
+  });
+});

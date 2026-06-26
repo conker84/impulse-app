@@ -347,10 +347,13 @@ export interface TimeSeriesResampleResponse {
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
+  trace_id?: string | null;
+  feedback?: "up" | "down";
 }
 
 export interface ChatResponse {
   message: ChatMessage;
   report_state: ReportState;
   session_id: string;
+  trace_id?: string | null;
 }

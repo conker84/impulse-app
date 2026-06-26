@@ -119,4 +119,14 @@ describe("VehiclesStep — picker visibility (agent add)", () => {
     expect(screen.getByText(/Selected Vehicles \(1\)/)).toBeTruthy();
     expect(screen.getByText(/Add More Vehicles/)).toBeTruthy();
   });
+
+  it("re-shows the picker when re-entering Vehicles with candidates already in state (Back→Next)", async () => {
+    // Simulates returning to the Vehicles step: a fresh VehiclesStep mount where
+    // candidates are already loaded and no vehicle has been selected yet.
+    render(
+      <PreviewPanel {...makeProps(makeState({ vehicle_candidates: [candidate("v1")], vehicles: [] }))} />,
+    );
+    // The picker must appear even though the auto-fetch effect skips (candidates != 0).
+    expect(await screen.findByText(/Available Vehicles \(1\)/)).toBeTruthy();
+  });
 });

@@ -27,6 +27,17 @@ export async function sendChat(
   });
 }
 
+export async function sendFeedback(
+  traceId: string,
+  positive: boolean,
+  comment?: string
+): Promise<{ recorded: boolean }> {
+  return request<{ recorded: boolean }>("/feedback", {
+    method: "POST",
+    body: JSON.stringify({ trace_id: traceId, positive, comment }),
+  });
+}
+
 export async function getState(sessionId: string): Promise<ReportState> {
   return request<ReportState>(`/state/${sessionId}`);
 }
