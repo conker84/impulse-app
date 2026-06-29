@@ -7,6 +7,7 @@ import ChatPanel from "./components/ChatPanel";
 import PreviewPanel from "./components/PreviewPanel";
 import SettingsModal from "./components/SettingsModal";
 import LandingScreen from "./components/LandingScreen";
+import AppSidebar from "./components/AppSidebar";
 import VisualizeView from "./components/VisualizeView";
 import TimeSeriesView from "./components/TimeSeriesView";
 
@@ -90,6 +91,7 @@ export default function App() {
   const [jobStatus, setJobStatus] = useState<DeployStatusResponse | null>(null);
   const [vizDataSources, setVizDataSources] = useState<DataSourceConfig | null>(null);
   const [vizReportName, setVizReportName] = useState("");
+  const [vizReportDescription, setVizReportDescription] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [userStatus, setUserStatus] = useState<UserStatusResponse | null>(null);
   const [ingestTasks, setIngestTasks] = useState<{ task_key: string; life_cycle_state: string; result_state: string | null }[]>([]);
@@ -774,6 +776,7 @@ export default function App() {
     resetEditor();
     setVizDataSources(null);
     setVizReportName("");
+    setVizReportDescription("");
     setView("landing");
   }, [resetEditor]);
 
@@ -782,6 +785,7 @@ export default function App() {
       const resp = await loadReport(reportId);
       setVizDataSources(resp.report_state.data_sources);
       setVizReportName(resp.report_state.name);
+      setVizReportDescription(resp.report_state.description || "");
       setView("visualize");
     } catch (err) {
       alert(`Failed to load report for visualization: ${err instanceof Error ? err.message : String(err)}`);
@@ -791,8 +795,9 @@ export default function App() {
   const handleVisualizeFromEditor = useCallback(() => {
     setVizDataSources(reportState.data_sources);
     setVizReportName(reportState.name);
+    setVizReportDescription(reportState.description || "");
     setView("visualize");
-  }, [reportState.data_sources, reportState.name]);
+  }, [reportState.data_sources, reportState.name, reportState.description]);
 
   const handleSaveReport = useCallback(async () => {
     if (!sessionId) return;
@@ -884,16 +889,21 @@ export default function App() {
 
   const showSettingsIcon = !userStatus?.local_mode;
 
-  const settingsBtn = showSettingsIcon ? (
-    <button className="settings-btn-inline" onClick={() => setSettingsOpen(true)} title="Settings">
-      <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
-        <path d="M8.5 1.5a1.5 1.5 0 013 0v.7a6.5 6.5 0 011.7.7l.5-.5a1.5 1.5 0 012.12 2.12l-.5.5c.3.5.5 1.1.7 1.7h.7a1.5 1.5 0 010 3h-.7c-.2.6-.4 1.2-.7 1.7l.5.5a1.5 1.5 0 01-2.12 2.12l-.5-.5c-.5.3-1.1.5-1.7.7v.7a1.5 1.5 0 01-3 0v-.7a6.5 6.5 0 01-1.7-.7l-.5.5a1.5 1.5 0 01-2.12-2.12l.5-.5A6.5 6.5 0 014 10.5h-.7a1.5 1.5 0 010-3h.7c.2-.6.4-1.2.7-1.7l-.5-.5A1.5 1.5 0 016.3 3.18l.5.5c.5-.3 1.1-.5 1.7-.7V1.5zM10 7a3 3 0 100 6 3 3 0 000-6z" fill="currentColor"/>
-      </svg>
-    </button>
-  ) : undefined;
+  const shell = (content: React.ReactNode) => (
+    <div className="app-shell">
+      <AppSidebar
+        active={view}
+        onHome={handleBackToLanding}
+        onNewReport={handleNewReport}
+        onTimeSeries={() => setView("timeseries")}
+        onSettings={showSettingsIcon ? () => setSettingsOpen(true) : undefined}
+      />
+      <div className="app-main">{content}</div>
+    </div>
+  );
 
   if (view === "landing") {
-    return (
+    return shell(
       <>
         <SettingsModal
           open={settingsOpen}
@@ -902,20 +912,20 @@ export default function App() {
             getUserStatus().then(setUserStatus).catch(() => {});
           }}
         />
-        <LandingScreen onNewReport={handleNewReport} onLoadReport={handleLoadReport} onVisualize={handleVisualize} onTimeSeries={() => setView("timeseries")} settingsButton={settingsBtn} />
+        <LandingScreen onNewReport={handleNewReport} onLoadReport={handleLoadReport} onVisualize={handleVisualize} onTimeSeries={() => setView("timeseries")} />
       </>
     );
   }
 
   if (view === "visualize" && vizDataSources) {
-    return (
+    return shell(
       <>
         <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
         <VisualizeView
           dataSources={vizDataSources}
           reportName={vizReportName}
+          reportDescription={vizReportDescription}
           onBack={handleBackToLanding}
-          settingsButton={settingsBtn}
         />
       </>
     );
@@ -923,12 +933,11 @@ export default function App() {
 
   if (view === "timeseries") {
     const isSynthetic = new URLSearchParams(window.location.search).has("synthetic");
-    return (
+    return shell(
       <>
         <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
         <TimeSeriesView
           onBack={handleBackToLanding}
-          settingsButton={settingsBtn}
           initialCatalog={isSynthetic ? "synthetic" : undefined}
           initialSchema={isSynthetic ? "test" : undefined}
         />
@@ -936,7 +945,7 @@ export default function App() {
     );
   }
 
-  return (
+  return shell(
     <div className="app-layout">
       <SettingsModal
         open={settingsOpen}
@@ -963,7 +972,6 @@ export default function App() {
         loading={loading}
         placeholder={STEP_PLACEHOLDER[reportState.wizard_step]}
         wizardStep={reportState.wizard_step}
-        settingsButton={settingsBtn}
       />
       <PreviewPanel
         state={reportState}
@@ -1013,3 +1021,4 @@ export default function App() {
     </div>
   );
 }
+

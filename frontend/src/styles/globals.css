@@ -31,6 +31,63 @@ body {
 }
 
 /* Layout */
+.app-shell {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.app-main {
+  flex: 1;
+  min-width: 0;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.app-nav {
+  width: 76px;
+  flex-shrink: 0;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 8px;
+}
+
+.app-nav-logo {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 6px;
+  margin-bottom: 10px;
+  border-radius: var(--radius);
+  display: flex;
+}
+.app-nav-logo:hover { background: var(--bg-tertiary); }
+
+.app-nav-item {
+  width: 100%;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-secondary);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 4px;
+  border-radius: var(--radius);
+  font-size: 11px;
+  line-height: 1.2;
+  text-align: center;
+  transition: background 0.1s, color 0.1s;
+}
+.app-nav-item:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+.app-nav-item.active { background: var(--accent-bg); color: var(--accent); }
+.app-nav-settings { margin-top: auto; }
+
 .app-layout {
   display: flex;
   height: 100vh;
@@ -1393,6 +1450,22 @@ body {
 
 .viz-section {
   margin-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+  padding: 0 6px;
+}
+
+.viz-section--desc {
+  flex: none;
+}
+
+.viz-report-desc-text {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  white-space: pre-wrap;
 }
 
 .viz-section-title {
@@ -1420,7 +1493,8 @@ body {
 }
 
 .viz-checkbox-list {
-  max-height: 180px;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;

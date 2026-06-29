@@ -61,7 +61,7 @@ interface AxisAssignment {
  * - 2 signals, different units: one per axis, each labeled with its unit.
  * - 3+ signals: smart clustering by unit + value range into 2 groups.
  */
-function assignAxes(
+export function assignAxes(
   signals: TimeSeriesSignal[],
   selectedIds: Set<number>,
 ): { assignments: Map<number, AxisSide>; leftLabel: string; rightLabel: string; useAxisTags: boolean } {
@@ -127,7 +127,7 @@ function assignAxes(
 // Helpers
 // ---------------------------------------------------------------------------
 
-function formatPointCount(n: number): string {
+export function formatPointCount(n: number): string {
   if (n >= 1e9) return `${(n / 1e9).toFixed(1)}B`;
   if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
   if (n >= 1e3) return `${(n / 1e3).toFixed(1)}K`;
@@ -135,7 +135,7 @@ function formatPointCount(n: number): string {
 }
 
 /** Convert seconds-offset to epoch milliseconds for Plotly date axis. */
-function toEpochMs(tSeconds: number, baseMs: number): number {
+export function toEpochMs(tSeconds: number, baseMs: number): number {
   return baseMs + tSeconds * 1000;
 }
 
@@ -466,131 +466,131 @@ export default function TimeSeriesView({ onBack, initialCatalog, initialSchema, 
   return (
     <div className="visualize-layout">
       <div className="visualize-sidebar">
-        <div className="viz-sidebar-header">
-          <button className="action-btn" onClick={onBack} title="Back to Home">Home</button>
-          <span className="viz-report-name">Explore Time Series</span>
-          {settingsButton}
-        </div>
-
-        {/* Catalog / Schema pickers */}
-        <div className="viz-section">
-          <div className="viz-section-title">Data Source</div>
-          <div className="viz-filter-row">
-            <label className="form-label">Catalog</label>
-            <select
-              className="form-input"
-              value={catalog}
-              onChange={(e) => { setCatalog(e.target.value); setSchema(""); setContainers([]); setSelectedContainer(null); setSignals([]); setSelectedSignals(new Set()); setTraces([]); setLoadedChannels(new Map()); }}
-            >
-              <option value="">Select catalog...</option>
-              {catalogs.map((c) => <option key={c} value={c}>{c}</option>)}
-            </select>
+        <div className="viz-sidebar-scroll">
+          <div className="viz-sidebar-header">
+            <span className="viz-report-name" style={{ textAlign: "center" }}>Explore Time Series</span>
           </div>
-          <div className="viz-filter-row">
-            <label className="form-label">Schema</label>
-            <select
-              className="form-input"
-              value={schema}
-              onChange={(e) => { setSchema(e.target.value); setSelectedContainer(null); setSignals([]); setSelectedSignals(new Set()); setTraces([]); setLoadedChannels(new Map()); }}
-              disabled={!catalog}
-            >
-              <option value="">Select schema...</option>
-              {schemas.map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
-          </div>
-        </div>
 
-        {/* Container picker */}
-        {containers.length > 0 && (
+          {/* Catalog / Schema pickers */}
           <div className="viz-section">
-            <div className="viz-section-title">Container</div>
-            <div className="viz-checkbox-list" style={{ maxHeight: 180 }}>
-              {containers.map((c) => (
-                <label key={c.container_id} className="viz-checkbox-row">
-                  <input
-                    type="radio"
-                    name="ts-container"
-                    checked={selectedContainer === c.container_id}
-                    onChange={() => { setSelectedContainer(c.container_id); setSelectedSignals(new Set()); setTraces([]); setLoadedChannels(new Map()); }}
-                  />
-                  <div className="viz-hist-info">
-                    <span className="viz-checkbox-label">{c.filename}</span>
-                    <span className="viz-hist-desc">
-                      {c.vehicle_key && `${c.vehicle_key} · `}
-                      {c.num_channels} ch
-                      {c.duration_ms ? ` · ${(c.duration_ms / 1000).toFixed(0)}s` : ""}
-                    </span>
-                  </div>
-                </label>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Signal selector */}
-        {signals.length > 0 && (
-          <div className="viz-section">
-            <div className="viz-section-title">
-              Signals
-              <span className="viz-hint" style={{ marginLeft: "auto" }}>
-                {signalSearch.trim()
-                  ? `${selectedSignals.size} selected · ${filteredSignals.length}/${signals.length} shown`
-                  : `${selectedSignals.size} selected`}
-              </span>
+            <div className="viz-section-title">Data Source</div>
+            <div className="viz-filter-row">
+              <label className="form-label">Catalog</label>
+              <select
+                className="form-input"
+                value={catalog}
+                onChange={(e) => { setCatalog(e.target.value); setSchema(""); setContainers([]); setSelectedContainer(null); setSignals([]); setSelectedSignals(new Set()); setTraces([]); setLoadedChannels(new Map()); }}
+              >
+                <option value="">Select catalog...</option>
+                {catalogs.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
             </div>
             <div className="viz-filter-row">
-              <input
-                type="text"
+              <label className="form-label">Schema</label>
+              <select
                 className="form-input"
-                placeholder="Search signals..."
-                value={signalSearch}
-                onChange={(e) => setSignalSearch(e.target.value)}
-              />
+                value={schema}
+                onChange={(e) => { setSchema(e.target.value); setSelectedContainer(null); setSignals([]); setSelectedSignals(new Set()); setTraces([]); setLoadedChannels(new Map()); }}
+                disabled={!catalog}
+              >
+                <option value="">Select schema...</option>
+                {schemas.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
             </div>
-            <div className="viz-checkbox-list" style={{ maxHeight: 240 }}>
-              {filteredSignals.length === 0 && (
-                <div className="viz-hint" style={{ padding: "6px 4px" }}>
-                  No signals match "{signalSearch}".
-                </div>
-              )}
-              {filteredSignals.map((s) => {
-                const side = axisMap.get(s.channel_id);
-                const axisTag = useAxisTags && hasDualAxis && side ? (side === "left" ? " [L]" : " [R]") : "";
-                return (
-                  <label key={s.channel_id} className="viz-checkbox-row">
+          </div>
+
+          {/* Container picker */}
+          {containers.length > 0 && (
+            <div className="viz-section">
+              <div className="viz-section-title">Container</div>
+              <div className="viz-checkbox-list" style={{ maxHeight: 180 }}>
+                {containers.map((c) => (
+                  <label key={c.container_id} className="viz-checkbox-row">
                     <input
-                      type="checkbox"
-                      checked={selectedSignals.has(s.channel_id)}
-                      onChange={() => toggleSignal(s.channel_id)}
+                      type="radio"
+                      name="ts-container"
+                      checked={selectedContainer === c.container_id}
+                      onChange={() => { setSelectedContainer(c.container_id); setSelectedSignals(new Set()); setTraces([]); setLoadedChannels(new Map()); }}
                     />
                     <div className="viz-hist-info">
-                      <span className="viz-checkbox-label">
-                        {s.channel_name}{axisTag}
-                      </span>
+                      <span className="viz-checkbox-label">{c.filename}</span>
                       <span className="viz-hist-desc">
-                        {s.unit && `${s.unit} · `}
-                        {s.sample_count > 0 ? `${formatPointCount(s.sample_count)} samples` : ""}
-                        {s.min_value != null ? ` · ${s.min_value.toFixed(1)}–${s.max_value?.toFixed(1)}` : ""}
+                        {c.vehicle_key && `${c.vehicle_key} · `}
+                        {c.num_channels} ch
+                        {c.duration_ms ? ` · ${(c.duration_ms / 1000).toFixed(0)}s` : ""}
                       </span>
                     </div>
                   </label>
-                );
-              })}
+                ))}
+              </div>
             </div>
-          </div>
-        )}
-
-        <button
-          className="action-btn primary viz-apply-btn"
-          disabled={selectedSignals.size === 0 || !!loadingPhase}
-          onClick={handleLoadAndExplore}
-        >
-          {loadingPhase ? (
-            <><span className="spinner" style={{ width: 14, height: 14, marginRight: 6 }} />{loadingPhase}</>
-          ) : (
-            `Load & Explore ${selectedSignals.size} Signal${selectedSignals.size !== 1 ? "s" : ""}`
           )}
-        </button>
+
+          {/* Signal selector */}
+          {signals.length > 0 && (
+            <div className="viz-section">
+              <div className="viz-section-title">
+                Signals
+                <span className="viz-hint" style={{ marginLeft: "auto" }}>
+                  {signalSearch.trim()
+                    ? `${selectedSignals.size} selected · ${filteredSignals.length}/${signals.length} shown`
+                    : `${selectedSignals.size} selected`}
+                </span>
+              </div>
+              <div className="viz-filter-row">
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="Search signals..."
+                  value={signalSearch}
+                  onChange={(e) => setSignalSearch(e.target.value)}
+                />
+              </div>
+              <div className="viz-checkbox-list" style={{ maxHeight: 240 }}>
+                {filteredSignals.length === 0 && (
+                  <div className="viz-hint" style={{ padding: "6px 4px" }}>
+                    No signals match "{signalSearch}".
+                  </div>
+                )}
+                {filteredSignals.map((s) => {
+                  const side = axisMap.get(s.channel_id);
+                  const axisTag = useAxisTags && hasDualAxis && side ? (side === "left" ? " [L]" : " [R]") : "";
+                  return (
+                    <label key={s.channel_id} className="viz-checkbox-row">
+                      <input
+                        type="checkbox"
+                        checked={selectedSignals.has(s.channel_id)}
+                        onChange={() => toggleSignal(s.channel_id)}
+                      />
+                      <div className="viz-hist-info">
+                        <span className="viz-checkbox-label">
+                          {s.channel_name}{axisTag}
+                        </span>
+                        <span className="viz-hist-desc">
+                          {s.unit && `${s.unit} · `}
+                          {s.sample_count > 0 ? `${formatPointCount(s.sample_count)} samples` : ""}
+                          {s.min_value != null ? ` · ${s.min_value.toFixed(1)}–${s.max_value?.toFixed(1)}` : ""}
+                        </span>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          <button
+            className="action-btn primary viz-apply-btn"
+            disabled={selectedSignals.size === 0 || !!loadingPhase}
+            onClick={handleLoadAndExplore}
+          >
+            {loadingPhase ? (
+              <><span className="spinner" style={{ width: 14, height: 14, marginRight: 6 }} />{loadingPhase}</>
+            ) : (
+              `Load & Explore ${selectedSignals.size} Signal${selectedSignals.size !== 1 ? "s" : ""}`
+            )}
+          </button>
+        </div>
       </div>
 
       <div className="visualize-main">

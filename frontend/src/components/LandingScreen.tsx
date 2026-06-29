@@ -10,7 +10,7 @@ interface Props {
   settingsButton?: React.ReactNode;
 }
 
-function ReportIcon({ size = 48 }: { size?: number }) {
+export function ReportIcon({ size = 48 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
       <rect x="4" y="4" width="40" height="40" rx="6" fill="var(--accent-bg)" stroke="var(--accent)" strokeWidth="1.5" />

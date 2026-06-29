@@ -20,6 +20,7 @@ import StatisticsLineChart from "./StatisticsLineChart";
 interface Props {
   dataSources: DataSourceConfig;
   reportName: string;
+  reportDescription?: string;
   onBack: () => void;
   settingsButton?: React.ReactNode;
 }
@@ -30,7 +31,7 @@ const AGG_TYPE_LABELS: Record<string, string> = {
   statistics: "Stats",
 };
 
-export default function VisualizeView({ dataSources, reportName, onBack, settingsButton }: Props) {
+export default function VisualizeView({ dataSources, reportName, reportDescription, onBack, settingsButton }: Props) {
   const { destination_catalog: catalog, destination_schema: schema, table_prefix: prefix } = dataSources;
 
   const [aggMeta, setAggMeta] = useState<AggregationMeta[]>([]);
@@ -177,10 +178,15 @@ export default function VisualizeView({ dataSources, reportName, onBack, setting
       <div className="visualize-sidebar">
         <div className="viz-sidebar-scroll">
           <div className="viz-sidebar-header">
-            <button className="action-btn" onClick={onBack} title="Back to Home">Home</button>
-            <span className="viz-report-name" title={reportName}>{reportName}</span>
-            {settingsButton}
+            <span className="viz-report-name" title={reportName} style={{ textAlign: "center" }}>{reportName}</span>
           </div>
+
+          {reportDescription && (
+            <div className="viz-section viz-section--desc">
+              <div className="viz-section-title">Description</div>
+              <div className="viz-report-desc-text">{reportDescription}</div>
+            </div>
+          )}
 
           {/* Aggregation selector */}
           <div className="viz-section">

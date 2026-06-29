@@ -102,6 +102,7 @@ vi.mock("./components/PreviewPanel", () => ({
 vi.mock("./components/LandingScreen", () => ({
   default: (props: any) => <button onClick={props.onNewReport}>new-report</button>,
 }));
+vi.mock("./components/AppSidebar", () => ({ default: () => <nav data-testid="app-nav" /> }));
 vi.mock("./components/ChatPanel", () => ({ default: () => <div data-testid="chat" /> }));
 vi.mock("./components/SettingsModal", () => ({ default: () => null }));
 vi.mock("./components/VisualizeView", () => ({ default: () => null }));
